@@ -9,7 +9,7 @@
 
 use std::{collections::HashMap, hash::Hash};
 
-use smithay::utils::{Logical, Point, Rectangle};
+use smithay::utils::{Logical, Point, Rectangle, Size};
 
 pub type Rect = Rectangle<i32, Logical>;
 
@@ -168,6 +168,19 @@ fn is_free(moving: &[Rect], others: &[Rect], delta: Point<i32, Logical>) -> bool
     })
 }
 
+/// The size a window docked to `o` gets, so the cluster stays a clean grid:
+/// side by side it takes the height of `o`, stacked the width.
+pub fn grid_size(m: &Rect, o: &Rect) -> Size<i32, Logical> {
+    let (ml, mr, ..) = edges(m);
+    let (ol, or, ..) = edges(o);
+    let side_by_side = (mr - ol).abs() <= TOUCH_TOLERANCE || (ml - or).abs() <= TOUCH_TOLERANCE;
+    if side_by_side {
+        (m.size.w, o.size.h).into()
+    } else {
+        (o.size.w, m.size.h).into()
+    }
+}
+
 /// (left, right, top, bottom)
 fn edges(r: &Rect) -> (i32, i32, i32, i32) {
     (r.loc.x, r.loc.x + r.size.w, r.loc.y, r.loc.y + r.size.h)
@@ -226,6 +239,20 @@ mod tests {
         ];
         let moving = rect(410, 310, 400, 300);
         assert_eq!(snap_delta(&[moving], &grid, 15), (0, 0).into());
+    }
+
+    #[test]
+    fn grid_size_matches_neighbor() {
+        let other = rect(0, 0, 400, 300);
+        // Side by side: same height. Below: same width.
+        assert_eq!(
+            grid_size(&rect(400, 0, 200, 500), &other),
+            (200, 300).into()
+        );
+        assert_eq!(
+            grid_size(&rect(0, 300, 200, 500), &other),
+            (400, 500).into()
+        );
     }
 
     #[test]

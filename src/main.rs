@@ -4,6 +4,7 @@
 
 mod canvas;
 mod cluster;
+mod config;
 mod grabs;
 mod handlers;
 mod input;

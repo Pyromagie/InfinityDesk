@@ -39,6 +39,9 @@ cargo run -- -c kitty     # start a different program inside
 | App launcher (fuzzel)         | Alt + D                             |
 | Close the focused window      | Alt + Q                             |
 
+Setting (until the Lua config exists): `INFINITYDESK_MATCH_SIZE=1 cargo run` makes a docked
+window take its neighbor's height or width, so clusters form a clean grid.
+
 Alt is the modifier while running nested (like niri does); standalone it will be Super.
 Controls will become configurable.
 

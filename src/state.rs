@@ -12,6 +12,7 @@ const PULSE_GROW: f64 = 16.0;
 use crate::{
     canvas::{Canvas, DEFAULT_CANVAS_HEIGHT, DEFAULT_CANVAS_WIDTH},
     cluster::Clusters,
+    config::Config,
     grabs::HOLD_TIME,
     render::{OUTLINE_WIDTH, Outline},
 };
@@ -57,6 +58,7 @@ pub struct InfinityDesk {
     pub unplaced: Vec<Window>,
     /// Which windows belong to which cluster.
     pub clusters: Clusters<Window>,
+    pub config: Config,
     /// Window(s) held to pull them out of their cluster, with the press time. They pulse when unlocked.
     pub pulse: Option<(Vec<Window>, Instant)>,
     /// Marked windows (Alt+Shift); they are pulled out of their cluster together.
@@ -104,6 +106,7 @@ impl InfinityDesk {
             output: None,
             unplaced: Vec::new(),
             clusters: Clusters::default(),
+            config: Config::load(),
             pulse: None,
             selected: Vec::new(),
             selection_box: None,

@@ -42,7 +42,7 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
 
 - ✅ Einrasten an Kanten innerhalb von 15 px **auf dem Bildschirm** (gilt bei jedem Zoom gleich): **Andocken** (Kante an Kante) und **Ausrichten** (bündige Ober-/Seitenkanten, ergibt saubere Ecken).
 - ✅ **Keine versetzten Verbindungen:** Beim Andocken richtet sich das Fenster immer bündig am Nachbarn aus (nebeneinander: Oberkanten, untereinander: linke Kanten).
-- ✅ Fenster behalten beim Andocken ihre Größe (unterschiedlich große Fenster dürfen aneinander docken). Eine automatische Größenanpassung wurde ausprobiert und verworfen.
+- ✅ **Einstellung `match_size`:** Standard aus = Fenster behalten beim Andocken ihre Größe (unterschiedlich große Fenster dürfen aneinander docken). An = ein einzeln angedocktes Fenster übernimmt die Höhe (nebeneinander) bzw. Breite (untereinander) des Nachbarn, das Cluster wird ein sauberes Raster. Bis zur Lua-Config: `INFINITYDESK_MATCH_SIZE=1 cargo run`.
   - ✅ Ein Platz, an dem schon ein Fenster liegt, wird nicht angedockt (keine überlappenden Fenster).
   - ✅ Schnell vorbeiziehen (über 1000 px/s) rastet nicht ein, damit nichts kurz hin- und herspringt. Beim Loslassen wird immer eingerastet.
 - ✅ Zieht man ein Fenster, bewegt sich sein **ganzes Cluster**. Lässt man los und das Cluster berührt andere Fenster, werden sie zu einem Cluster verbunden.
@@ -99,7 +99,7 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
   }
 
   desk.canvas { width = 20000, height = 12000, grid = { spacing = 100 } }
-  desk.snapping { threshold = 15, ruck = { distance = 120, time_ms = 150 } }
+  desk.snapping { threshold = 15, match_size = false, hold_ms = 300 }
 
   desk.bind("Mod+Return", desk.spawn("alacritty"))
   desk.bind("Mod+Q", desk.close_window)
