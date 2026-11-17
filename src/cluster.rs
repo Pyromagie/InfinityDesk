@@ -72,21 +72,14 @@ impl<K: Eq + Hash + Clone> Clusters<K> {
     /// Removes `k` from its cluster. The rest is regrouped based on geometry,
     /// because without `k` a cluster may fall apart into several pieces.
     pub fn remove(&mut self, k: &K, rect_of: impl Fn(&K) -> Option<Rect>) {
-        let Some(id) = self.cluster_of.remove(k) else {
-            return;
-        };
-        let rest: Vec<K> = self
-            .cluster_of
-            .iter()
-            .filter(|(_, c)| **c == id)
-            .map(|(w, _)| w.clone())
-            .collect();
-        for w in &rest {
+        let members = self.members(k);
+        for w in &members {
             self.cluster_of.remove(w);
         }
 
-        let rects: Vec<(K, Rect)> = rest
+        let rects: Vec<(K, Rect)> = members
             .into_iter()
+            .filter(|w| w != k)
             .filter_map(|w| rect_of(&w).map(|r| (w, r)))
             .collect();
         for (i, (a, ra)) in rects.iter().enumerate() {
@@ -117,11 +110,11 @@ pub fn touching(a: &Rect, b: &Rect) -> bool {
 /// - **Docking:** right edge to left edge (or bottom to top) when the windows are next to each other.
 /// - **Aligning:** top edges flush (or left edges) when the windows are docking to each other.
 ///   This produces clean corners, like in a 2×2 cluster.
-pub fn snap_delta(moving: &[Rect], others: &[Rect], threshold: i32) -> Point<i32, Logical> {
+pub fn snap_delta(moving: &[Rect], others: &[Rect]) -> Point<i32, Logical> {
     let mut best_x: Option<i32> = None;
     let mut best_y: Option<i32> = None;
     let consider = |best: &mut Option<i32>, d: i32| {
-        if d.abs() <= threshold && best.is_none_or(|b| d.abs() < b.abs()) {
+        if d.abs() <= SNAP_THRESHOLD && best.is_none_or(|b| d.abs() < b.abs()) {
             *best = Some(d);
         }
     };
@@ -132,11 +125,11 @@ pub fn snap_delta(moving: &[Rect], others: &[Rect], threshold: i32) -> Point<i32
             let (ol, or, ot, ob) = edges(o);
 
             // Do the ranges overlap (with some tolerance) on the other axis?
-            let v_near = mt < ob + threshold && ot < mb + threshold;
-            let h_near = ml < or + threshold && ol < mr + threshold;
+            let v_near = mt < ob + SNAP_THRESHOLD && ot < mb + SNAP_THRESHOLD;
+            let h_near = ml < or + SNAP_THRESHOLD && ol < mr + SNAP_THRESHOLD;
             // Are they close edge to edge?
-            let x_adjacent = (mr - ol).abs() <= threshold || (ml - or).abs() <= threshold;
-            let y_adjacent = (mb - ot).abs() <= threshold || (mt - ob).abs() <= threshold;
+            let x_adjacent = (mr - ol).abs() <= SNAP_THRESHOLD || (ml - or).abs() <= SNAP_THRESHOLD;
+            let y_adjacent = (mb - ot).abs() <= SNAP_THRESHOLD || (mt - ob).abs() <= SNAP_THRESHOLD;
 
             if v_near {
                 consider(&mut best_x, ol - mr); // dock left of o
@@ -178,7 +171,7 @@ mod tests {
         let other = rect(1000, 500, 400, 300);
         // 10 px gap to the left edge of `other`, 6 px lower.
         let moving = rect(590, 506, 400, 300);
-        let d = snap_delta(&[moving], &[other], SNAP_THRESHOLD);
+        let d = snap_delta(&[moving], &[other]);
         assert_eq!(d, (10, -6).into());
     }
 
@@ -186,7 +179,7 @@ mod tests {
     fn snaps_below() {
         let other = rect(0, 0, 400, 300);
         let moving = rect(3, 312, 400, 300);
-        let d = snap_delta(&[moving], &[other], SNAP_THRESHOLD);
+        let d = snap_delta(&[moving], &[other]);
         assert_eq!(d, (-3, -12).into());
     }
 
@@ -194,10 +187,7 @@ mod tests {
     fn far_away_does_not_snap() {
         let other = rect(0, 0, 400, 300);
         let moving = rect(2000, 2000, 400, 300);
-        assert_eq!(
-            snap_delta(&[moving], &[other], SNAP_THRESHOLD),
-            (0, 0).into()
-        );
+        assert_eq!(snap_delta(&[moving], &[other]), (0, 0).into());
     }
 
     #[test]
@@ -205,10 +195,7 @@ mod tests {
         // Same x column but vertically far apart: left edges must not align.
         let other = rect(0, 0, 400, 300);
         let moving = rect(5, 1000, 400, 300);
-        assert_eq!(
-            snap_delta(&[moving], &[other], SNAP_THRESHOLD),
-            (0, 0).into()
-        );
+        assert_eq!(snap_delta(&[moving], &[other]), (0, 0).into());
     }
 
     #[test]
@@ -217,7 +204,7 @@ mod tests {
         let a = rect(0, 0, 300, 300);
         let b = rect(300, 0, 300, 300);
         let other = rect(608, 0, 300, 300);
-        assert_eq!(snap_delta(&[a, b], &[other], SNAP_THRESHOLD), (8, 0).into());
+        assert_eq!(snap_delta(&[a, b], &[other]), (8, 0).into());
     }
 
     #[test]

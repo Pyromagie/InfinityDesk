@@ -52,11 +52,11 @@ impl Canvas {
         self.set_viewport_loc(self.viewport_loc);
     }
 
-    /// Moves the viewport; it always stays inside the canvas.
+    /// Moves the viewport; it always stays inside the canvas and on whole pixels.
     pub fn set_viewport_loc(&mut self, loc: Point<f64, Logical>) {
         self.viewport_loc = (
-            clamp_axis(loc.x, self.viewport_size.w, self.size.w),
-            clamp_axis(loc.y, self.viewport_size.h, self.size.h),
+            clamp_axis(loc.x, self.viewport_size.w, self.size.w).round(),
+            clamp_axis(loc.y, self.viewport_size.h, self.size.h).round(),
         )
             .into();
     }

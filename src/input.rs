@@ -23,7 +23,7 @@ impl InfinityDesk {
         match event {
             InputEvent::Keyboard { event, .. } => {
                 let serial = SERIAL_COUNTER.next_serial();
-                let time = Event::time(&event);
+                let time = event.time();
                 self.seat.get_keyboard().unwrap().input::<(), _>(
                     self,
                     event.key_code(),
@@ -35,11 +35,8 @@ impl InfinityDesk {
             }
 
             InputEvent::PointerMotionAbsolute { event, .. } => {
-                let Some(output) = self.space.outputs().next() else {
-                    return;
-                };
-                let output_geo = self.space.output_geometry(output).unwrap();
-                let pos = event.position_transformed(output_geo.size) + output_geo.loc.to_f64();
+                let viewport = self.canvas.viewport();
+                let pos = event.position_transformed(viewport.size.to_i32_round()) + viewport.loc;
 
                 let serial = SERIAL_COUNTER.next_serial();
                 let pointer = self.seat.get_pointer().unwrap();

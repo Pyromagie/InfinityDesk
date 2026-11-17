@@ -14,7 +14,6 @@ use smithay::{
     },
 };
 
-use super::xdg_shell;
 use crate::{InfinityDesk, state::ClientState};
 
 impl CompositorHandler for InfinityDesk {
@@ -35,16 +34,12 @@ impl CompositorHandler for InfinityDesk {
             while let Some(parent) = get_parent(&root) {
                 root = parent;
             }
-            if let Some(window) = self
-                .space
-                .elements()
-                .find(|w| w.toplevel().unwrap().wl_surface() == &root)
-            {
+            if let Some(window) = self.window_for_surface(&root) {
                 window.on_commit();
             }
         }
 
-        xdg_shell::handle_commit(&mut self.popups, &self.space, surface);
+        self.handle_xdg_commit(surface);
         self.place_if_pending(surface);
     }
 }

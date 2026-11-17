@@ -1,7 +1,5 @@
 use smithay::{
-    desktop::{
-        PopupKind, PopupManager, Space, Window, find_popup_root_surface, get_popup_toplevel_coords,
-    },
+    desktop::{PopupKind, Window, find_popup_root_surface, get_popup_toplevel_coords},
     input::{
         Seat,
         pointer::{Focus, GrabStartData},
@@ -105,56 +103,46 @@ impl XdgShellHandler for InfinityDesk {
     }
 }
 
-/// Must be called on every commit: sends the initial configure to new windows/popups.
-pub fn handle_commit(popups: &mut PopupManager, space: &Space<Window>, surface: &WlSurface) {
-    if let Some(window) = space
-        .elements()
-        .find(|w| w.toplevel().unwrap().wl_surface() == surface)
-    {
-        let initial_configure_sent = with_states(surface, |states| {
-            states
-                .data_map
-                .get::<XdgToplevelSurfaceData>()
-                .unwrap()
-                .lock()
-                .unwrap()
-                .initial_configure_sent
-        });
-        if !initial_configure_sent {
-            window.toplevel().unwrap().send_configure();
+impl InfinityDesk {
+    /// Must be called on every commit: sends the initial configure to new windows/popups.
+    pub fn handle_xdg_commit(&mut self, surface: &WlSurface) {
+        if let Some(window) = self.window_for_surface(surface) {
+            let initial_configure_sent = with_states(surface, |states| {
+                states
+                    .data_map
+                    .get::<XdgToplevelSurfaceData>()
+                    .unwrap()
+                    .lock()
+                    .unwrap()
+                    .initial_configure_sent
+            });
+            if !initial_configure_sent {
+                window.toplevel().unwrap().send_configure();
+            }
+        }
+
+        self.popups.commit(surface);
+        if let Some(PopupKind::Xdg(ref xdg)) = self.popups.find_popup(surface)
+            && !xdg.is_initial_configure_sent()
+        {
+            xdg.send_configure()
+                .expect("initial popup configure failed");
         }
     }
 
-    popups.commit(surface);
-    if let Some(PopupKind::Xdg(ref xdg)) = popups.find_popup(surface)
-        && !xdg.is_initial_configure_sent()
-    {
-        xdg.send_configure()
-            .expect("initial popup configure failed");
-    }
-}
-
-impl InfinityDesk {
     /// Keeps popups (menus) from extending beyond the screen.
     fn unconstrain_popup(&self, popup: &PopupSurface) {
         let Ok(root) = find_popup_root_surface(&PopupKind::Xdg(popup.clone())) else {
             return;
         };
-        let Some(window) = self
-            .space
-            .elements()
-            .find(|w| w.toplevel().unwrap().wl_surface() == &root)
+        let Some(window_geo) = self
+            .window_for_surface(&root)
+            .and_then(|w| self.space.element_geometry(&w))
         else {
             return;
         };
-        let Some(output) = self.space.outputs().next() else {
-            return;
-        };
 
-        let output_geo = self.space.output_geometry(output).unwrap();
-        let window_geo = self.space.element_geometry(window).unwrap();
-
-        let mut target = output_geo;
+        let mut target = self.canvas.viewport().to_i32_round();
         target.loc -= get_popup_toplevel_coords(&PopupKind::Xdg(popup.clone()));
         target.loc -= window_geo.loc;
 

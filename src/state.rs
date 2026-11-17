@@ -11,9 +11,7 @@ use smithay::{
     reexports::{
         calloop::{EventLoop, Interest, LoopSignal, Mode, PostAction, generic::Generic},
         wayland_server::{
-            Display, DisplayHandle,
-            backend::{ClientData, ClientId, DisconnectReason},
-            protocol::wl_surface::WlSurface,
+            Display, DisplayHandle, backend::ClientData, protocol::wl_surface::WlSurface,
         },
     },
     utils::{Logical, Point},
@@ -189,7 +187,4 @@ pub struct ClientState {
     pub compositor_state: CompositorClientState,
 }
 
-impl ClientData for ClientState {
-    fn initialized(&self, _client_id: ClientId) {}
-    fn disconnected(&self, _client_id: ClientId, _reason: DisconnectReason) {}
-}
+impl ClientData for ClientState {}

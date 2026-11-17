@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 
 use crate::{
     InfinityDesk,
-    cluster::{Rect, SNAP_THRESHOLD, snap_delta, touching},
+    cluster::{Rect, snap_delta, touching},
 };
 
 /// How far the cluster moves: pointer movement, kept inside the canvas, plus snapping.
@@ -40,14 +40,20 @@ fn cluster_delta(
         .iter()
         .map(|r| Rect::new(r.loc + delta, r.size))
         .collect();
-    let others: Vec<Rect> = data
-        .space
+    let others: Vec<Rect> = others(data, members).map(|(_, r)| r).collect();
+    delta += snap_delta(&moved, &others);
+    delta
+}
+
+/// All windows outside the dragged cluster, with their geometry.
+fn others<'a>(
+    data: &'a InfinityDesk,
+    members: &'a [DraggedWindow],
+) -> impl Iterator<Item = (Window, Rect)> + 'a {
+    data.space
         .elements()
         .filter(|w| !members.iter().any(|m| &m.window == *w))
-        .filter_map(|w| data.space.element_geometry(w))
-        .collect();
-    delta += snap_delta(&moved, &others, SNAP_THRESHOLD);
-    delta
+        .filter_map(|w| Some((w.clone(), data.space.element_geometry(w)?)))
 }
 
 /// A "yank" detaches a window from its cluster: this far (in pixels) ...
@@ -308,12 +314,7 @@ impl PointerGrab<InfinityDesk> for DragGrab {
             .iter()
             .filter_map(|m| Some((m.window.clone(), data.space.element_geometry(&m.window)?)))
             .collect();
-        let others: Vec<(Window, Rect)> = data
-            .space
-            .elements()
-            .filter(|w| !members.iter().any(|m| &m.window == *w))
-            .filter_map(|w| Some((w.clone(), data.space.element_geometry(w)?)))
-            .collect();
+        let others: Vec<(Window, Rect)> = others(data, members).collect();
 
         for (mw, mr) in &moved {
             for (ow, or) in &others {
