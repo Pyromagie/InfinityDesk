@@ -59,6 +59,12 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
   - Alt + Linksziehen auf einem Fenster: Fenster verschieben
   - (Super ist im genesteten Betrieb von niri belegt, daher Alt)
 
+## 6b. Hintergrund (später)
+
+- 💡 Ebenen von hinten nach vorne: **Hintergrund** (fest am Bildschirm) → **Canvas** (Raster + Fenster, bewegt sich beim Pan) → ggf. Leisten obendrauf.
+- 💡 Vorschlag: `layer-shell`-Protokoll unterstützen, damit vorhandene Tools funktionieren (swaybg/swww für Wallpaper, Waybar als Leiste).
+- 💬 Hintergrund komplett fest oder leichter **Parallax**-Effekt (bewegt sich beim Pannen langsam mit)?
+
 ## 7. Roadmap
 
 1. ✅ Minimaler Compositor (genestet, winit), zeigt Wayland-Clients an
