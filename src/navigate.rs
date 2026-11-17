@@ -161,7 +161,7 @@ impl InfinityDesk {
         self.apply_viewport();
     }
 
-    /// Mod+Shift+arrow: right/down makes the active window wider/taller, left/up narrower/lower,
+    /// Mod+Shift+arrow: right/up makes the active window wider/taller, left/down narrower/lower,
     /// by a tenth of the screen; neighbors follow like when dragging the edge. The right (bottom)
     /// edge moves, unless only the left (top) one has a neighbor: then that one, so a row that
     /// fills the screen keeps filling it.
@@ -173,7 +173,9 @@ impl InfinityDesk {
         let Some(i) = windows.iter().position(|w| w == &active) else {
             return;
         };
-        let (axis, grow) = dir.axis();
+        // Right and up make it bigger, left and down smaller.
+        let (axis, forward) = dir.axis();
+        let grow = if axis == 0 { forward } else { !forward };
         let r = rects[i];
         let (start, end) = span(&r, axis);
         let neighbor_at = |line: i32, side: fn((i32, i32)) -> i32| {

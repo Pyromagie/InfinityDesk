@@ -93,8 +93,7 @@ impl InfinityDesk {
                     },
                 );
                 // Most actions move the view or windows; the pointer stays put on the screen.
-                let pointer = self.seat.get_pointer().unwrap();
-                let screen = self.canvas.canvas_to_screen(pointer.current_location());
+                let screen = self.pointer_screen;
                 match action {
                     Some(KeyAction::Bind(action)) => self.run(action),
                     Some(KeyAction::Template(Some(t))) => self.choose_template(t, None),
@@ -112,10 +111,8 @@ impl InfinityDesk {
 
             // Mice and touchpads (standalone) move the pointer by an amount, within the screen.
             InputEvent::PointerMotion { event, .. } => {
-                let pointer = self.seat.get_pointer().unwrap();
-                let screen = self.canvas.canvas_to_screen(pointer.current_location());
                 let size = self.canvas.screen_size().to_f64();
-                let pos = screen + event.delta();
+                let pos = self.pointer_screen + event.delta();
                 let pos = (
                     pos.x.clamp(0.0, size.w - 1.0),
                     pos.y.clamp(0.0, size.h - 1.0),
@@ -148,7 +145,12 @@ impl InfinityDesk {
                 //   Mod + Shift + drag on empty canvas   -> mark windows with a selection box
                 //   left-drag on a window border         -> resize it (Shift: the cluster moves)
                 //   left-drag on empty canvas   -> pan the viewport
-                let location = pointer.current_location();
+                // Where the pointer is on the canvas now (the view may have moved since the last
+                // pointer motion, e.g. by panning).
+                let location = self.canvas.screen_to_canvas(self.pointer_screen);
+                if location != pointer.current_location() {
+                    self.pointer_moved(location, event.time());
+                }
                 // The template menu: a click on a slot chooses it, a click outside closes the menu.
                 // Only presses are taken, so a drag still running gets its release.
                 if self.layout_menu.is_some() && button_state == ButtonState::Pressed {
@@ -267,8 +269,7 @@ impl InfinityDesk {
                 let scroll = event.amount(Axis::Vertical).unwrap_or_else(|| {
                     event.amount_v120(Axis::Vertical).unwrap_or(0.0) * 15.0 / 120.0
                 });
-                let pointer = self.seat.get_pointer().unwrap();
-                let screen = self.canvas.canvas_to_screen(pointer.current_location());
+                let screen = self.pointer_screen;
                 self.canvas.zoom_at(screen, (-scroll * ZOOM_SPEED).exp());
                 self.apply_viewport();
                 // The canvas moved under the pointer.
@@ -346,6 +347,7 @@ impl InfinityDesk {
 
     /// Moves the pointer to a canvas position and updates what is under it.
     pub fn pointer_moved(&mut self, pos: Point<f64, Logical>, time: InputTime) {
+        self.pointer_screen = self.canvas.canvas_to_screen(pos);
         let pointer = self.seat.get_pointer().unwrap();
         let under = self.surface_under(pos);
         let serial = SERIAL_COUNTER.next_serial();

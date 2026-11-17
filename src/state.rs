@@ -92,6 +92,9 @@ pub struct InfinityDesk {
     /// Pointer image InfinityDesk shows itself (resize arrows at window borders); `Default`
     /// leaves it to the app under the pointer.
     pub cursor: CursorIcon,
+    /// Where the pointer is on the screen. Kept apart from its canvas position, which changes
+    /// whenever the view moves underneath it.
+    pub pointer_screen: Point<f64, Logical>,
     /// The pointer image the app under the pointer asks for.
     pub client_cursor: CursorImageStatus,
     /// The screen, GPU and input devices when running standalone (`None`: nested).
@@ -184,6 +187,7 @@ impl InfinityDesk {
             selection_box: None,
             resize_hint: Vec::new(),
             cursor: CursorIcon::Default,
+            pointer_screen: (0.0, 0.0).into(),
             client_cursor: CursorImageStatus::default_named(),
             udev: None,
             fullscreen: None,
@@ -359,8 +363,7 @@ impl InfinityDesk {
                 self.dock_into_slot(&window, rect);
                 self.place_resized(&window);
                 // Docked off the screen: the view follows. The pointer stays put on the screen.
-                let pointer = self.seat.get_pointer().unwrap();
-                let screen = self.canvas.canvas_to_screen(pointer.current_location());
+                let screen = self.pointer_screen;
                 self.canvas.reveal(rect);
                 self.apply_viewport();
                 self.pointer_moved(self.canvas.screen_to_canvas(screen), InputTime::now());

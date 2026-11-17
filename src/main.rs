@@ -55,7 +55,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn init_logging() {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn,infinitydesk=info"));
-    tracing_subscriber::fmt().with_env_filter(filter).init();
+    // To stderr, like the programs started inside (the session script puts it into a file).
+    (tracing_subscriber::fmt().with_env_filter(filter))
+        .with_writer(std::io::stderr)
+        .init();
 }
 
 /// Starts a program inside InfinityDesk: it connects to our socket, not to the host compositor.

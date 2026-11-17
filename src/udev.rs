@@ -303,8 +303,7 @@ impl InfinityDesk {
         };
         let bars = self.bars();
         let upper_layers = self.upper_layers();
-        let pointer = self.seat.get_pointer().unwrap().current_location();
-        let pointer = self.canvas.canvas_to_screen(pointer);
+        let pointer = self.pointer_screen;
         let Some(udev) = self.udev.as_mut() else {
             return;
         };
