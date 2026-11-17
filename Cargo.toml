@@ -1,0 +1,15 @@
+[package]
+name = "infinitydesk"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Gepinnt auf einen festen Commit, damit sich die API nicht unter uns ändert.
+[dependencies.smithay]
+git = "https://github.com/Smithay/smithay.git"
+rev = "33323a917af13676875c27fb7748ffdaea5f4c2f"
+default-features = false
+features = ["backend_winit", "wayland_frontend", "desktop"]
