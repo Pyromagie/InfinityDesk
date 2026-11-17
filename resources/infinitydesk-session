@@ -1,0 +1,8 @@
+#!/bin/sh
+# Starts InfinityDesk as a login session (see infinitydesk.desktop). The screen belongs to
+# InfinityDesk then, so its log goes to a file: ~/.local/state/infinitydesk.log
+export XDG_CURRENT_DESKTOP=InfinityDesk
+export XDG_SESSION_TYPE=wayland
+log_dir="${XDG_STATE_HOME:-$HOME/.local/state}"
+mkdir -p "$log_dir"
+exec infinitydesk 2> "$log_dir/infinitydesk.log"
