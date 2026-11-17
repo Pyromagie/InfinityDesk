@@ -78,10 +78,12 @@ struct DraggedWindow {
 enum DragKind {
     /// Windows are dragged across the canvas: a whole cluster, or one window pulled out of it.
     MoveWindows {
-        grabbed: Window,
+        /// What comes out of the cluster when held: the grabbed window, or all marked windows
+        /// of the cluster if the grabbed one is marked.
+        group: Vec<Window>,
         members: Vec<DraggedWindow>,
         /// Press time, while it is still undecided whether the whole cluster or just
-        /// the grabbed window moves.
+        /// the group moves.
         pressed: Option<Instant>,
         /// Last pointer position and time, and the pointer speed (screen pixels per second).
         last: (Point<f64, Logical>, Instant),
@@ -106,7 +108,7 @@ pub struct DragGrab {
 }
 
 impl DragGrab {
-    /// Dragging a window moves its whole cluster; holding still first pulls just this window out.
+    /// Dragging a window moves its whole cluster; holding still first pulls its group out.
     pub fn move_window(
         state: &mut InfinityDesk,
         start_data: GrabStartData<InfinityDesk>,
@@ -114,8 +116,14 @@ impl DragGrab {
     ) -> Self {
         let cluster = state.clusters.members(&window);
         let pressed = (cluster.len() > 1).then(Instant::now);
-        // Pulses once the window is unlocked (see `InfinityDesk::pulse`).
-        state.pulse = pressed.map(|time| (window.clone(), time));
+        let group: Vec<Window> = if state.selected.contains(&window) {
+            let marked = cluster.iter().filter(|w| state.selected.contains(w));
+            marked.cloned().collect()
+        } else {
+            vec![window]
+        };
+        // Pulses around the group once it is unlocked (see `InfinityDesk::outlines`).
+        state.pulse = pressed.map(|time| (group.clone(), time));
         let members = cluster
             .into_iter()
             .filter_map(|w| {
@@ -131,7 +139,7 @@ impl DragGrab {
             start_data,
             kind: DragKind::MoveWindows {
                 last,
-                grabbed: window,
+                group,
                 members,
                 pressed,
                 speed: 0.0,
@@ -174,7 +182,7 @@ impl PointerGrab<InfinityDesk> for DragGrab {
         let pointer_delta = event.location - self.start_data.location;
         match &mut self.kind {
             DragKind::MoveWindows {
-                grabbed,
+                group,
                 members,
                 pressed,
                 last,
@@ -197,20 +205,10 @@ impl PointerGrab<InfinityDesk> for DragGrab {
                     if time.elapsed() < HOLD_TIME {
                         data.pulse = None;
                     } else {
-                        // A marked window takes all marked windows of its cluster along.
-                        let group: Vec<Window> = if data.selected.contains(grabbed) {
-                            let in_cluster = members.iter().map(|m| &m.window);
-                            in_cluster
-                                .filter(|w| data.selected.contains(w))
-                                .cloned()
-                                .collect()
-                        } else {
-                            vec![grabbed.clone()]
-                        };
                         tracing::info!("{} window(s) pulled out of their cluster", group.len());
                         members.retain(|m| group.contains(&m.window));
                         let space = &data.space;
-                        data.clusters.detach(&group, |w| space.element_geometry(w));
+                        data.clusters.detach(group, |w| space.element_geometry(w));
                         data.selected.clear();
                     }
                 }

@@ -57,8 +57,8 @@ pub struct InfinityDesk {
     pub unplaced: Vec<Window>,
     /// Which windows belong to which cluster.
     pub clusters: Clusters<Window>,
-    /// A window held to pull it out of its cluster, with the press time. It pulses when unlocked.
-    pub pulse: Option<(Window, Instant)>,
+    /// Window(s) held to pull them out of their cluster, with the press time. They pulse when unlocked.
+    pub pulse: Option<(Vec<Window>, Instant)>,
     /// Marked windows (Alt+Shift); they are pulled out of their cluster together.
     pub selected: Vec<Window>,
     /// The selection box being dragged open, in canvas coordinates.
@@ -224,11 +224,14 @@ impl InfinityDesk {
                 alpha: 1.0,
             });
         }
-        // The pulse grows outward and fades once a held window is unlocked.
-        if let Some((window, pressed)) = self.pulse.clone() {
+        // The pulse grows outward around the held window(s) and fades once they are unlocked.
+        if let Some((windows, pressed)) = &self.pulse {
             let since_unlock = pressed.elapsed().checked_sub(HOLD_TIME);
             let t = since_unlock.map(|d| d.as_secs_f64() / PULSE_TIME.as_secs_f64());
-            match (t, self.space.element_geometry(&window)) {
+            let geos = windows
+                .iter()
+                .filter_map(|w| self.space.element_geometry(w));
+            match (t, geos.reduce(|a, b| a.merge(b))) {
                 (Some(t), Some(geo)) if t < 1.0 => outlines.push(Outline {
                     rect: self.screen_rect(geo),
                     grow: (t * PULSE_GROW) as i32,
