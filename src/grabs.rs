@@ -285,8 +285,7 @@ impl PointerGrab<InfinityDesk> for DragGrab {
                     } else {
                         tracing::info!("{} window(s) pulled out of their cluster", group.len());
                         members.retain(|m| group.contains(&m.window));
-                        let space = &data.space;
-                        data.clusters.detach(group, |w| space.element_geometry(w));
+                        data.clusters.detach(group);
                         data.selected.clear();
                     }
                 }

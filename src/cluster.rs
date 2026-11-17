@@ -1,13 +1,16 @@
 //! Snapping and clusters.
 //!
 //! A cluster is a group of windows that were docked to each other and move together.
-//! Membership is stored explicitly (not just derived from geometry), so a cluster does not fall apart
-//! just because a client changes its size by a few pixels.
+//! Which windows are docked to which is stored explicitly (not derived from geometry), so a
+//! cluster does not fall apart just because a client changes its size by a few pixels.
 //!
 //! This module is pure logic without Wayland: `K` is the window key (`Window` in the compositor,
 //! plain numbers in the tests).
 
-use std::{collections::HashMap, hash::Hash};
+use std::{
+    collections::{HashMap, HashSet},
+    hash::Hash,
+};
 
 use smithay::utils::{Logical, Point, Rectangle, Size};
 
@@ -21,18 +24,17 @@ pub const TOUCH_TOLERANCE: i32 = 2;
 /// this many times the snap distance away. Otherwise a window would jump far to line up.
 const ALIGN_FACTOR: i32 = 4;
 
-/// Which windows belong to which cluster. Windows without an entry stand alone.
+/// Which windows are docked to which. A cluster is everything connected through these links;
+/// a window without links stands alone.
 #[derive(Debug)]
 pub struct Clusters<K> {
-    cluster_of: HashMap<K, u64>,
-    next_id: u64,
+    links: HashMap<K, HashSet<K>>,
 }
 
 impl<K: Eq + Hash + Clone> Default for Clusters<K> {
     fn default() -> Self {
         Self {
-            cluster_of: HashMap::new(),
-            next_id: 0,
+            links: HashMap::new(),
         }
     }
 }
@@ -40,68 +42,51 @@ impl<K: Eq + Hash + Clone> Default for Clusters<K> {
 impl<K: Eq + Hash + Clone> Clusters<K> {
     /// All windows in the same cluster as `k` (including `k`). Standing alone: just `k`.
     pub fn members(&self, k: &K) -> Vec<K> {
-        match self.cluster_of.get(k) {
-            Some(id) => self
-                .cluster_of
-                .iter()
-                .filter(|(_, c)| *c == id)
-                .map(|(w, _)| w.clone())
-                .collect(),
-            None => vec![k.clone()],
+        let mut members = vec![k.clone()];
+        let mut i = 0;
+        while let Some(w) = members.get(i) {
+            let new: Vec<K> = (self.links.get(w).into_iter().flatten())
+                .filter(|n| !members.contains(n))
+                .cloned()
+                .collect();
+            members.extend(new);
+            i += 1;
         }
+        members
     }
 
-    /// Merges the clusters of `a` and `b` into one.
+    /// Docks `a` and `b` to each other, merging their clusters.
     pub fn join(&mut self, a: &K, b: &K) {
-        let x = match self.cluster_of.get(a) {
-            Some(&x) => x,
-            None => {
-                self.next_id += 1;
-                self.cluster_of.insert(a.clone(), self.next_id);
-                self.next_id
-            }
-        };
-        // If `b` was in another cluster, move that whole cluster over to `x`.
-        if let Some(y) = self.cluster_of.insert(b.clone(), x)
-            && y != x
-        {
-            self.cluster_of
-                .values_mut()
-                .filter(|c| **c == y)
-                .for_each(|c| *c = x);
+        if a != b {
+            self.links.entry(a.clone()).or_default().insert(b.clone());
+            self.links.entry(b.clone()).or_default().insert(a.clone());
         }
     }
 
-    /// Removes `k` from its cluster. The rest is regrouped based on geometry,
-    /// because without `k` a cluster may fall apart into several pieces.
-    pub fn remove(&mut self, k: &K, rect_of: impl Fn(&K) -> Option<Rect>) {
-        let members = self.members(k);
-        for w in &members {
-            self.cluster_of.remove(w);
+    /// Removes `k` from its cluster. Without it, the rest may fall apart into several clusters.
+    pub fn remove(&mut self, k: &K) {
+        for n in self.links.get(k).cloned().into_iter().flatten() {
+            self.unlink(k, &n);
         }
-        let rest: Vec<K> = members.into_iter().filter(|w| w != k).collect();
-        self.join_touching(&rest, &rect_of);
     }
 
-    /// Takes several windows out of their cluster together; among themselves they stay
-    /// connected wherever they touch.
-    pub fn detach(&mut self, group: &[K], rect_of: impl Fn(&K) -> Option<Rect>) {
+    /// Takes several windows out of their cluster together; among themselves they stay docked.
+    pub fn detach(&mut self, group: &[K]) {
         for k in group {
-            self.remove(k, &rect_of);
+            for n in self.links.get(k).cloned().into_iter().flatten() {
+                if !group.contains(&n) {
+                    self.unlink(k, &n);
+                }
+            }
         }
-        self.join_touching(group, &rect_of);
     }
 
-    /// Connects every pair of the given windows that lies edge to edge.
-    fn join_touching(&mut self, windows: &[K], rect_of: impl Fn(&K) -> Option<Rect>) {
-        let rects: Vec<(&K, Rect)> = windows
-            .iter()
-            .filter_map(|w| rect_of(w).map(|r| (w, r)))
-            .collect();
-        for (i, (a, ra)) in rects.iter().enumerate() {
-            for (b, rb) in &rects[i + 1..] {
-                if touching(ra, rb) {
-                    self.join(a, b);
+    fn unlink(&mut self, a: &K, b: &K) {
+        for (x, y) in [(a, b), (b, a)] {
+            if let Some(set) = self.links.get_mut(x) {
+                set.remove(y);
+                if set.is_empty() {
+                    self.links.remove(x);
                 }
             }
         }
@@ -318,15 +303,10 @@ mod tests {
     #[test]
     fn detaching_a_group_keeps_it_together() {
         // Row 1 | 2 | 3. Taking 2 and 3 out leaves 1 alone and 2+3 as their own cluster.
-        let rects = HashMap::from([
-            (1, rect(0, 0, 100, 100)),
-            (2, rect(100, 0, 100, 100)),
-            (3, rect(200, 0, 100, 100)),
-        ]);
         let mut c = Clusters::default();
         c.join(&1, &2);
         c.join(&2, &3);
-        c.detach(&[2, 3], |k| rects.get(k).copied());
+        c.detach(&[2, 3]);
         assert_eq!(c.members(&1), vec![1]);
         assert_eq!(sorted(c.members(&2)), vec![2, 3]);
     }
@@ -334,15 +314,10 @@ mod tests {
     #[test]
     fn removing_splits_cluster() {
         // Row 1 | 2 | 3. Removing 2 splits the cluster into 1 and 3.
-        let rects = HashMap::from([
-            (1, rect(0, 0, 100, 100)),
-            (2, rect(100, 0, 100, 100)),
-            (3, rect(200, 0, 100, 100)),
-        ]);
         let mut c = Clusters::default();
         c.join(&1, &2);
         c.join(&2, &3);
-        c.remove(&2, |k| rects.get(k).copied());
+        c.remove(&2);
         assert_eq!(c.members(&1), vec![1]);
         assert_eq!(c.members(&3), vec![3]);
     }
@@ -350,17 +325,11 @@ mod tests {
     #[test]
     fn removing_keeps_connected_rest() {
         // 2×2 block: 1 2 / 3 4. Removing 1 leaves 2, 3, 4 connected via 4.
-        let rects = HashMap::from([
-            (1, rect(0, 0, 100, 100)),
-            (2, rect(100, 0, 100, 100)),
-            (3, rect(0, 100, 100, 100)),
-            (4, rect(100, 100, 100, 100)),
-        ]);
         let mut c = Clusters::default();
         for (a, b) in [(1, 2), (1, 3), (2, 4), (3, 4)] {
             c.join(&a, &b);
         }
-        c.remove(&1, |k| rects.get(k).copied());
+        c.remove(&1);
         assert_eq!(sorted(c.members(&2)), vec![2, 3, 4]);
     }
 

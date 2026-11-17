@@ -63,8 +63,7 @@ impl XdgShellHandler for InfinityDesk {
         // Leave the cluster; the rest may split into several clusters.
         if let Some(window) = self.window_for_surface(surface.wl_surface()) {
             self.selected.retain(|w| w != &window);
-            let space = &self.space;
-            self.clusters.remove(&window, |w| space.element_geometry(w));
+            self.clusters.remove(&window);
         }
     }
 
