@@ -11,7 +11,6 @@ use crate::{
     InfinityDesk,
     cluster::{Rect, TOUCH_TOLERANCE, dock_spot, touching},
     layout,
-    render::OUTLINE_COLOR,
     state::Resizing,
 };
 
@@ -276,7 +275,7 @@ impl InfinityDesk {
             for (s, r) in slots.into_iter().enumerate() {
                 let color = match (enabled, menu.hover) {
                     (false, _) => SLOT_DISABLED_COLOR,
-                    (true, Some(hover)) if hover == (t, s) => OUTLINE_COLOR,
+                    (true, Some(hover)) if hover == (t, s) => self.config.accent,
                     _ => SLOT_COLOR,
                 };
                 bars.push((r, color));

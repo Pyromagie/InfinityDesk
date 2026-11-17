@@ -1,6 +1,6 @@
 //! Pointer drags: moving or resizing windows and clusters, selecting, panning the viewport.
 
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use smithay::{
     desktop::Window,
@@ -18,7 +18,7 @@ use smithay::{
 
 use crate::{
     InfinityDesk,
-    cluster::{Rect, SNAP_THRESHOLD, grid_rect, snap_delta, touching},
+    cluster::{Rect, grid_rect, snap_delta, touching},
     resize::{self, Edge, Follow},
     state::Resizing,
 };
@@ -49,7 +49,7 @@ fn cluster_delta(
         .map(|r| Rect::new(r.loc + delta, r.size))
         .collect();
     let others: Vec<Rect> = others(data, members).map(|(_, r)| r).collect();
-    let threshold = (SNAP_THRESHOLD / data.canvas.zoom()).round() as i32;
+    let threshold = (data.config.snap_threshold / data.canvas.zoom()).round() as i32;
     delta += snap_delta(&moved, &others, threshold);
     delta
 }
@@ -65,8 +65,6 @@ fn others<'a>(
         .filter_map(|w| Some((w.clone(), data.space.element_geometry(w)?)))
 }
 
-/// Holding still this long before dragging pulls the window out of its cluster.
-pub const HOLD_TIME: Duration = Duration::from_millis(300);
 /// Windows dragged faster than this (screen pixels per second) pass other windows without snapping.
 const SNAP_MAX_SPEED: f64 = 1000.0;
 /// Pointer movement (in screen pixels) that still counts as holding still.
@@ -305,7 +303,7 @@ impl PointerGrab<InfinityDesk> for DragGrab {
                         return;
                     }
                     *pressed = None;
-                    if time.elapsed() < HOLD_TIME {
+                    if time.elapsed() < data.config.hold_time {
                         data.pulse = None;
                     } else {
                         tracing::info!("{} window(s) pulled out of their cluster", group.len());
@@ -333,7 +331,8 @@ impl PointerGrab<InfinityDesk> for DragGrab {
             } => {
                 let mut delta = pointer_delta.to_i32_round();
                 if let Some(rect) = initial.get(*dragged) {
-                    let threshold = (SNAP_THRESHOLD / data.canvas.zoom()).round() as i32;
+                    let threshold =
+                        (data.config.snap_threshold / data.canvas.zoom()).round() as i32;
                     delta = resize::snap(rect, *edges, snap_targets, delta, threshold);
                 }
                 let new = resize::apply(initial, follow, min, delta);

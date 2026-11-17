@@ -20,15 +20,11 @@ use smithay::{
 
 use crate::canvas::Canvas;
 
-/// Distance between grid dots in canvas pixels ...
-const GRID_SPACING: f64 = 100.0;
-/// ... doubled while zoomed out so far that dots would be closer than this on screen.
+/// Grid dots are spaced further apart (doubled) zoomed out so far that dots would be closer than this on screen.
 const GRID_MIN_SCREEN_SPACING: f64 = 40.0;
 /// Size of a grid dot in pixels.
 const GRID_DOT_SIZE: f32 = 2.0;
-const GRID_DOT_COLOR: [f32; 4] = [0.28, 0.28, 0.32, 1.0];
 
-pub const OUTLINE_COLOR: [f32; 4] = [0.35, 0.65, 1.0, 1.0];
 /// Thickness of outlines in pixels.
 pub const OUTLINE_WIDTH: i32 = 4;
 
@@ -73,9 +69,16 @@ pub fn compile_grid_shader(renderer: &mut GlesRenderer) -> GlesPixelProgram {
         .expect("grid shader must compile")
 }
 
-/// Dot grid on the canvas, so panning is visible even on empty space.
-fn grid_element(shader: &GlesPixelProgram, canvas: &Canvas) -> Option<PixelShaderElement> {
-    let mut spacing = GRID_SPACING;
+/// The dot grid on the canvas, so panning is visible even on empty space.
+pub struct Grid<'a> {
+    pub shader: &'a GlesPixelProgram,
+    /// Distance between the dots in canvas pixels.
+    pub spacing: f64,
+    pub color: [f32; 4],
+}
+
+fn grid_element(grid: &Grid, canvas: &Canvas) -> Option<PixelShaderElement> {
+    let mut spacing = grid.spacing;
     while spacing * canvas.zoom() < GRID_MIN_SCREEN_SPACING {
         spacing *= 2.0;
     }
@@ -86,7 +89,7 @@ fn grid_element(shader: &GlesPixelProgram, canvas: &Canvas) -> Option<PixelShade
     let screen = Rectangle::from_size(canvas.viewport().size.upscale(canvas.zoom()));
     let area = canvas_rect.intersection(screen)?.to_i32_round();
     let offset = area.loc.to_f64() - origin;
-    let [r, g, b, a] = GRID_DOT_COLOR;
+    let [r, g, b, a] = grid.color;
     let uniforms = vec![
         Uniform::new("spacing", spacing as f32),
         Uniform::new("dot_size", GRID_DOT_SIZE),
@@ -94,7 +97,7 @@ fn grid_element(shader: &GlesPixelProgram, canvas: &Canvas) -> Option<PixelShade
         Uniform::new("color", (r, g, b, a)),
     ];
     Some(PixelShaderElement::new(
-        shader.clone(),
+        grid.shader.clone(),
         area,
         None,
         1.0,
@@ -113,9 +116,12 @@ pub struct Outline {
 }
 
 /// The four sides of a frame as screen rectangles with their color.
-pub fn outline_bars(outline: &Outline) -> [(Rectangle<i32, Logical>, [f32; 4]); 4] {
+pub fn outline_bars(
+    outline: &Outline,
+    color: [f32; 4],
+) -> [(Rectangle<i32, Logical>, [f32; 4]); 4] {
     let Outline { rect, grow, alpha } = *outline;
-    let color = OUTLINE_COLOR.map(|c| c * alpha);
+    let color = color.map(|c| c * alpha);
     let o = grow + OUTLINE_WIDTH;
     let (x, y, w, h) = (
         rect.loc.x - o,
@@ -169,7 +175,7 @@ pub fn desk_elements(
     output: &Output,
     space: &Space<Window>,
     canvas: &Canvas,
-    grid_shader: &GlesPixelProgram,
+    grid: &Grid,
     bars: &[(Rectangle<i32, Logical>, [f32; 4])],
     upper_layers: &[Layer],
 ) -> Vec<DeskElement> {
@@ -187,7 +193,7 @@ pub fn desk_elements(
             canvas.zoom(),
         ))
     }));
-    elements.extend(grid_element(grid_shader, canvas).map(DeskElement::Grid));
+    elements.extend(grid_element(grid, canvas).map(DeskElement::Grid));
     let lower = layer_elements(renderer, output, &[Layer::Bottom, Layer::Background]);
     elements.extend(lower.into_iter().map(DeskElement::Surface));
     elements

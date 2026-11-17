@@ -59,9 +59,8 @@ step further into two dimensions. Built in Rust on [Smithay](https://github.com/
 
 ## Roadmap
 
-- **Lua configuration** in `~/.config/infinitydesk/init.lua`, designed to feel familiar when
-  coming from niri or Hyprland: settings first, then keybindings, window rules and events.
-  Maybe a converter for niri configs later.
+- **More Lua configuration:** keybindings, then window rules and events, designed to feel
+  familiar when coming from niri or Hyprland. Maybe a converter for niri configs later.
 - **Final default controls**, configurable bindings, touchpad gestures
 - **Background layer** fixed to the screen behind the moving canvas (maybe with parallax)
 - **Standalone session** (DRM/KMS backend, own login entry) with Super as the modifier,
@@ -76,7 +75,6 @@ Requires Rust (edition 2024) and the usual Wayland libraries (`wayland`, `libxkb
 ```sh
 cargo run                         # starts nested with an alacritty terminal inside
 cargo run -- -c kitty             # start a different program inside
-XKB_DEFAULT_LAYOUT=de cargo run   # keyboard layout (until the config exists)
 ```
 
 ## Controls (provisional)
@@ -106,11 +104,36 @@ All controls will become configurable.
 
 ### Settings
 
-Until the Lua config exists, settings are switched with environment variables:
+Settings are read at startup from `~/.config/infinitydesk/init.lua` (Lua 5.4; respects
+`$XDG_CONFIG_HOME`, and `INFINITYDESK_CONFIG` points to another file). Everything is optional;
+these are the defaults:
 
-| Variable                     | Effect                                                                 |
-|------------------------------|------------------------------------------------------------------------|
-| `INFINITYDESK_MATCH_SIZE=1`  | A docked window takes its neighbor's height or width (clean grid)      |
+```lua
+local desk = require("infinitydesk")
+
+desk.input {
+  keyboard = {
+    -- xkb names; empty means the system default (e.g. layout = "de", options = "caps:escape")
+    xkb = { layout = "", variant = "", model = "", rules = "", options = nil },
+    repeat_delay = 200, -- milliseconds before a held key repeats
+    repeat_rate = 25,   -- repeats per second
+  },
+}
+
+desk.canvas { width = 20000, height = 12000, grid = { spacing = 100 } }
+
+desk.snapping {
+  threshold = 15,     -- screen pixels within which edges snap together
+  match_size = false, -- a docked window takes its neighbor's height or width (clean grid)
+  hold_ms = 300,      -- hold a window still this long to pull it out of its cluster
+}
+
+-- "#rrggbb" or "#rrggbbaa"; accent is used for frames, lit edges and the template menu
+desk.colors { background = "#1a1a1f", grid = "#474752", accent = "#59a6ff" }
+```
+
+A mistake (a typo in a setting name, a wrong type, a value out of range) is logged with the
+setting, file and line, and the defaults are used instead.
 
 ## Code overview
 
@@ -125,7 +148,7 @@ Until the Lua config exists, settings are switched with environment variables:
 | `src/input.rs`    | Keyboard shortcuts and mouse handling                         |
 | `src/render.rs`   | What gets drawn: windows, layers, dot grid, outlines          |
 | `src/state.rs`    | Compositor state                                              |
-| `src/config.rs`   | Settings                                                      |
+| `src/config.rs`   | Settings from the Lua config (tested)                         |
 | `src/winit.rs`    | Nested backend                                                |
 | `src/handlers/`   | Wayland protocol handlers                                     |
 

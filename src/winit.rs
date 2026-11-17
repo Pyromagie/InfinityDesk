@@ -14,12 +14,9 @@ use smithay::{
 
 use crate::{
     InfinityDesk,
-    render::{compile_grid_shader, desk_elements},
+    render::{Grid, compile_grid_shader, desk_elements},
 };
 use smithay::{desktop::layer_map_for_output, input::pointer::CursorIcon};
-
-/// Canvas background color (RGBA).
-const BACKGROUND: [f32; 4] = [0.1, 0.1, 0.12, 1.0];
 
 pub fn init_winit(
     event_loop: &mut EventLoop<InfinityDesk>,
@@ -104,12 +101,22 @@ pub fn init_winit(
                             &output,
                             &state.space,
                             &state.canvas,
-                            &grid_shader,
+                            &Grid {
+                                shader: &grid_shader,
+                                spacing: state.config.grid_spacing,
+                                color: state.config.grid_color,
+                            },
                             &bars,
                             state.upper_layers(),
                         );
                         damage_tracker
-                            .render_output(renderer, &mut framebuffer, age, &elements, BACKGROUND)
+                            .render_output(
+                                renderer,
+                                &mut framebuffer,
+                                age,
+                                &elements,
+                                state.config.background,
+                            )
                             .map(|result| result.damage.cloned())
                             .unwrap_or_else(|err| {
                                 tracing::error!("rendering failed: {err:?}");

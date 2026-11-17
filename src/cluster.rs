@@ -16,8 +16,6 @@ use smithay::utils::{Logical, Point, Rectangle, Size};
 
 pub type Rect = Rectangle<i32, Logical>;
 
-/// Edges closer than this (in screen pixels, so it works at any zoom) snap to each other.
-pub const SNAP_THRESHOLD: f64 = 15.0;
 /// Edges at most this far apart count as "touching" (connected).
 pub const TOUCH_TOLERANCE: i32 = 2;
 /// Docking also lines up the other edge (tops or left edges), but only if that edge is at most

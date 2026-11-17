@@ -48,7 +48,7 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
 
 - ✅ Einrasten an Kanten innerhalb von 15 px **auf dem Bildschirm** (gilt bei jedem Zoom gleich): **Andocken** (Kante an Kante) und **Ausrichten** (bündige Ober-/Seitenkanten, ergibt saubere Ecken).
 - ✅ **Keine versetzten Verbindungen:** Beim Andocken richtet sich das Fenster immer bündig am Nachbarn aus (nebeneinander: Ober- **oder** Unterkanten, untereinander: linke **oder** rechte Kanten, je nachdem welches Paar näher ist). So docken auch unterschiedlich große Fenster an und es entstehen saubere Ecken. Angedockt wird nur, wenn diese Kanten schon nah sind (höchstens 60 px auf dem Bildschirm), sonst würde das Fenster weit springen.
-- ✅ **Einstellung `match_size`:** Standard aus = Fenster behalten beim Andocken ihre Größe (unterschiedlich große Fenster dürfen aneinander docken). An = ein einzeln angedocktes Fenster übernimmt die Höhe (nebeneinander) bzw. Breite (untereinander) des Nachbarn, das Cluster wird ein sauberes Raster. Bis zur Lua-Config: `INFINITYDESK_MATCH_SIZE=1 cargo run`.
+- ✅ **Einstellung `match_size`:** Standard aus = Fenster behalten beim Andocken ihre Größe (unterschiedlich große Fenster dürfen aneinander docken). An = ein einzeln angedocktes Fenster übernimmt die Höhe (nebeneinander) bzw. Breite (untereinander) des Nachbarn, das Cluster wird ein sauberes Raster. In der Lua-Config: `desk.snapping { match_size = true }`.
   - ✅ Ein Platz, an dem schon ein Fenster liegt, wird nicht angedockt (keine überlappenden Fenster).
   - ✅ **Überschießen wird verziehen:** Schiebt man ein Fenster zu weit, schon über den Nachbarn, dockt es trotzdem an dessen Kante an (bis 60 px tief, Bildschirm). Beim Heranziehen bleibt es bei 15 px.
   - ✅ Schnell vorbeiziehen (über 1000 px/s) rastet nicht ein, damit nichts kurz hin- und herspringt. Beim Loslassen wird immer eingerastet.
@@ -93,7 +93,7 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
 - ✅ Das Repo wird veröffentlicht; andere sollen InfinityDesk nutzen und anpassen können.
 - ✅ Konfiguration per **Lua** (z. B. `~/.config/infinitydesk/init.lua`), über die Rust-Bibliothek `mlua`.
 - 💡 Ausbaustufen:
-  1. **Einstellungen:** Canvas-Größe, Snap-Schwellwert, Werte der Lös-Geste, Farben, Raster, Zoom-Verhalten …
+  1. ✅ **Einstellungen** (eingebaut): Tastatur (xkb-Belegung, Wiederholrate), Canvas-Größe, Raster-Abstand, Snap-Schwellwert, `match_size`, Haltezeit der Lös-Geste, Farben (Hintergrund, Raster, Akzent). Gelesen beim Start; Tippfehler, falsche Typen und Werte außerhalb des Bereichs sind Fehler (mit Einstellung, Datei und Zeile im Log), dann gelten die Standardwerte. Lua 5.4 ist in die Binary eingebaut (`mlua`, vendored). `INFINITYDESK_CONFIG` zeigt auf eine andere Datei (zum Testen). Noch nicht: Touchpad (kommt mit der eigenständigen Sitzung), Zoom-Verhalten, Neuladen ohne Neustart.
   2. **Tastenbelegung & Maus-Bedienung:** frei belegbar, mit sinnvollen Standardwerten.
   3. **Fensterregeln:** z. B. "Programm X öffnet immer an Position Y / in Cluster Z".
   4. **Ereignisse & Skripting:** Lua-Funktionen, die auf Ereignisse reagieren (Fenster geöffnet, Cluster gebildet …).
@@ -130,7 +130,7 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
 2. ✅ Fenster auf dem Canvas platzieren, Viewport verschieben
 3. ✅ Snapping + Cluster
 4. ✅ Zoom + Culling · ✅ Cluster-Resize · ✅ Cluster-Fokus (Vorlagen, Mod+W) · ✅ Vollbild (Mod+F)
-5. Lua-Konfiguration (Einstellungen, dann Tastenbelegung)
+5. Lua-Konfiguration (✅ Einstellungen, dann Tastenbelegung)
 6. Bedienung festlegen (Standard-Belegung), Hintergrund / layer-shell, Feinschliff
 7. Standalone-Betrieb (eigener Login-Eintrag, ohne niri darunter), README, Veröffentlichung
 

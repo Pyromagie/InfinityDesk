@@ -8,10 +8,6 @@
 
 use smithay::utils::{Logical, Point, Rectangle, Size};
 
-/// Default canvas size (to become configurable).
-pub const DEFAULT_CANVAS_WIDTH: i32 = 20_000;
-pub const DEFAULT_CANVAS_HEIGHT: i32 = 12_000;
-
 #[derive(Debug, Clone)]
 pub struct Canvas {
     size: Size<i32, Logical>,

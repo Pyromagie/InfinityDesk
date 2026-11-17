@@ -16,17 +16,16 @@ const BORDER_INSIDE: f64 = 5.0;
 
 use crate::{
     arrange::{FreeSlots, Fullscreen, LayoutMenu},
-    canvas::{Canvas, DEFAULT_CANVAS_HEIGHT, DEFAULT_CANVAS_WIDTH},
+    canvas::Canvas,
     cluster::Clusters,
     config::Config,
-    grabs::HOLD_TIME,
-    render::{OUTLINE_COLOR, OUTLINE_WIDTH, Outline, outline_bars},
+    render::{OUTLINE_WIDTH, Outline, outline_bars},
     resize::{self, Edge, Follow},
 };
 use smithay::{
     backend::input::InputTime,
     desktop::{PopupManager, Space, Window, WindowSurfaceType, layer_map_for_output},
-    input::{Seat, SeatState, pointer::CursorIcon},
+    input::{Seat, SeatState, keyboard::XkbConfig, pointer::CursorIcon},
     output::Output,
     reexports::{
         calloop::{EventLoop, Interest, LoopSignal, Mode, PostAction, generic::Generic},
@@ -112,9 +111,23 @@ impl InfinityDesk {
         let output_manager_state = OutputManagerState::new_with_xdg_output::<Self>(&dh);
         let data_device_state = DataDeviceState::new::<Self>(&dh);
 
+        let config = Config::load();
         let mut seat_state = SeatState::new();
         let mut seat: Seat<Self> = seat_state.new_wl_seat(&dh, "seat0");
-        seat.add_keyboard(Default::default(), 200, 25).unwrap();
+        let k = &config.keyboard;
+        let xkb = XkbConfig {
+            rules: &k.rules,
+            model: &k.model,
+            layout: &k.layout,
+            variant: &k.variant,
+            options: k.options.clone(),
+        };
+        if let Err(err) = seat.add_keyboard(xkb, k.repeat_delay, k.repeat_rate) {
+            // E.g. a layout name that does not exist.
+            tracing::error!("Keyboard layout from the config failed ({err:?}), using the default");
+            (seat.add_keyboard(Default::default(), k.repeat_delay, k.repeat_rate))
+                .expect("the default keyboard layout must work");
+        }
         seat.add_pointer();
 
         let socket_name = Self::init_wayland_listener(display, event_loop);
@@ -124,13 +137,13 @@ impl InfinityDesk {
             socket_name,
             display_handle: dh,
             loop_signal: event_loop.get_signal(),
-            canvas: Canvas::new((DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT).into()),
+            canvas: Canvas::new(config.canvas_size.into()),
             space: Space::default(),
             popups: PopupManager::default(),
             output: None,
             unplaced: Vec::new(),
             clusters: Clusters::default(),
-            config: Config::load(),
+            config,
             pulse: None,
             selected: Vec::new(),
             selection_box: None,
@@ -281,7 +294,7 @@ impl InfinityDesk {
         }
         // The pulse grows outward around the held window(s) and fades once they are unlocked.
         if let Some((windows, pressed)) = &self.pulse {
-            let since_unlock = pressed.elapsed().checked_sub(HOLD_TIME);
+            let since_unlock = pressed.elapsed().checked_sub(self.config.hold_time);
             let t = since_unlock.map(|d| d.as_secs_f64() / PULSE_TIME.as_secs_f64());
             let geos = windows
                 .iter()
@@ -455,12 +468,9 @@ impl InfinityDesk {
     pub fn bars(&mut self) -> Vec<(Rectangle<i32, Logical>, [f32; 4])> {
         let mut bars = self.menu_bars();
         if self.fullscreen.is_none() {
-            bars.extend(self.outlines().iter().flat_map(outline_bars));
-            bars.extend(
-                self.edge_highlights()
-                    .into_iter()
-                    .map(|r| (r, OUTLINE_COLOR)),
-            );
+            let accent = self.config.accent;
+            bars.extend(self.outlines().iter().flat_map(|o| outline_bars(o, accent)));
+            bars.extend(self.edge_highlights().into_iter().map(|r| (r, accent)));
         }
         bars
     }
