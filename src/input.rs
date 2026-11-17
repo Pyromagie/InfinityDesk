@@ -3,14 +3,14 @@
 use smithay::{
     backend::input::{
         AbsolutePositionEvent, Axis, AxisSource, ButtonState, Event, InputBackend, InputEvent,
-        KeyState, KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent,
+        InputTime, KeyState, KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent,
     },
     input::{
         keyboard::{FilterResult, Keysym},
         pointer::{AxisFrame, ButtonEvent, Focus, GrabStartData, MotionEvent},
     },
     reexports::wayland_server::protocol::wl_surface::WlSurface,
-    utils::SERIAL_COUNTER,
+    utils::{Logical, Point, SERIAL_COUNTER},
     wayland::shell::wlr_layer::Layer,
 };
 
@@ -18,6 +18,8 @@ use crate::{InfinityDesk, grabs::DragGrab};
 
 /// Left mouse button (linux/input-event-codes.h).
 const BTN_LEFT: u32 = 0x110;
+/// Zoom change per scrolled pixel (a mouse wheel notch is 15 px, about 14 %).
+const ZOOM_SPEED: f64 = 0.01;
 
 enum Action {
     Spawn(&'static str),
@@ -62,20 +64,7 @@ impl InfinityDesk {
             InputEvent::PointerMotionAbsolute { event, .. } => {
                 let viewport = self.canvas.viewport();
                 let pos = event.position_transformed(viewport.size.to_i32_round()) + viewport.loc;
-
-                let serial = SERIAL_COUNTER.next_serial();
-                let pointer = self.seat.get_pointer().unwrap();
-                let under = self.surface_under(pos);
-                pointer.motion(
-                    self,
-                    under,
-                    &MotionEvent {
-                        location: pos,
-                        serial,
-                        time: event.time(),
-                    },
-                );
-                pointer.frame(self);
+                self.pointer_moved(pos, event.time());
             }
 
             InputEvent::PointerButton { event, .. } => {
@@ -89,7 +78,7 @@ impl InfinityDesk {
                 // Clicking a window raises and focuses it (with its cluster); clicking empty space unfocuses.
                 // Provisional controls until bindings become configurable:
                 //   Alt + left-drag on a window          -> move the window's whole cluster
-                //   Alt + left, hold still 0.4 s, drag -> pull just this window out of its cluster
+                //   Alt + left, hold still, then drag  -> pull just this window out of its cluster
                 //   left-drag on empty canvas   -> pan the viewport
                 let location = pointer.current_location();
                 // Launchers and bars on top of everything just get the click.
@@ -138,6 +127,22 @@ impl InfinityDesk {
                 pointer.frame(self);
             }
 
+            // Alt + scroll zooms around the pointer.
+            InputEvent::PointerAxis { event, .. }
+                if self.seat.get_keyboard().unwrap().modifier_state().alt
+                    && !self.seat.get_pointer().unwrap().is_grabbed() =>
+            {
+                let scroll = event.amount(Axis::Vertical).unwrap_or_else(|| {
+                    event.amount_v120(Axis::Vertical).unwrap_or(0.0) * 15.0 / 120.0
+                });
+                let pointer = self.seat.get_pointer().unwrap();
+                let screen = self.canvas.canvas_to_screen(pointer.current_location());
+                self.canvas.zoom_at(screen, (-scroll * ZOOM_SPEED).exp());
+                self.apply_viewport();
+                // The canvas moved under the pointer.
+                self.pointer_moved(self.canvas.screen_to_canvas(screen), event.time());
+            }
+
             InputEvent::PointerAxis { event, .. } => {
                 let source = event.source();
                 let amount = |axis| {
@@ -167,5 +172,19 @@ impl InfinityDesk {
 
             _ => {}
         }
+    }
+
+    /// Moves the pointer to a canvas position and updates what is under it.
+    fn pointer_moved(&mut self, pos: Point<f64, Logical>, time: InputTime) {
+        let pointer = self.seat.get_pointer().unwrap();
+        let under = self.surface_under(pos);
+        let serial = SERIAL_COUNTER.next_serial();
+        let motion = MotionEvent {
+            location: pos,
+            serial,
+            time,
+        };
+        pointer.motion(self, under, &motion);
+        pointer.frame(self);
     }
 }

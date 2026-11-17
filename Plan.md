@@ -59,6 +59,7 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
 - 💬 Bedienung (Maus / Tastatur / Touchpad-Gesten) – später.
 - Vorläufige Test-Bedienung (Platzhalter, bis die Bedienung entschieden ist):
   - Linksziehen auf leerer Fläche: Fläche verschieben (Pan)
+  - Alt + Mausrad: zoomen (um den Mauszeiger herum)
   - Alt + Linksziehen auf einem Fenster: Cluster verschieben
   - Alt + Linksklick, kurz stillhalten, dann ziehen: Fenster aus dem Cluster lösen
   - Mod+T Terminal (alacritty), Mod+D Launcher (fuzzel), Mod+Q Fenster schließen (wie niri). Mod = Alt im genesteten Betrieb, später Super
@@ -111,7 +112,7 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
 1. ✅ Minimaler Compositor (genestet, winit), zeigt Wayland-Clients an
 2. ✅ Fenster auf dem Canvas platzieren, Viewport verschieben
 3. ✅ Snapping + Cluster
-4. Cluster-Resize, Culling, Zoom, Cluster-Fokus
+4. ✅ Zoom + Culling · Cluster-Resize, Cluster-Fokus
 5. Lua-Konfiguration (Einstellungen, dann Tastenbelegung)
 6. Bedienung festlegen (Standard-Belegung), Hintergrund / layer-shell, Feinschliff
 7. Standalone-Betrieb (eigener Login-Eintrag, ohne niri darunter), README, Veröffentlichung

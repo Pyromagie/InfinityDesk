@@ -179,7 +179,7 @@ impl PointerGrab<InfinityDesk> for DragGrab {
             } => {
                 // Work in screen coordinates, because the canvas moves under the pointer.
                 let screen_now = data.canvas.canvas_to_screen(event.location);
-                let delta = screen_now - *start_screen;
+                let delta = (screen_now - *start_screen).downscale(data.canvas.zoom());
                 data.canvas.set_viewport_loc(*initial_viewport - delta);
                 data.apply_viewport();
             }

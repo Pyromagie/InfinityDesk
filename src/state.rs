@@ -206,11 +206,9 @@ impl InfinityDesk {
             self.pulse = None;
             return None;
         };
-        let loc = self
-            .canvas
-            .canvas_to_screen(geo.loc.to_f64())
-            .to_i32_round();
-        Some((Rectangle::new(loc, geo.size), t))
+        let loc = self.canvas.canvas_to_screen(geo.loc.to_f64());
+        let size = geo.size.to_f64().upscale(self.canvas.zoom());
+        Some((Rectangle::new(loc, size).to_i32_round(), t))
     }
 
     /// Finds the surface under a canvas point: launchers/bars on top, then windows, then wallpapers.
@@ -244,7 +242,8 @@ impl InfinityDesk {
             let loc = map.layer_geometry(layer)?.loc;
             layer
                 .surface_under(screen - loc.to_f64(), WindowSurfaceType::ALL)
-                .map(|(s, p)| (s, (p + loc).to_f64() + self.canvas.viewport_loc()))
+                // Unzoomed: the surface gets screen pixels, not canvas pixels.
+                .map(|(s, p)| (s, pos - screen + (p + loc).to_f64()))
         })
     }
 }

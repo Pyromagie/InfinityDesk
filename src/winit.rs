@@ -49,7 +49,7 @@ pub fn init_winit(
     output.set_preferred(mode);
     // Start with the viewport in the middle of the canvas, leaving room in every direction.
     state.output = Some(output.clone());
-    state.canvas.set_viewport_size(mode.size.to_logical(1));
+    state.canvas.set_screen_size(mode.size.to_logical(1));
     let canvas_size = state.canvas.size().to_f64();
     state
         .canvas
@@ -72,7 +72,7 @@ pub fn init_winit(
                     None,
                 );
                 layer_map_for_output(&output).arrange();
-                state.canvas.set_viewport_size(size.to_logical(1));
+                state.canvas.set_screen_size(size.to_logical(1));
                 state.apply_viewport();
             }
             WinitEvent::Input(event) => state.process_input_event(event),
