@@ -13,6 +13,7 @@ use smithay::{
 };
 
 use crate::{InfinityDesk, render::desk_elements};
+use smithay::desktop::layer_map_for_output;
 
 /// Canvas background color (RGBA).
 const BACKGROUND: [f32; 4] = [0.1, 0.1, 0.12, 1.0];
@@ -70,6 +71,7 @@ pub fn init_winit(
                     None,
                     None,
                 );
+                layer_map_for_output(&output).arrange();
                 state.canvas.set_viewport_size(size.to_logical(1));
                 state.apply_viewport();
             }
@@ -102,6 +104,15 @@ pub fn init_winit(
                         |_, _| Some(output.clone()),
                     )
                 });
+
+                for layer in layer_map_for_output(&output).layers() {
+                    layer.send_frame(
+                        &output,
+                        state.start_time.elapsed(),
+                        Some(Duration::ZERO),
+                        |_, _| Some(output.clone()),
+                    );
+                }
 
                 state.space.refresh();
                 state.popups.cleanup();

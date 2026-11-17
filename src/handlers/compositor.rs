@@ -40,6 +40,7 @@ impl CompositorHandler for InfinityDesk {
         }
 
         self.handle_xdg_commit(surface);
+        self.handle_layer_commit(surface);
         self.place_if_pending(surface);
     }
 }

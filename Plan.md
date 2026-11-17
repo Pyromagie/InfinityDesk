@@ -47,7 +47,11 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
   - **Standard:** Nachbarn im Cluster wachsen/schrumpfen mit (der Viewport ist nur ein Bildschirm, daher nicht einfach wegschieben).
   - **Mit Shift (o. ä.) gehalten:** nur das gezogene Fenster ändert seine Größe, das Nachbarfenster (und alles dahinter) wird verschoben.
   - ✅ "Verschoben" gilt für alles, was auf der anderen Seite der Kante im Cluster hängt. Das Cluster bleibt zusammen, wird nur größer/kleiner.
-- ✅ Fenster löst man per **Ruck** (schnelles Wegziehen) aus dem Cluster: aktuell 120 px innerhalb der ersten 150 ms. Die übrigen Fenster springen zurück; zerfällt der Rest, entstehen mehrere Cluster. 💬 Werte beim Testen feinjustieren.
+- 💬 Fenster aus dem Cluster lösen, ohne Taste. Der Ruck (schnelles Wegziehen) war zu empfindlich und die anderen Fenster reisten kurz mit. Wir probieren der Reihe nach:
+  1. 🧪 **Schütteln** (aktuell): 3 Richtungswechsel à 40 px innerhalb von 0,6 s
+  2. Gegen Widerstand ziehen
+  3. Doppelklick + Ziehen
+  4. Lange drücken (~0,4 s stillhalten, dann allein ziehen)
 - ✅ Orangener Punkt in der Skizze: ohne Bedeutung (Artefakt vom Zeichenprogramm).
 
 ## 6. Navigation
@@ -58,13 +62,14 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
 - 💬 Bedienung (Maus / Tastatur / Touchpad-Gesten) – später.
 - Vorläufige Test-Bedienung (Platzhalter, bis die Bedienung entschieden ist):
   - Linksziehen auf leerer Fläche: Fläche verschieben (Pan)
-  - Alt + Linksziehen auf einem Fenster: Fenster verschieben
+  - Alt + Linksziehen auf einem Fenster: Cluster verschieben
+  - Mod+T Terminal (alacritty), Mod+D Launcher (fuzzel), Mod+Q Fenster schließen (wie niri). Mod = Alt im genesteten Betrieb, später Super
   - (Super ist im genesteten Betrieb von niri belegt, daher Alt)
 
 ## 6b. Hintergrund (später)
 
 - 💡 Ebenen von hinten nach vorne: **Hintergrund** (fest am Bildschirm) → **Canvas** (Raster + Fenster, bewegt sich beim Pan) → ggf. Leisten obendrauf.
-- 💡 Vorschlag: `layer-shell`-Protokoll unterstützen, damit vorhandene Tools funktionieren (swaybg/swww für Wallpaper, Waybar als Leiste).
+- ✅ `layer-shell`-Protokoll ist eingebaut (für fuzzel). Damit sollten auch swaybg/swww und Waybar gehen, damit vorhandene Tools funktionieren (swaybg/swww für Wallpaper, Waybar als Leiste).
 - 💬 Hintergrund komplett fest oder leichter **Parallax**-Effekt (bewegt sich beim Pannen langsam mit)?
 
 ## 6c. Veröffentlichung & Konfiguration

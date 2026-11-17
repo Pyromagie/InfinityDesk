@@ -29,8 +29,12 @@ cargo run -- -c kitty     # start a different program inside
 | Pan the canvas                | Left-drag on empty space            |
 | Move a window / its cluster   | Alt + left-drag on a window         |
 | Dock windows                  | Drag a window close to another one  |
-| Detach a window from cluster  | Yank it away quickly at drag start  |
+| Detach a window from cluster  | Shake it while dragging             |
+| Open a terminal (alacritty)   | Alt + T                             |
+| App launcher (fuzzel)         | Alt + D                             |
+| Close the focused window      | Alt + Q                             |
 
+Alt is the modifier while running nested (like niri does); standalone it will be Super.
 Controls will become configurable.
 
 ## License

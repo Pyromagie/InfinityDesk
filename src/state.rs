@@ -5,7 +5,7 @@ use crate::{
     cluster::Clusters,
 };
 use smithay::{
-    desktop::{PopupManager, Space, Window, WindowSurfaceType},
+    desktop::{PopupManager, Space, Window, WindowSurfaceType, layer_map_for_output},
     input::{Seat, SeatState},
     output::Output,
     reexports::{
@@ -19,7 +19,10 @@ use smithay::{
         compositor::{CompositorClientState, CompositorState},
         output::OutputManagerState,
         selection::data_device::DataDeviceState,
-        shell::xdg::XdgShellState,
+        shell::{
+            wlr_layer::{Layer, WlrLayerShellState},
+            xdg::XdgShellState,
+        },
         shm::ShmState,
         socket::ListeningSocketSource,
     },
@@ -47,6 +50,7 @@ pub struct InfinityDesk {
     // Smithay protocol state
     pub compositor_state: CompositorState,
     pub xdg_shell_state: XdgShellState,
+    pub layer_shell_state: WlrLayerShellState,
     pub shm_state: ShmState,
     pub output_manager_state: OutputManagerState,
     pub seat_state: SeatState<InfinityDesk>,
@@ -60,6 +64,7 @@ impl InfinityDesk {
 
         let compositor_state = CompositorState::new::<Self>(&dh);
         let xdg_shell_state = XdgShellState::new::<Self>(&dh);
+        let layer_shell_state = WlrLayerShellState::new::<Self>(&dh);
         let shm_state = ShmState::new::<Self>(&dh, vec![]);
         let output_manager_state = OutputManagerState::new_with_xdg_output::<Self>(&dh);
         let data_device_state = DataDeviceState::new::<Self>(&dh);
@@ -84,6 +89,7 @@ impl InfinityDesk {
             clusters: Clusters::default(),
             compositor_state,
             xdg_shell_state,
+            layer_shell_state,
             shm_state,
             output_manager_state,
             seat_state,
@@ -179,18 +185,39 @@ impl InfinityDesk {
         self.space.raise_element(window, true);
     }
 
-    /// Finds the surface (window/popup) under a point.
+    /// Finds the surface under a canvas point: launchers/bars on top, then windows, then wallpapers.
     pub fn surface_under(
         &self,
         pos: Point<f64, Logical>,
     ) -> Option<(WlSurface, Point<f64, Logical>)> {
-        self.space
-            .element_under(pos)
-            .and_then(|(window, location)| {
-                window
-                    .surface_under(pos - location.to_f64(), WindowSurfaceType::ALL)
-                    .map(|(s, p)| (s, (p + location).to_f64()))
+        self.layer_surface_under(pos, &[Layer::Overlay, Layer::Top])
+            .or_else(|| {
+                self.space
+                    .element_under(pos)
+                    .and_then(|(window, location)| {
+                        window
+                            .surface_under(pos - location.to_f64(), WindowSurfaceType::ALL)
+                            .map(|(s, p)| (s, (p + location).to_f64()))
+                    })
             })
+            .or_else(|| self.layer_surface_under(pos, &[Layer::Bottom, Layer::Background]))
+    }
+
+    /// Layer surfaces are placed on the screen, so convert canvas <-> screen coordinates around the lookup.
+    pub fn layer_surface_under(
+        &self,
+        pos: Point<f64, Logical>,
+        layers: &[Layer],
+    ) -> Option<(WlSurface, Point<f64, Logical>)> {
+        let map = layer_map_for_output(self.output.as_ref()?);
+        let screen = self.canvas.canvas_to_screen(pos);
+        layers.iter().find_map(|&l| {
+            let layer = map.layer_under(l, screen)?;
+            let loc = map.layer_geometry(layer)?.loc;
+            layer
+                .surface_under(screen - loc.to_f64(), WindowSurfaceType::ALL)
+                .map(|(s, p)| (s, (p + loc).to_f64() + self.canvas.viewport_loc()))
+        })
     }
 }
 

@@ -27,7 +27,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     unsafe { std::env::set_var("WAYLAND_DISPLAY", &state.socket_name) };
     tracing::info!("InfinityDesk running on {:?}", state.socket_name);
 
-    spawn_client();
+    // Start a program inside: `-c <program>`, otherwise a terminal.
+    let mut args = std::env::args().skip(1);
+    match (args.next().as_deref(), args.next()) {
+        (Some("-c" | "--command"), Some(cmd)) => spawn(&cmd),
+        _ => spawn("alacritty"),
+    }
 
     event_loop.run(None, &mut state, |_| {})?;
     Ok(())
@@ -39,14 +44,11 @@ fn init_logging() {
     tracing_subscriber::fmt().with_env_filter(filter).init();
 }
 
-/// Spawns a test client inside the compositor: `-c <program>`, otherwise a terminal.
-fn spawn_client() {
-    let mut args = std::env::args().skip(1);
-    let command = match (args.next().as_deref(), args.next()) {
-        (Some("-c" | "--command"), Some(cmd)) => cmd,
-        _ => "alacritty".to_string(),
-    };
-    if let Err(err) = std::process::Command::new(&command).spawn() {
-        tracing::warn!("Failed to spawn {command}: {err}");
+/// Starts a program inside InfinityDesk.
+pub fn spawn(command: &str) {
+    match std::process::Command::new(command).spawn() {
+        // Reap the child when it exits, so it does not linger as a zombie.
+        Ok(mut child) => drop(std::thread::spawn(move || child.wait())),
+        Err(err) => tracing::warn!("Failed to spawn {command}: {err}"),
     }
 }

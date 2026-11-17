@@ -3,14 +3,15 @@
 use smithay::{
     backend::input::{
         AbsolutePositionEvent, Axis, AxisSource, ButtonState, Event, InputBackend, InputEvent,
-        KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent,
+        KeyState, KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent,
     },
     input::{
-        keyboard::FilterResult,
+        keyboard::{FilterResult, Keysym},
         pointer::{AxisFrame, ButtonEvent, Focus, GrabStartData, MotionEvent},
     },
     reexports::wayland_server::protocol::wl_surface::WlSurface,
     utils::SERIAL_COUNTER,
+    wayland::shell::wlr_layer::Layer,
 };
 
 use crate::{InfinityDesk, grabs::DragGrab};
@@ -18,20 +19,44 @@ use crate::{InfinityDesk, grabs::DragGrab};
 /// Left mouse button (linux/input-event-codes.h).
 const BTN_LEFT: u32 = 0x110;
 
+enum Action {
+    Spawn(&'static str),
+    CloseWindow,
+}
+
 impl InfinityDesk {
     pub fn process_input_event<I: InputBackend>(&mut self, event: InputEvent<I>) {
         match event {
             InputEvent::Keyboard { event, .. } => {
-                let serial = SERIAL_COUNTER.next_serial();
-                let time = event.time();
-                self.seat.get_keyboard().unwrap().input::<(), _>(
+                let pressed = event.state() == KeyState::Pressed;
+                let keyboard = self.seat.get_keyboard().unwrap();
+                let action = keyboard.input(
                     self,
                     event.key_code(),
                     event.state(),
-                    serial,
-                    time,
-                    |_, _, _| FilterResult::Forward,
+                    SERIAL_COUNTER.next_serial(),
+                    event.time(),
+                    // Provisional niri-like bindings. Mod is Alt while nested (niri does the same).
+                    |_, mods, keysym| match keysym.modified_sym() {
+                        _ if !pressed || !mods.alt => FilterResult::Forward,
+                        Keysym::t => FilterResult::Intercept(Action::Spawn("alacritty")),
+                        Keysym::d => FilterResult::Intercept(Action::Spawn("fuzzel")),
+                        Keysym::q => FilterResult::Intercept(Action::CloseWindow),
+                        _ => FilterResult::Forward,
+                    },
                 );
+                match action {
+                    Some(Action::Spawn(command)) => crate::spawn(command),
+                    Some(Action::CloseWindow) => {
+                        let focused = keyboard
+                            .current_focus()
+                            .and_then(|s| self.window_for_surface(&s));
+                        if let Some(window) = focused {
+                            window.toplevel().unwrap().send_close();
+                        }
+                    }
+                    None => {}
+                }
             }
 
             InputEvent::PointerMotionAbsolute { event, .. } => {
@@ -65,8 +90,12 @@ impl InfinityDesk {
                 // Provisional controls until bindings become configurable:
                 //   Alt + left-drag on a window -> move the window's cluster
                 //   left-drag on empty canvas   -> pan the viewport
-                if button_state == ButtonState::Pressed && !pointer.is_grabbed() {
-                    let location = pointer.current_location();
+                let location = pointer.current_location();
+                // Launchers and bars on top of everything just get the click.
+                let on_layer = self
+                    .layer_surface_under(location, &[Layer::Overlay, Layer::Top])
+                    .is_some();
+                if button_state == ButtonState::Pressed && !pointer.is_grabbed() && !on_layer {
                     let clicked = self.space.element_under(location).map(|(w, _)| w.clone());
                     let alt = keyboard.modifier_state().alt;
                     let start_data = GrabStartData {

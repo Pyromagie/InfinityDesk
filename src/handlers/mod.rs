@@ -1,6 +1,7 @@
 //! Wayland protocol handlers required by Smithay.
 
 mod compositor;
+mod layer_shell;
 mod xdg_shell;
 
 use smithay::{
