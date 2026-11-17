@@ -14,7 +14,7 @@ use smithay::{
             Display, DisplayHandle, backend::ClientData, protocol::wl_surface::WlSurface,
         },
     },
-    utils::{Logical, Point},
+    utils::{Logical, Point, SERIAL_COUNTER},
     wayland::{
         compositor::{CompositorClientState, CompositorState},
         output::OutputManagerState,
@@ -146,7 +146,20 @@ impl InfinityDesk {
         }
         let window = self.unplaced.remove(idx);
         let loc = self.canvas.centered_in_viewport(size);
-        self.space.map_element(window, loc, true);
+        self.space.map_element(window.clone(), loc, false);
+        self.focus_window(&window);
+    }
+
+    /// Raises the window with its cluster and gives it keyboard focus.
+    pub fn focus_window(&mut self, window: &Window) {
+        self.raise_cluster(window);
+        let surface = window.toplevel().unwrap().wl_surface().clone();
+        let keyboard = self.seat.get_keyboard().unwrap();
+        keyboard.set_focus(self, Some(surface), SERIAL_COUNTER.next_serial());
+        // Tell all windows whether they are active now.
+        self.space.elements().for_each(|w| {
+            w.toplevel().unwrap().send_pending_configure();
+        });
     }
 
     pub fn window_for_surface(&self, surface: &WlSurface) -> Option<Window> {

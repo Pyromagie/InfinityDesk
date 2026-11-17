@@ -46,10 +46,11 @@ impl Canvas {
         self.viewport_loc + Point::from((s.w / 2.0, s.h / 2.0))
     }
 
-    /// The screen was resized.
+    /// The screen was resized; the viewport keeps its center.
     pub fn set_viewport_size(&mut self, size: Size<i32, Logical>) {
+        let center = self.viewport_center();
         self.viewport_size = size;
-        self.set_viewport_loc(self.viewport_loc);
+        self.center_viewport_on(center);
     }
 
     /// Moves the viewport; it always stays inside the canvas and on whole pixels.
@@ -124,6 +125,14 @@ mod tests {
             c.viewport_loc(),
             ((10_000 - 1920) as f64, (6_000 - 1080) as f64).into()
         );
+    }
+
+    #[test]
+    fn resize_keeps_center() {
+        let mut c = canvas();
+        c.center_viewport_on((5_000.0, 3_000.0).into());
+        c.set_viewport_size((800, 600).into());
+        assert_eq!(c.viewport_center(), (5_000.0, 3_000.0).into());
     }
 
     #[test]

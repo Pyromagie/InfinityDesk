@@ -76,12 +76,7 @@ impl InfinityDesk {
                     };
 
                     if let Some(window) = clicked {
-                        self.raise_cluster(&window);
-                        keyboard.set_focus(
-                            self,
-                            Some(window.toplevel().unwrap().wl_surface().clone()),
-                            serial,
-                        );
+                        self.focus_window(&window);
                         if alt && button == BTN_LEFT {
                             let grab = DragGrab::move_window(self, start_data, window);
                             pointer.set_grab(self, grab, serial, Focus::Clear);
@@ -90,15 +85,15 @@ impl InfinityDesk {
                         self.space.elements().for_each(|w| {
                             w.set_activated(false);
                         });
+                        self.space.elements().for_each(|w| {
+                            w.toplevel().unwrap().send_pending_configure();
+                        });
                         keyboard.set_focus(self, Option::<WlSurface>::None, serial);
                         if button == BTN_LEFT {
                             let grab = DragGrab::pan(self, start_data);
                             pointer.set_grab(self, grab, serial, Focus::Clear);
                         }
                     }
-                    self.space.elements().for_each(|w| {
-                        w.toplevel().unwrap().send_pending_configure();
-                    });
                 }
 
                 pointer.button(
