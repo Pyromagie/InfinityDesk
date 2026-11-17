@@ -1,8 +1,16 @@
-use std::{ffi::OsString, sync::Arc};
+use std::{
+    ffi::OsString,
+    sync::Arc,
+    time::{Duration, Instant},
+};
+
+/// How long the "unlocked" pulse lasts.
+const PULSE_TIME: Duration = Duration::from_millis(350);
 
 use crate::{
     canvas::{Canvas, DEFAULT_CANVAS_HEIGHT, DEFAULT_CANVAS_WIDTH},
     cluster::Clusters,
+    grabs::HOLD_TIME,
 };
 use smithay::{
     desktop::{PopupManager, Space, Window, WindowSurfaceType, layer_map_for_output},
@@ -14,7 +22,7 @@ use smithay::{
             Display, DisplayHandle, backend::ClientData, protocol::wl_surface::WlSurface,
         },
     },
-    utils::{Logical, Point, SERIAL_COUNTER},
+    utils::{Logical, Point, Rectangle, SERIAL_COUNTER},
     wayland::{
         compositor::{CompositorClientState, CompositorState},
         output::OutputManagerState,
@@ -46,6 +54,8 @@ pub struct InfinityDesk {
     pub unplaced: Vec<Window>,
     /// Which windows belong to which cluster.
     pub clusters: Clusters<Window>,
+    /// A window held to pull it out of its cluster, with the press time. It pulses when unlocked.
+    pub pulse: Option<(Window, Instant)>,
 
     // Smithay protocol state
     pub compositor_state: CompositorState,
@@ -87,6 +97,7 @@ impl InfinityDesk {
             output: None,
             unplaced: Vec::new(),
             clusters: Clusters::default(),
+            pulse: None,
             compositor_state,
             xdg_shell_state,
             layer_shell_state,
@@ -183,6 +194,23 @@ impl InfinityDesk {
             }
         }
         self.space.raise_element(window, true);
+    }
+
+    /// The "unlocked" pulse around a held window: its screen rectangle and progress (0..1).
+    pub fn pulse(&mut self) -> Option<(Rectangle<i32, Logical>, f64)> {
+        let (window, pressed) = self.pulse.clone()?;
+        let since_unlock = pressed.elapsed().checked_sub(HOLD_TIME)?;
+        let t = since_unlock.as_secs_f64() / PULSE_TIME.as_secs_f64();
+        let geo = self.space.element_geometry(&window).filter(|_| t < 1.0);
+        let Some(geo) = geo else {
+            self.pulse = None;
+            return None;
+        };
+        let loc = self
+            .canvas
+            .canvas_to_screen(geo.loc.to_f64())
+            .to_i32_round();
+        Some((Rectangle::new(loc, geo.size), t))
     }
 
     /// Finds the surface under a canvas point: launchers/bars on top, then windows, then wallpapers.

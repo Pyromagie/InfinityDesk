@@ -2,6 +2,7 @@
 
 use smithay::{
     backend::renderer::{
+        Color32F,
         element::{
             Id, Kind, render_elements, solid::SolidColorRenderElement,
             surface::WaylandSurfaceRenderElement,
@@ -14,7 +15,7 @@ use smithay::{
         space::{SpaceRenderElements, space_render_elements},
     },
     output::Output,
-    utils::{Physical, Point, Rectangle},
+    utils::{Logical, Physical, Point, Rectangle},
 };
 
 use crate::canvas::Canvas;
@@ -24,6 +25,11 @@ const GRID_SPACING: f64 = 100.0;
 /// Size of a grid dot in pixels.
 const GRID_DOT_SIZE: i32 = 2;
 const GRID_DOT_COLOR: [f32; 4] = [0.28, 0.28, 0.32, 1.0];
+
+const PULSE_COLOR: [f32; 4] = [0.35, 0.65, 1.0, 1.0];
+/// Thickness of the pulse ring and how far it grows outward (in pixels).
+const PULSE_WIDTH: i32 = 4;
+const PULSE_GROW: f64 = 16.0;
 
 render_elements! {
     pub DeskElement<=GlesRenderer>;
@@ -56,18 +62,57 @@ fn grid_elements(canvas: &Canvas) -> Vec<SolidColorRenderElement> {
     out
 }
 
+/// A ring around a window that grows outward and fades: the window was unlocked from its cluster.
+fn pulse_elements(rect: Rectangle<i32, Logical>, t: f64) -> Vec<SolidColorRenderElement> {
+    let color = Color32F::from(PULSE_COLOR) * (1.0 - t) as f32;
+    let o = (t * PULSE_GROW) as i32 + PULSE_WIDTH;
+    let (x, y, w, h) = (
+        rect.loc.x - o,
+        rect.loc.y - o,
+        rect.size.w + 2 * o,
+        rect.size.h + 2 * o,
+    );
+    let edges = [
+        (x, y, w, PULSE_WIDTH),
+        (x, y + h - PULSE_WIDTH, w, PULSE_WIDTH),
+        (x, y, PULSE_WIDTH, h),
+        (x + w - PULSE_WIDTH, y, PULSE_WIDTH, h),
+    ];
+    edges
+        .into_iter()
+        .map(|(x, y, w, h)| {
+            let geo = Rectangle::<i32, Physical>::new((x, y).into(), (w, h).into());
+            SolidColorRenderElement::new(
+                Id::new(),
+                geo,
+                CommitCounter::default(),
+                color,
+                Kind::Unspecified,
+            )
+        })
+        .collect()
+}
+
 /// All elements of a frame, front to back: windows, then the grid.
 pub fn desk_elements(
     renderer: &mut GlesRenderer,
     output: &Output,
     space: &Space<Window>,
     canvas: &Canvas,
+    pulse: Option<(Rectangle<i32, Logical>, f64)>,
 ) -> Vec<DeskElement> {
-    let mut elements: Vec<DeskElement> = space_render_elements(renderer, [space], output, 1.0)
+    let mut elements: Vec<DeskElement> = pulse
+        .map(|(rect, t)| pulse_elements(rect, t))
         .unwrap_or_default()
         .into_iter()
-        .map(DeskElement::Space)
+        .map(DeskElement::Solid)
         .collect();
+    elements.extend(
+        space_render_elements(renderer, [space], output, 1.0)
+            .unwrap_or_default()
+            .into_iter()
+            .map(DeskElement::Space),
+    );
     elements.extend(grid_elements(canvas).into_iter().map(DeskElement::Solid));
     elements
 }

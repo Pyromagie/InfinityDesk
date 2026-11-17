@@ -57,7 +57,7 @@ fn others<'a>(
 }
 
 /// Holding still this long before dragging pulls the window out of its cluster.
-const HOLD_TIME: Duration = Duration::from_millis(400);
+pub const HOLD_TIME: Duration = Duration::from_millis(300);
 /// Pointer movement (in pixels) that still counts as holding still.
 const HOLD_TOLERANCE: f64 = 6.0;
 
@@ -93,12 +93,14 @@ pub struct DragGrab {
 impl DragGrab {
     /// Dragging a window moves its whole cluster; holding still first pulls just this window out.
     pub fn move_window(
-        state: &InfinityDesk,
+        state: &mut InfinityDesk,
         start_data: GrabStartData<InfinityDesk>,
         window: Window,
     ) -> Self {
         let cluster = state.clusters.members(&window);
         let pressed = (cluster.len() > 1).then(Instant::now);
+        // Pulses once the window is unlocked (see `InfinityDesk::pulse`).
+        state.pulse = pressed.map(|time| (window.clone(), time));
         let members = cluster
             .into_iter()
             .filter_map(|w| {
@@ -155,7 +157,9 @@ impl PointerGrab<InfinityDesk> for DragGrab {
                         return;
                     }
                     *pressed = None;
-                    if time.elapsed() >= HOLD_TIME {
+                    if time.elapsed() < HOLD_TIME {
+                        data.pulse = None;
+                    } else {
                         tracing::info!("Window pulled out of its cluster");
                         members.retain(|m| &m.window == grabbed);
                         let space = &data.space;
@@ -299,9 +303,16 @@ impl PointerGrab<InfinityDesk> for DragGrab {
 
     /// Button released: if the cluster now touches other windows, they get docked.
     fn unset(&mut self, data: &mut InfinityDesk) {
-        let DragKind::MoveWindows { members, .. } = &self.kind else {
+        let DragKind::MoveWindows {
+            members, pressed, ..
+        } = &self.kind
+        else {
             return;
         };
+        // Released without moving: no pulse anymore.
+        if pressed.is_some() {
+            data.pulse = None;
+        }
         let moved: Vec<(Window, Rect)> = members
             .iter()
             .filter_map(|m| Some((m.window.clone(), data.space.element_geometry(&m.window)?)))
