@@ -40,6 +40,10 @@ impl Canvas {
         self.zoom
     }
 
+    pub fn screen_size(&self) -> Size<i32, Logical> {
+        self.screen
+    }
+
     pub fn viewport_loc(&self) -> Point<f64, Logical> {
         self.viewport_loc
     }
@@ -88,6 +92,12 @@ impl Canvas {
         let anchor = self.screen_to_canvas(screen);
         self.zoom = (self.zoom * factor).clamp(self.min_zoom(), 1.0);
         self.set_viewport_loc(anchor - screen.downscale(self.zoom));
+    }
+
+    /// Goes back to a view saved earlier (`viewport_loc` and `zoom`).
+    pub fn set_view(&mut self, loc: Point<f64, Logical>, zoom: f64) {
+        self.zoom = zoom.clamp(self.min_zoom(), 1.0);
+        self.set_viewport_loc(loc);
     }
 
     /// Shows `rect` (e.g. a cluster) with its top-left corner in the top-left corner of the
@@ -241,6 +251,16 @@ mod tests {
         // Too tall instead: limited by the height.
         c.focus_on(Rectangle::new((3_000, 2_000).into(), (1_000, 2_160).into()));
         assert_eq!(c.zoom(), 0.5);
+    }
+
+    #[test]
+    fn saved_view_comes_back() {
+        let mut c = canvas();
+        c.zoom_at((300.0, 200.0).into(), 0.5);
+        let (loc, zoom) = (c.viewport_loc(), c.zoom());
+        c.focus_on(Rectangle::new((3_000, 2_000).into(), (1_920, 1_080).into()));
+        c.set_view(loc, zoom);
+        assert_eq!((c.viewport_loc(), c.zoom()), (loc, zoom));
     }
 
     #[test]

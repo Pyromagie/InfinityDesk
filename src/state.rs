@@ -15,11 +15,12 @@ const BORDER_OUTSIDE: f64 = 10.0;
 const BORDER_INSIDE: f64 = 5.0;
 
 use crate::{
+    arrange::{FreeSlots, Fullscreen, LayoutMenu},
     canvas::{Canvas, DEFAULT_CANVAS_HEIGHT, DEFAULT_CANVAS_WIDTH},
     cluster::Clusters,
     config::Config,
     grabs::HOLD_TIME,
-    render::{OUTLINE_WIDTH, Outline},
+    render::{OUTLINE_COLOR, OUTLINE_WIDTH, Outline, outline_bars},
     resize::{self, Edge, Follow},
 };
 use smithay::{
@@ -78,6 +79,12 @@ pub struct InfinityDesk {
     pub resize_hint: Vec<(Window, [Follow; 2])>,
     /// Pointer image shown by the host (resize arrows at window borders).
     pub cursor: CursorIcon,
+    /// The fullscreen window (Alt+F).
+    pub fullscreen: Option<Fullscreen>,
+    /// The open template menu (Alt+W).
+    pub layout_menu: Option<LayoutMenu>,
+    /// Slots of the last applied template that new windows fill.
+    pub free_slots: Option<FreeSlots>,
 
     // Smithay protocol state
     pub compositor_state: CompositorState,
@@ -125,6 +132,9 @@ impl InfinityDesk {
             selection_box: None,
             resize_hint: Vec::new(),
             cursor: CursorIcon::Default,
+            fullscreen: None,
+            layout_menu: None,
+            free_slots: None,
             resizing: HashMap::new(),
             compositor_state,
             xdg_shell_state,
@@ -190,8 +200,18 @@ impl InfinityDesk {
             return;
         }
         let window = self.unplaced.remove(idx);
-        let loc = self.canvas.centered_in_viewport(size);
-        self.space.map_element(window.clone(), loc, false);
+        // A free template slot was reserved for it when it was configured the first time.
+        match self.resizing.get(&window).map(|r| r.rect) {
+            Some(slot) => {
+                self.space.map_element(window.clone(), slot.loc, false);
+                self.dock_into_slot(&window, slot);
+                self.place_resized(&window);
+            }
+            None => {
+                let loc = self.canvas.centered_in_viewport(size);
+                self.space.map_element(window.clone(), loc, false);
+            }
+        }
         self.focus_window(&window);
     }
 
@@ -213,19 +233,6 @@ impl InfinityDesk {
             .cloned()
     }
 
-    /// Alt+F: moves the viewport onto the window's cluster (see `Canvas::focus_on`).
-    pub fn focus_cluster(&mut self, window: &Window) {
-        let members = self.clusters.members(window);
-        let geos = members
-            .iter()
-            .filter_map(|w| self.space.element_geometry(w));
-        let Some(bbox) = geos.reduce(|a, b| a.merge(b)) else {
-            return;
-        };
-        self.canvas.focus_on(bbox);
-        self.apply_viewport();
-    }
-
     /// Raises a window together with its whole cluster.
     pub fn raise_cluster(&mut self, window: &Window) {
         for w in self.clusters.members(window) {
@@ -237,7 +244,7 @@ impl InfinityDesk {
     }
 
     /// Blue frames to draw: the "unlocked" pulse, selected windows and the selection box.
-    pub fn outlines(&mut self) -> Vec<Outline> {
+    fn outlines(&mut self) -> Vec<Outline> {
         let mut outlines: Vec<Outline> = self
             .selected
             .iter()
@@ -282,6 +289,10 @@ impl InfinityDesk {
         let Some(Resizing { rect, anchor_end }) = self.resizing.get(window) else {
             return;
         };
+        // New windows are placed by `place_if_pending` once they have content.
+        if self.unplaced.contains(window) {
+            return;
+        }
         let size = window.geometry().size;
         let pos =
             |start: i32, len: i32, now: i32, end: bool| if end { start + len - now } else { start };
@@ -348,7 +359,7 @@ impl InfinityDesk {
     }
 
     /// Screen rectangles of the edges in `resize_hint`.
-    pub fn edge_highlights(&self) -> Vec<Rectangle<i32, Logical>> {
+    fn edge_highlights(&self) -> Vec<Rectangle<i32, Logical>> {
         let half = OUTLINE_WIDTH / 2;
         let mut bars = Vec::new();
         for (window, follow) in &self.resize_hint {
@@ -401,7 +412,7 @@ impl InfinityDesk {
         &self,
         pos: Point<f64, Logical>,
     ) -> Option<(WlSurface, Point<f64, Logical>)> {
-        self.layer_surface_under(pos, &[Layer::Overlay, Layer::Top])
+        self.layer_surface_under(pos, self.upper_layers())
             .or_else(|| {
                 self.space
                     .element_under(pos)
@@ -412,6 +423,29 @@ impl InfinityDesk {
                     })
             })
             .or_else(|| self.layer_surface_under(pos, &[Layer::Bottom, Layer::Background]))
+    }
+
+    /// Layers drawn above the windows: bars (Top) are covered by a fullscreen window.
+    pub fn upper_layers(&self) -> &'static [Layer] {
+        match self.fullscreen {
+            Some(_) => &[Layer::Overlay],
+            None => &[Layer::Overlay, Layer::Top],
+        }
+    }
+
+    /// Everything drawn as solid rectangles on top (screen coordinates, front to back): the
+    /// template menu, blue frames and lit edges. A fullscreen window hides the frames and edges.
+    pub fn bars(&mut self) -> Vec<(Rectangle<i32, Logical>, [f32; 4])> {
+        let mut bars = self.menu_bars();
+        if self.fullscreen.is_none() {
+            bars.extend(self.outlines().iter().flat_map(outline_bars));
+            bars.extend(
+                self.edge_highlights()
+                    .into_iter()
+                    .map(|r| (r, OUTLINE_COLOR)),
+            );
+        }
+        bars
     }
 
     /// Layer surfaces are placed on the screen, so convert canvas <-> screen coordinates around the lookup.

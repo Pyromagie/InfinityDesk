@@ -23,7 +23,13 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
 - ✅ **Fenster**: frei platzier- und skalierbar.
 - ✅ **Cluster**: Gruppe aneinander angedockter Fenster, als Ganzes verschiebbar.
 - ✅ **Freie Ansicht**: normalerweise betrachtet man die Fläche frei aus jeder Position, nichts rastet ein.
-- ✅ **Cluster-Fokus (Viewport andocken)**: will man ein Cluster richtig benutzen, wird der Viewport so daran angedockt, dass die linke obere Ecke des obersten linken Fensters an der linken oberen Ecke des Bildschirms sitzt. Eingebaut: **Mod+F** fokussiert das Cluster des aktiven Fensters (nicht das unter der Maus). Genau genommen kommt die linke obere Ecke des ganzen Clusters (umschließendes Rechteck) in die Bildschirmecke, damit bei versetzten Fenstern nichts links oder oben abgeschnitten wird. Zoom 1:1, wenn das Cluster passt, sonst gerade so weit herausgezoomt, dass es passt.
+- ✅ **Cluster-Fokus über Vorlagen (Mod+W)**: will man ein Cluster richtig benutzen, ordnet man es per Vorlage so an, dass es genau einen Bildschirm füllt (wie Snap-Layouts in Windows 11). Mod+W öffnet ein Menü in der Bildschirmmitte mit kleinen Bildern der Vorlagen: ganzer Bildschirm, Hälfte|Hälfte, zwei Drittel|Drittel, Hälfte|zwei Viertel, zwei Viertel|Hälfte, drei Spalten, Viertel|Hälfte|Viertel (für Ultrawide), vier Viertel.
+  - Klick auf einen Platz = das aktive Fenster kommt dorthin, die übrigen Fenster des Clusters in die Plätze, die ihrer jetzigen Lage am nächsten sind. Tasten 1–8 = Vorlage mit ganz automatischer Zuordnung. Esc oder Klick daneben schließt.
+  - Vorlagen mit weniger Plätzen als das Cluster Fenster hat sind ausgegraut.
+  - Freie Plätze bleiben frei; die nächsten neuen Fenster füllen sie der Reihe nach (nur wenn der Platz gerade auf dem Bildschirm und nicht von einem anderen Fenster belegt ist).
+  - Die Vorlage beginnt an der linken oberen Ecke des Clusters; die Ansicht springt hin (1:1). Danach bleibt die Ansicht frei (kein gesperrter Modus).
+  - Verworfen: Mod+F springt nur mit dem Cluster in die Bildschirmecke (zu wenig: man will das Cluster gleich passend anordnen).
+- ✅ **Vollbild (Mod+F)**: das aktive Fenster liegt bildschirmfüllend über allem, auch über Leisten. Sein Platz im Cluster und die Fläche darunter bleiben, Schieben/Zoomen/Ränder sind aus. Mod+F nochmal = zurück an den alten Platz und zur alten Ansicht. Programme können es auch selbst anfordern (F11, Video-Vollbild). Ein neues Fenster beendet das Vollbild.
 - ✅ **Culling**: nur sichtbare Fenster werden gerendert (eingebaut mit dem Zoom).
 
 ## 3. Technik
@@ -72,6 +78,7 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
   - Alt + Rechtsziehen: Größe ändern, Nachbarn im Cluster passen sich an · mit Shift: Rest des Clusters rückt mit
   - Alt + Linksklick, kurz stillhalten, dann ziehen: Fenster aus dem Cluster lösen (markierte Fenster gemeinsam)
   - Alt + Shift + Klick: Fenster markieren · Alt + Shift + Ziehen auf leerer Fläche: Auswahlrahmen
+  - Mod+W Vorlagen-Menü, Mod+F Vollbild
   - Mod+T Terminal (alacritty), Mod+D Launcher (fuzzel), Mod+Q Fenster schließen (wie niri). Mod = Alt im genesteten Betrieb, später Super
   - (Super ist im genesteten Betrieb von niri belegt, daher Alt. In der eigenständigen Sitzung werden alle Alt-Kürzel zu Super-Kürzeln, so will es Pyro.)
 
@@ -122,7 +129,7 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
 1. ✅ Minimaler Compositor (genestet, winit), zeigt Wayland-Clients an
 2. ✅ Fenster auf dem Canvas platzieren, Viewport verschieben
 3. ✅ Snapping + Cluster
-4. ✅ Zoom + Culling · ✅ Cluster-Resize · ✅ Cluster-Fokus
+4. ✅ Zoom + Culling · ✅ Cluster-Resize · ✅ Cluster-Fokus (Vorlagen, Mod+W) · ✅ Vollbild (Mod+F)
 5. Lua-Konfiguration (Einstellungen, dann Tastenbelegung)
 6. Bedienung festlegen (Standard-Belegung), Hintergrund / layer-shell, Feinschliff
 7. Standalone-Betrieb (eigener Login-Eintrag, ohne niri darunter), README, Veröffentlichung

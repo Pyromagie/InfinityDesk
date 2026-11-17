@@ -2,12 +2,14 @@
 //!
 //! Currently runs "nested": as a regular window inside the running session (e.g. niri).
 
+mod arrange;
 mod canvas;
 mod cluster;
 mod config;
 mod grabs;
 mod handlers;
 mod input;
+mod layout;
 mod render;
 mod resize;
 mod state;

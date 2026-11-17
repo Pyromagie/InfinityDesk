@@ -11,7 +11,7 @@ use smithay::{
         wayland_protocols::xdg::shell::server::xdg_toplevel,
         wayland_server::{
             Resource,
-            protocol::{wl_seat, wl_surface::WlSurface},
+            protocol::{wl_output::WlOutput, wl_seat, wl_surface::WlSurface},
         },
     },
     utils::Serial,
@@ -24,7 +24,7 @@ use smithay::{
     },
 };
 
-use crate::{InfinityDesk, grabs::DragGrab, resize::Edge};
+use crate::{InfinityDesk, grabs::DragGrab, resize::Edge, state::Resizing};
 
 /// Checks that a client move request belongs to a real, currently pressed pointer button.
 fn check_grab(
@@ -52,19 +52,54 @@ impl XdgShellHandler for InfinityDesk {
     /// A client opened a new window.
     fn new_toplevel(&mut self, surface: ToplevelSurface) {
         tracing::info!("New window");
+        // A new window (also a dialog) should be seen, so fullscreen ends.
+        self.end_fullscreen();
         // The size is only known after the first commit; `place_if_pending` maps it then.
         // TODO: when a cluster is focused, dock the new window to that cluster instead (Plan.md).
         self.unplaced.push(Window::new_wayland_window(surface));
     }
 
     fn toplevel_destroyed(&mut self, surface: ToplevelSurface) {
-        self.unplaced.retain(|w| w.toplevel().unwrap() != &surface);
         // Leave the cluster; the rest may split into several clusters.
         if let Some(window) = self.window_for_surface(surface.wl_surface()) {
             self.selected.retain(|w| w != &window);
             self.resizing.remove(&window);
             self.resize_hint.retain(|(w, _)| w != &window);
             self.clusters.remove(&window);
+            if self.fullscreen.as_ref().is_some_and(|f| f.window == window) {
+                self.end_fullscreen();
+            }
+            if self
+                .layout_menu
+                .as_ref()
+                .is_some_and(|m| m.window == window)
+            {
+                self.layout_menu = None;
+            }
+            self.forget_slot_anchor(&window);
+        }
+        self.unplaced.retain(|w| w.toplevel().unwrap() != &surface);
+    }
+
+    /// The client asks to fill the screen (e.g. a video player): same as Alt+F.
+    fn fullscreen_request(&mut self, surface: ToplevelSurface, _output: Option<WlOutput>) {
+        let window = self.window_for_surface(surface.wl_surface());
+        let already = self.fullscreen.as_ref().map(|f| &f.window) == window.as_ref();
+        match window {
+            Some(window) if !already && self.space.element_geometry(&window).is_some() => {
+                self.end_fullscreen();
+                self.start_fullscreen(&window);
+            }
+            // Not placed yet or already fullscreen: the client still expects an answer.
+            _ => {
+                surface.send_configure();
+            }
+        }
+    }
+
+    fn unfullscreen_request(&mut self, surface: ToplevelSurface) {
+        if (self.fullscreen.as_ref()).is_some_and(|f| f.window.toplevel() == Some(&surface)) {
+            self.end_fullscreen();
         }
     }
 
@@ -84,6 +119,9 @@ impl XdgShellHandler for InfinityDesk {
         let Some(window) = self.window_for_surface(surface.wl_surface()) else {
             return;
         };
+        if self.fullscreen.is_some() {
+            return;
+        }
         let x = match edges {
             E::Left | E::TopLeft | E::BottomLeft => Edge::Start,
             E::Right | E::TopRight | E::BottomRight => Edge::End,
@@ -109,6 +147,9 @@ impl XdgShellHandler for InfinityDesk {
         let Some(window) = self.window_for_surface(surface.wl_surface()) else {
             return;
         };
+        if self.fullscreen.is_some() {
+            return;
+        }
         let grab = DragGrab::move_window(self, start_data, window);
         seat.get_pointer()
             .unwrap()
@@ -176,6 +217,15 @@ impl InfinityDesk {
                     .initial_configure_sent
             });
             if !initial_configure_sent {
+                // A free slot of the last template: the window gets its size right away and is
+                // placed there (`place_if_pending`).
+                if let Some(rect) = self.take_free_slot() {
+                    let anchor_end = [false; 2];
+                    let toplevel = window.toplevel().unwrap();
+                    toplevel.with_pending_state(|s| s.size = Some(rect.size));
+                    self.resizing
+                        .insert(window.clone(), Resizing { rect, anchor_end });
+                }
                 window.toplevel().unwrap().send_configure();
             }
         }

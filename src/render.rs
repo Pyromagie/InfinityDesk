@@ -2,7 +2,6 @@
 
 use smithay::{
     backend::renderer::{
-        Color32F,
         element::{
             AsRenderElements, Id, Kind, render_elements, solid::SolidColorRenderElement,
             surface::WaylandSurfaceRenderElement, utils::RescaleRenderElement,
@@ -29,7 +28,7 @@ const GRID_MIN_SCREEN_SPACING: f64 = 40.0;
 const GRID_DOT_SIZE: f32 = 2.0;
 const GRID_DOT_COLOR: [f32; 4] = [0.28, 0.28, 0.32, 1.0];
 
-const OUTLINE_COLOR: [f32; 4] = [0.35, 0.65, 1.0, 1.0];
+pub const OUTLINE_COLOR: [f32; 4] = [0.35, 0.65, 1.0, 1.0];
 /// Thickness of outlines in pixels.
 pub const OUTLINE_WIDTH: i32 = 4;
 
@@ -113,9 +112,10 @@ pub struct Outline {
     pub alpha: f32,
 }
 
-fn outline_elements(outline: &Outline) -> Vec<SolidColorRenderElement> {
+/// The four sides of a frame as screen rectangles with their color.
+pub fn outline_bars(outline: &Outline) -> [(Rectangle<i32, Logical>, [f32; 4]); 4] {
     let Outline { rect, grow, alpha } = *outline;
-    let color = Color32F::from(OUTLINE_COLOR) * alpha;
+    let color = OUTLINE_COLOR.map(|c| c * alpha);
     let o = grow + OUTLINE_WIDTH;
     let (x, y, w, h) = (
         rect.loc.x - o,
@@ -123,29 +123,17 @@ fn outline_elements(outline: &Outline) -> Vec<SolidColorRenderElement> {
         rect.size.w + 2 * o,
         rect.size.h + 2 * o,
     );
-    let edges = [
+    [
         (x, y, w, OUTLINE_WIDTH),
         (x, y + h - OUTLINE_WIDTH, w, OUTLINE_WIDTH),
         (x, y, OUTLINE_WIDTH, h),
         (x + w - OUTLINE_WIDTH, y, OUTLINE_WIDTH, h),
-    ];
-    edges
-        .into_iter()
-        .map(|(x, y, w, h)| {
-            let geo = Rectangle::<i32, Physical>::new((x, y).into(), (w, h).into());
-            SolidColorRenderElement::new(
-                Id::new(),
-                geo,
-                CommitCounter::default(),
-                color,
-                Kind::Unspecified,
-            )
-        })
-        .collect()
+    ]
+    .map(|(x, y, w, h)| (Rectangle::new((x, y).into(), (w, h).into()), color))
 }
 
-/// A solid blue bar on the screen (a window edge that lights up).
-fn bar_element(rect: &Rectangle<i32, Logical>) -> SolidColorRenderElement {
+/// A solid rectangle on the screen (frames, lit edges, the template menu).
+fn bar_element((rect, color): &(Rectangle<i32, Logical>, [f32; 4])) -> SolidColorRenderElement {
     let geo = Rectangle::<i32, Physical>::new(
         (rect.loc.x, rect.loc.y).into(),
         (rect.size.w, rect.size.h).into(),
@@ -154,7 +142,7 @@ fn bar_element(rect: &Rectangle<i32, Logical>) -> SolidColorRenderElement {
         Id::new(),
         geo,
         CommitCounter::default(),
-        OUTLINE_COLOR,
+        *color,
         Kind::Unspecified,
     )
 }
@@ -174,22 +162,20 @@ fn layer_elements(
         .collect()
 }
 
-/// All elements of a frame, front to back: outlines and lit edges, top layers, windows, grid,
-/// bottom layers.
+/// All elements of a frame, front to back: solid bars (menu, frames, lit edges), the upper
+/// layers, windows, grid, bottom layers.
 pub fn desk_elements(
     renderer: &mut GlesRenderer,
     output: &Output,
     space: &Space<Window>,
     canvas: &Canvas,
     grid_shader: &GlesPixelProgram,
-    outlines: &[Outline],
-    edges: &[Rectangle<i32, Logical>],
+    bars: &[(Rectangle<i32, Logical>, [f32; 4])],
+    upper_layers: &[Layer],
 ) -> Vec<DeskElement> {
-    let mut elements: Vec<DeskElement> = (outlines.iter().flat_map(outline_elements))
-        .chain(edges.iter().map(bar_element))
-        .map(DeskElement::Solid)
-        .collect();
-    let upper = layer_elements(renderer, output, &[Layer::Overlay, Layer::Top]);
+    let mut elements: Vec<DeskElement> =
+        (bars.iter().map(bar_element).map(DeskElement::Solid)).collect();
+    let upper = layer_elements(renderer, output, upper_layers);
     elements.extend(upper.into_iter().map(DeskElement::Surface));
     // Only windows inside the viewport are rendered (culling), then shrunk by the zoom.
     let viewport = canvas.viewport().to_i32_round();

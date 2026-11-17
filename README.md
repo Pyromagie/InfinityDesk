@@ -45,6 +45,13 @@ step further into two dimensions. Built in Rust on [Smithay](https://github.com/
   With Shift, the rest of the cluster moves instead. Grab any window border (a generous zone
   around it shows resize arrows and lights up the edges that will move), or use Alt + right-drag.
   The dragged edge snaps to the edges of other visible windows, so they line up exactly.
+- **Layout templates:** Alt + W opens a menu of templates (half | half, a half and two
+  quarters, three columns, four quarters, ...). Picking one arranges the active window's
+  cluster so it fills exactly one screen, shown at 1:1. Click the slot the active window should
+  go to (the other windows take the slots closest to where they are), or press the template's
+  number. Slots left over are filled by the next windows you open.
+- **Fullscreen:** Alt + F (or the app itself, e.g. F11 in a browser) lets a window cover the
+  screen; its place in the cluster and the view are restored afterwards
 - wlr-layer-shell, so launchers like fuzzel (and bars or wallpaper tools) work
 - Optional setting: docked windows take their neighbor's height or width (clean grid)
 
@@ -94,7 +101,8 @@ All controls will become configurable.
 | Open a terminal (alacritty)     | Alt + T                                            |
 | App launcher (fuzzel)           | Alt + D                                            |
 | Close the focused window        | Alt + Q                                            |
-| Jump to the active cluster      | Alt + F (zooms out only if it does not fit)        |
+| Arrange the cluster (templates) | Alt + W, then click a slot or press 1–8 (Esc)      |
+| Fullscreen on / off             | Alt + F                                            |
 
 ### Settings
 
@@ -111,6 +119,8 @@ Until the Lua config exists, settings are switched with environment variables:
 | `src/canvas.rs`   | Canvas, viewport and zoom (pure logic, tested)                |
 | `src/cluster.rs`  | Cluster membership, docking and snapping (pure logic, tested) |
 | `src/resize.rs`   | Resizing inside a cluster (pure logic, tested)                |
+| `src/layout.rs`   | Layout templates and their menu (pure logic, tested)          |
+| `src/arrange.rs`  | Applying templates and fullscreen to windows                  |
 | `src/grabs.rs`    | Pointer drags: move, detach, resize, select, pan              |
 | `src/input.rs`    | Keyboard shortcuts and mouse handling                         |
 | `src/render.rs`   | What gets drawn: windows, layers, dot grid, outlines          |

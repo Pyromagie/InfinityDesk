@@ -11,10 +11,9 @@ use smithay::{
     },
     reexports::wayland_server::protocol::wl_surface::WlSurface,
     utils::{Logical, Point, SERIAL_COUNTER},
-    wayland::shell::wlr_layer::Layer,
 };
 
-use crate::{InfinityDesk, grabs::DragGrab, resize::Edge};
+use crate::{InfinityDesk, grabs::DragGrab, layout, resize::Edge};
 
 /// Mouse buttons (linux/input-event-codes.h).
 const BTN_LEFT: u32 = 0x110;
@@ -25,7 +24,12 @@ const ZOOM_SPEED: f64 = 0.01;
 enum Action {
     Spawn(&'static str),
     CloseWindow,
-    FocusCluster,
+    Fullscreen,
+    LayoutMenu,
+    /// In the template menu: a template by its number (0-based), or `None` to close the menu.
+    Template(Option<usize>),
+    /// In the template menu: other keys do nothing.
+    Nothing,
 }
 
 impl InfinityDesk {
@@ -41,38 +45,54 @@ impl InfinityDesk {
                     SERIAL_COUNTER.next_serial(),
                     event.time(),
                     // Provisional niri-like bindings. Mod is Alt while nested (niri does the same).
-                    |_, mods, keysym| match keysym.modified_sym() {
-                        _ if !pressed || !mods.alt => FilterResult::Forward,
-                        Keysym::t => FilterResult::Intercept(Action::Spawn("alacritty")),
-                        Keysym::d => FilterResult::Intercept(Action::Spawn("fuzzel")),
-                        Keysym::q => FilterResult::Intercept(Action::CloseWindow),
-                        Keysym::f => FilterResult::Intercept(Action::FocusCluster),
-                        _ => FilterResult::Forward,
+                    |state, mods, keysym| {
+                        let sym = keysym.modified_sym();
+                        let digit = sym.raw().wrapping_sub(Keysym::_1.raw()) as usize;
+                        match sym {
+                            _ if !pressed => FilterResult::Forward,
+                            // The template menu takes all keys while it is open.
+                            Keysym::Escape if state.layout_menu.is_some() => {
+                                FilterResult::Intercept(Action::Template(None))
+                            }
+                            _ if state.layout_menu.is_some() && digit < layout::TEMPLATES.len() => {
+                                FilterResult::Intercept(Action::Template(Some(digit)))
+                            }
+                            Keysym::w if mods.alt => FilterResult::Intercept(Action::LayoutMenu),
+                            _ if state.layout_menu.is_some() => {
+                                FilterResult::Intercept(Action::Nothing)
+                            }
+                            _ if !mods.alt => FilterResult::Forward,
+                            Keysym::t => FilterResult::Intercept(Action::Spawn("alacritty")),
+                            Keysym::d => FilterResult::Intercept(Action::Spawn("fuzzel")),
+                            Keysym::q => FilterResult::Intercept(Action::CloseWindow),
+                            Keysym::f => FilterResult::Intercept(Action::Fullscreen),
+                            _ => FilterResult::Forward,
+                        }
                     },
                 );
+                let focused = (keyboard.current_focus()).and_then(|s| self.window_for_surface(&s));
+                // Fullscreen and templates move the view; the pointer stays put on the screen.
+                let pointer = self.seat.get_pointer().unwrap();
+                let screen = self.canvas.canvas_to_screen(pointer.current_location());
                 match action {
                     Some(Action::Spawn(command)) => crate::spawn(command, &self.socket_name),
-                    Some(Action::FocusCluster) => {
-                        let focused = keyboard
-                            .current_focus()
-                            .and_then(|s| self.window_for_surface(&s));
-                        if let Some(window) = focused {
-                            // The canvas moves under the pointer, which stays put on the screen.
-                            let pointer = self.seat.get_pointer().unwrap();
-                            let screen = self.canvas.canvas_to_screen(pointer.current_location());
-                            self.focus_cluster(&window);
-                            self.pointer_moved(self.canvas.screen_to_canvas(screen), event.time());
-                        }
-                    }
                     Some(Action::CloseWindow) => {
-                        let focused = keyboard
-                            .current_focus()
-                            .and_then(|s| self.window_for_surface(&s));
                         if let Some(window) = focused {
                             window.toplevel().unwrap().send_close();
                         }
                     }
-                    None => {}
+                    Some(Action::Fullscreen) => {
+                        if let Some(window) = focused {
+                            self.toggle_fullscreen(&window);
+                        }
+                    }
+                    Some(Action::LayoutMenu) => self.toggle_layout_menu(focused),
+                    Some(Action::Template(Some(t))) => self.choose_template(t, None),
+                    Some(Action::Template(None)) => self.layout_menu = None,
+                    Some(Action::Nothing) | None => {}
+                }
+                if matches!(action, Some(Action::Fullscreen | Action::Template(_))) {
+                    self.pointer_moved(self.canvas.screen_to_canvas(screen), event.time());
                 }
             }
 
@@ -102,11 +122,31 @@ impl InfinityDesk {
                 //   left-drag on a window border         -> resize it (Shift: the cluster moves)
                 //   left-drag on empty canvas   -> pan the viewport
                 let location = pointer.current_location();
+                // The template menu: a click on a slot chooses it, a click outside closes the menu.
+                // Only presses are taken, so a drag still running gets its release.
+                if self.layout_menu.is_some() && button_state == ButtonState::Pressed {
+                    let screen = self.canvas.screen_size();
+                    let on_screen = self.canvas.canvas_to_screen(location);
+                    match layout::menu_hit(screen, on_screen) {
+                        Some((t, s)) => self.choose_template(t, Some(s)),
+                        None if !layout::menu_panel(screen).to_f64().contains(on_screen) => {
+                            self.layout_menu = None;
+                        }
+                        None => {}
+                    }
+                    let canvas = self.canvas.screen_to_canvas(on_screen);
+                    self.pointer_moved(canvas, event.time());
+                    return;
+                }
                 // Launchers and bars on top of everything just get the click.
-                let on_layer = self
-                    .layer_surface_under(location, &[Layer::Overlay, Layer::Top])
-                    .is_some();
-                if button_state == ButtonState::Pressed && !pointer.is_grabbed() && !on_layer {
+                let on_layer = (self.layer_surface_under(location, self.upper_layers())).is_some();
+                // A fullscreen window just gets the click, nothing on the canvas can be grabbed.
+                let fullscreen = self.fullscreen.is_some();
+                if button_state == ButtonState::Pressed
+                    && !pointer.is_grabbed()
+                    && !on_layer
+                    && !fullscreen
+                {
                     let clicked = self.space.element_under(location).map(|(w, _)| w.clone());
                     let mods = keyboard.modifier_state();
                     let (alt, select) = (mods.alt, mods.alt && mods.shift && button == BTN_LEFT);
@@ -178,10 +218,11 @@ impl InfinityDesk {
                 pointer.frame(self);
             }
 
-            // Alt + scroll zooms around the pointer.
+            // Alt + scroll zooms around the pointer (not while a window is fullscreen).
             InputEvent::PointerAxis { event, .. }
                 if self.seat.get_keyboard().unwrap().modifier_state().alt
-                    && !self.seat.get_pointer().unwrap().is_grabbed() =>
+                    && !self.seat.get_pointer().unwrap().is_grabbed()
+                    && self.fullscreen.is_none() =>
             {
                 let scroll = event.amount(Axis::Vertical).unwrap_or_else(|| {
                     event.amount_v120(Axis::Vertical).unwrap_or(0.0) * 15.0 / 120.0
@@ -238,11 +279,17 @@ impl InfinityDesk {
         pointer.motion(self, under, &motion);
         pointer.frame(self);
 
+        let screen = self.canvas.canvas_to_screen(pos);
+        if let Some(menu) = &mut self.layout_menu {
+            menu.hover = layout::menu_hit(self.canvas.screen_size(), screen);
+        }
+
         // Show which edges a click would grab (a running drag keeps its own).
         if !pointer.is_grabbed() {
             let mods = self.seat.get_keyboard().unwrap().modifier_state();
-            let on_layer = (self.layer_surface_under(pos, &[Layer::Overlay, Layer::Top])).is_some();
-            let hint = (!mods.alt && !on_layer)
+            let on_layer = (self.layer_surface_under(pos, self.upper_layers())).is_some();
+            let free = self.layout_menu.is_none() && self.fullscreen.is_none();
+            let hint = (!mods.alt && !on_layer && free)
                 .then(|| self.border_under(pos))
                 .flatten();
             self.set_resize_hint(hint, mods.shift);

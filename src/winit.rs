@@ -82,6 +82,7 @@ pub fn init_winit(
                 layer_map_for_output(&output).arrange();
                 state.canvas.set_screen_size(size.to_logical(1));
                 state.apply_viewport();
+                state.fit_fullscreen();
             }
             WinitEvent::Input(event) => state.process_input_event(event),
             WinitEvent::Redraw => {
@@ -91,8 +92,7 @@ pub fn init_winit(
                     false => backend.buffer_age().unwrap_or(0),
                 };
                 first_frame = false;
-                let outlines = state.outlines();
-                let edges = state.edge_highlights();
+                let bars = state.bars();
                 if state.cursor != cursor {
                     cursor = state.cursor;
                     backend.window().set_cursor(cursor.into());
@@ -105,8 +105,8 @@ pub fn init_winit(
                             &state.space,
                             &state.canvas,
                             &grid_shader,
-                            &outlines,
-                            &edges,
+                            &bars,
+                            state.upper_layers(),
                         );
                         damage_tracker
                             .render_output(renderer, &mut framebuffer, age, &elements, BACKGROUND)
