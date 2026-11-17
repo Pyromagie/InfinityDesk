@@ -178,6 +178,26 @@ mod tests {
     }
 
     #[test]
+    fn bottom_edge_takes_the_window_below_along() {
+        // A above B; dragging A's bottom edge down shrinks B from the top.
+        let rects = vec![rect(0, 0, 100, 100), rect(0, 100, 100, 100)];
+        let follow = plan(&rects, 0, [Edge::None, Edge::End], false);
+        let new = apply(&rects, &follow, &min()[..2], (0, 30).into());
+        assert_eq!(new[0], rect(0, 0, 100, 130));
+        assert_eq!(new[1], rect(0, 130, 100, 70));
+    }
+
+    #[test]
+    fn with_shift_the_left_edge_moves_everything_left_of_it() {
+        let rects = row();
+        let follow = plan(&rects, 2, [Edge::Start, Edge::None], true);
+        let new = apply(&rects, &follow, &min(), (-30, 0).into());
+        assert_eq!(new[0], rect(-30, 0, 100, 100));
+        assert_eq!(new[1], rect(70, 0, 100, 100));
+        assert_eq!(new[2], rect(170, 0, 130, 100));
+    }
+
+    #[test]
     fn window_below_is_not_a_neighbor_of_the_right_edge() {
         // A above B; dragging A's right edge must not touch B.
         let rects = vec![rect(0, 0, 100, 100), rect(0, 100, 100, 100)];
