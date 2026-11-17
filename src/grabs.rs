@@ -1,5 +1,7 @@
 //! Pointer drags: moving window clusters or panning the viewport across the canvas.
 
+use std::time::{Duration, Instant};
+
 use smithay::{
     desktop::Window,
     input::pointer::{
@@ -15,7 +17,6 @@ use smithay::{
 use crate::{
     InfinityDesk,
     cluster::{Rect, snap_delta, touching},
-    input::BTN_RIGHT,
 };
 
 /// How far the cluster moves: pointer movement, kept inside the canvas, plus snapping.
@@ -55,10 +56,10 @@ fn others<'a>(
         .filter_map(|w| Some((w.clone(), data.space.element_geometry(w)?)))
 }
 
-/// A window pulled out of its cluster stretches until the pointer is this far away (in pixels) ...
-const TEAR_DISTANCE: f64 = 120.0;
-/// ... and only follows the pointer by this fraction until then, like a rubber band.
-const STRETCH: f64 = 0.25;
+/// Holding still this long before dragging pulls the window out of its cluster.
+const HOLD_TIME: Duration = Duration::from_millis(400);
+/// Pointer movement (in pixels) that still counts as holding still.
+const HOLD_TOLERANCE: f64 = 6.0;
 
 /// A window being dragged along, with its starting position.
 struct DraggedWindow {
@@ -70,9 +71,11 @@ struct DraggedWindow {
 enum DragKind {
     /// Windows are dragged across the canvas: a whole cluster, or one window pulled out of it.
     MoveWindows {
+        grabbed: Window,
         members: Vec<DraggedWindow>,
-        /// The single dragged window still sticks to its cluster and only stretches.
-        sticking: bool,
+        /// Press time, while it is still undecided whether the whole cluster or just
+        /// the grabbed window moves.
+        pressed: Option<Instant>,
     },
     /// The canvas is moved underneath the screen.
     Pan {
@@ -88,17 +91,15 @@ pub struct DragGrab {
 }
 
 impl DragGrab {
-    /// Right-drag moves the window's whole cluster; any other drag pulls the window out of it.
+    /// Dragging a window moves its whole cluster; holding still first pulls just this window out.
     pub fn move_window(
         state: &InfinityDesk,
         start_data: GrabStartData<InfinityDesk>,
         window: Window,
     ) -> Self {
         let cluster = state.clusters.members(&window);
-        let whole_cluster = start_data.button == BTN_RIGHT;
-        let sticking = !whole_cluster && cluster.len() > 1;
-        let windows = if whole_cluster { cluster } else { vec![window] };
-        let members = windows
+        let pressed = (cluster.len() > 1).then(Instant::now);
+        let members = cluster
             .into_iter()
             .filter_map(|w| {
                 Some(DraggedWindow {
@@ -110,7 +111,11 @@ impl DragGrab {
             .collect();
         Self {
             start_data,
-            kind: DragKind::MoveWindows { members, sticking },
+            kind: DragKind::MoveWindows {
+                grabbed: window,
+                members,
+                pressed,
+            },
         }
     }
 
@@ -139,21 +144,23 @@ impl PointerGrab<InfinityDesk> for DragGrab {
 
         let pointer_delta = event.location - self.start_data.location;
         match &mut self.kind {
-            DragKind::MoveWindows { members, sticking } => {
-                if *sticking {
-                    let distance = pointer_delta.x.hypot(pointer_delta.y);
-                    let m = &members[0];
-                    if distance < TEAR_DISTANCE {
-                        let stretch = pointer_delta.upscale(STRETCH).to_i32_round();
-                        data.space
-                            .map_element(m.window.clone(), m.initial_loc + stretch, false);
+            DragKind::MoveWindows {
+                grabbed,
+                members,
+                pressed,
+            } => {
+                // Decide on the first real movement: held still long enough -> just this window.
+                if let Some(time) = *pressed {
+                    if pointer_delta.x.hypot(pointer_delta.y) < HOLD_TOLERANCE {
                         return;
                     }
-                    *sticking = false;
-                    tracing::info!("Window torn out of its cluster");
-                    let space = &data.space;
-                    data.clusters
-                        .remove(&m.window, |w| space.element_geometry(w));
+                    *pressed = None;
+                    if time.elapsed() >= HOLD_TIME {
+                        tracing::info!("Window pulled out of its cluster");
+                        members.retain(|m| &m.window == grabbed);
+                        let space = &data.space;
+                        data.clusters.remove(grabbed, |w| space.element_geometry(w));
+                    }
                 }
 
                 let delta = cluster_delta(data, members, pointer_delta.to_i32_round());
@@ -292,16 +299,9 @@ impl PointerGrab<InfinityDesk> for DragGrab {
 
     /// Button released: if the cluster now touches other windows, they get docked.
     fn unset(&mut self, data: &mut InfinityDesk) {
-        let DragKind::MoveWindows { members, sticking } = &self.kind else {
+        let DragKind::MoveWindows { members, .. } = &self.kind else {
             return;
         };
-        // Released before tearing it out: the window snaps back into its cluster.
-        if *sticking {
-            let m = &members[0];
-            data.space
-                .map_element(m.window.clone(), m.initial_loc, false);
-            return;
-        }
         let moved: Vec<(Window, Rect)> = members
             .iter()
             .filter_map(|m| Some((m.window.clone(), data.space.element_geometry(&m.window)?)))

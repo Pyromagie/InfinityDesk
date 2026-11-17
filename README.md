@@ -27,10 +27,9 @@ cargo run -- -c kitty     # start a different program inside
 | Action                        | Input                               |
 |-------------------------------|-------------------------------------|
 | Pan the canvas                | Left-drag on empty space            |
-| Move a window                 | Alt + left-drag on a window         |
-| Move a whole cluster          | Alt + right-drag on a window        |
+| Move a window / its cluster   | Alt + left-drag on a window         |
 | Dock windows                  | Drag a window close to another one  |
-| Detach a window from cluster  | Alt + left-drag it out (pull past the resistance) |
+| Detach a window from cluster  | Alt + left-click, hold still briefly, then drag |
 | Open a terminal (alacritty)   | Alt + T                             |
 | App launcher (fuzzel)         | Alt + D                             |
 | Close the focused window      | Alt + Q                             |
