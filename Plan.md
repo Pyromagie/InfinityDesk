@@ -40,12 +40,14 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
 
 ## 5. Andocken / Snapping
 
-- 💬 Einrasten an Kanten und Ecken innerhalb eines Schwellwerts (Vorschlag ~15 px).
+- ✅ Einrasten an Kanten innerhalb von 15 px: **Andocken** (Kante an Kante) und **Ausrichten** (bündige Ober-/Seitenkanten, ergibt saubere Ecken).
+- ✅ Zieht man ein Fenster, bewegt sich sein **ganzes Cluster**. Lässt man los und das Cluster berührt andere Fenster, werden sie zu einem Cluster verbunden.
+- ✅ Nur Ecke-an-Ecke zählt nicht als angedockt, es braucht eine gemeinsame Kante.
 - ✅ Resize einer geteilten Kante, zwei Modi:
   - **Standard:** Nachbarn im Cluster wachsen/schrumpfen mit (der Viewport ist nur ein Bildschirm, daher nicht einfach wegschieben).
   - **Mit Shift (o. ä.) gehalten:** nur das gezogene Fenster ändert seine Größe, das Nachbarfenster (und alles dahinter) wird verschoben.
   - ✅ "Verschoben" gilt für alles, was auf der anderen Seite der Kante im Cluster hängt. Das Cluster bleibt zusammen, wird nur größer/kleiner.
-- ✅ Fenster löst man per **Ruck** (schnelles Wegziehen) aus dem Cluster. 💬 Schwellwert/Gefühl beim Testen feinjustieren.
+- ✅ Fenster löst man per **Ruck** (schnelles Wegziehen) aus dem Cluster: aktuell 120 px innerhalb der ersten 150 ms. Die übrigen Fenster springen zurück; zerfällt der Rest, entstehen mehrere Cluster. 💬 Werte beim Testen feinjustieren.
 - ✅ Orangener Punkt in der Skizze: ohne Bedeutung (Artefakt vom Zeichenprogramm).
 
 ## 6. Navigation
@@ -69,7 +71,7 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
 
 1. ✅ Minimaler Compositor (genestet, winit), zeigt Wayland-Clients an
 2. ✅ Fenster auf dem Canvas platzieren, Viewport verschieben
-3. Snapping + Cluster
+3. ✅ Snapping + Cluster
 4. Cluster-Resize, Culling, Zoom, Cluster-Fokus
 5. Bedienung, Konfiguration, Feinschliff
 

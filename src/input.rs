@@ -77,7 +77,7 @@ impl InfinityDesk {
                     };
 
                     if let Some(window) = clicked {
-                        self.space.raise_element(&window, true);
+                        self.raise_cluster(&window);
                         keyboard.set_focus(self, Some(window.toplevel().unwrap().wl_surface().clone()), serial);
                         if alt && button == BTN_LEFT {
                             let grab = DragGrab::move_window(self, start_data, window);

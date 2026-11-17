@@ -3,6 +3,7 @@
 //! Aktuell läuft er "genestet": als normales Fenster in der laufenden Session (z. B. niri).
 
 mod canvas;
+mod cluster;
 mod grabs;
 mod handlers;
 mod input;

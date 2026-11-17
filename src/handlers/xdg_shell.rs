@@ -52,6 +52,11 @@ impl XdgShellHandler for InfinityDesk {
 
     fn toplevel_destroyed(&mut self, surface: ToplevelSurface) {
         self.unplaced.retain(|w| w.toplevel().unwrap() != &surface);
+        // Aus dem Cluster nehmen; der Rest teilt sich ggf. in mehrere Cluster auf.
+        if let Some(window) = self.window_for_surface(surface.wl_surface()) {
+            let space = &self.space;
+            self.clusters.remove(&window, |w| space.element_geometry(w));
+        }
     }
 
     /// Das Programm möchte verschoben werden (z. B. Ziehen an der eigenen Titelleiste).
@@ -107,10 +112,10 @@ pub fn handle_commit(popups: &mut PopupManager, space: &Space<Window>, surface: 
     }
 
     popups.commit(surface);
-    if let Some(PopupKind::Xdg(ref xdg)) = popups.find_popup(surface) {
-        if !xdg.is_initial_configure_sent() {
-            xdg.send_configure().expect("erste Popup-Konfiguration fehlgeschlagen");
-        }
+    if let Some(PopupKind::Xdg(ref xdg)) = popups.find_popup(surface)
+        && !xdg.is_initial_configure_sent()
+    {
+        xdg.send_configure().expect("erste Popup-Konfiguration fehlgeschlagen");
     }
 }
 

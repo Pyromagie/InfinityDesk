@@ -11,13 +11,61 @@ use smithay::{
     utils::{Logical, Point},
 };
 
-use crate::InfinityDesk;
+use std::time::{Duration, Instant};
+
+use crate::{
+    InfinityDesk,
+    cluster::{Rect, SNAP_THRESHOLD, bounding_box, snap_delta, touching},
+};
+
+/// Wie weit das Cluster verschoben wird: Mausbewegung, im Canvas gehalten, plus Einrasten.
+fn cluster_delta(data: &InfinityDesk, members: &[DraggedWindow], pointer_delta: Point<i32, Logical>) -> Point<i32, Logical> {
+    let initial: Vec<Rect> = members.iter().map(|m| m.initial_geo).collect();
+    let Some(bbox) = bounding_box(&initial) else {
+        return pointer_delta;
+    };
+
+    // Das ganze Cluster bleibt im Canvas.
+    let target = bbox.loc + pointer_delta;
+    let clamped = data.canvas.clamp_window_loc(target, bbox.size);
+    let mut delta = pointer_delta + (clamped - target);
+
+    // An Fenstern außerhalb des Clusters einrasten.
+    let moved: Vec<Rect> = initial
+        .iter()
+        .map(|r| Rect::new(r.loc + delta, r.size))
+        .collect();
+    let others: Vec<Rect> = data
+        .space
+        .elements()
+        .filter(|w| !members.iter().any(|m| &m.window == *w))
+        .filter_map(|w| data.space.element_geometry(w))
+        .collect();
+    delta += snap_delta(&moved, &others, SNAP_THRESHOLD);
+    delta
+}
+
+/// Ein "Ruck" löst ein Fenster aus seinem Cluster: so weit (in Pixeln) ...
+const RUCK_DISTANCE: f64 = 120.0;
+/// ... innerhalb dieser Zeit nach Beginn des Ziehens.
+const RUCK_TIME: Duration = Duration::from_millis(150);
+
+/// Ein Fenster, das gerade mitgezogen wird, mit seiner Ausgangslage.
+pub struct DraggedWindow {
+    window: Window,
+    initial_loc: Point<i32, Logical>,
+    initial_geo: Rect,
+}
 
 pub enum DragKind {
-    /// Ein Fenster wird über den Canvas gezogen.
-    MoveWindow {
-        window: Window,
-        initial_loc: Point<i32, Logical>,
+    /// Ein Cluster (oder ein einzelnes Fenster) wird über den Canvas gezogen.
+    MoveCluster {
+        /// Das Fenster, an dem gezogen wird.
+        grabbed: Window,
+        members: Vec<DraggedWindow>,
+        started: Instant,
+        /// Wurde das gezogene Fenster per Ruck aus seinem Cluster gelöst?
+        detached: bool,
     },
     /// Die Fläche wird unter dem Bildschirm verschoben.
     Pan {
@@ -33,11 +81,28 @@ pub struct DragGrab {
 }
 
 impl DragGrab {
+    /// Ziehen an einem Fenster: bewegt sein ganzes Cluster.
     pub fn move_window(state: &InfinityDesk, start_data: GrabStartData<InfinityDesk>, window: Window) -> Self {
-        let initial_loc = state.space.element_location(&window).unwrap_or_default();
+        let members = state
+            .clusters
+            .members(&window)
+            .into_iter()
+            .filter_map(|w| {
+                Some(DraggedWindow {
+                    initial_loc: state.space.element_location(&w)?,
+                    initial_geo: state.space.element_geometry(&w)?,
+                    window: w,
+                })
+            })
+            .collect();
         Self {
             start_data,
-            kind: DragKind::MoveWindow { window, initial_loc },
+            kind: DragKind::MoveCluster {
+                grabbed: window,
+                members,
+                started: Instant::now(),
+                detached: false,
+            },
         }
     }
 
@@ -64,12 +129,32 @@ impl PointerGrab<InfinityDesk> for DragGrab {
         // Während des Ziehens bekommt kein Programm die Maus.
         handle.motion(data, None, event);
 
-        match &self.kind {
-            DragKind::MoveWindow { window, initial_loc } => {
-                let delta = event.location - self.start_data.location;
-                let target = (initial_loc.to_f64() + delta).to_i32_round();
-                let target = data.canvas.clamp_window_loc(target, window.geometry().size);
-                data.space.map_element(window.clone(), target, true);
+        let pointer_delta = event.location - self.start_data.location;
+        match &mut self.kind {
+            DragKind::MoveCluster {
+                grabbed,
+                members,
+                started,
+                detached,
+            } => {
+                // Ruck erkennen: schnell weit gezogen, direkt nach dem Start.
+                let distance = pointer_delta.x.hypot(pointer_delta.y);
+                if !*detached && members.len() > 1 && started.elapsed() < RUCK_TIME && distance >= RUCK_DISTANCE {
+                    *detached = true;
+                    tracing::info!("Ruck: Fenster aus dem Cluster gelöst");
+                    // Die anderen Fenster zurück an ihren Platz.
+                    for m in members.iter().filter(|m| &m.window != grabbed) {
+                        data.space.map_element(m.window.clone(), m.initial_loc, false);
+                    }
+                    let space = &data.space;
+                    data.clusters.remove(grabbed, |w| space.element_geometry(w));
+                    members.retain(|m| &m.window == grabbed);
+                }
+
+                let delta = cluster_delta(data, members, pointer_delta.to_i32_round());
+                for m in members.iter() {
+                    data.space.map_element(m.window.clone(), m.initial_loc + delta, false);
+                }
             }
             DragKind::Pan {
                 start_screen,
@@ -185,5 +270,29 @@ impl PointerGrab<InfinityDesk> for DragGrab {
         &self.start_data
     }
 
-    fn unset(&mut self, _data: &mut InfinityDesk) {}
+    /// Maustaste losgelassen: berührt das Cluster jetzt andere Fenster, wird angedockt.
+    fn unset(&mut self, data: &mut InfinityDesk) {
+        let DragKind::MoveCluster { members, .. } = &self.kind else {
+            return;
+        };
+        let moved: Vec<(Window, Rect)> = members
+            .iter()
+            .filter_map(|m| Some((m.window.clone(), data.space.element_geometry(&m.window)?)))
+            .collect();
+        let others: Vec<(Window, Rect)> = data
+            .space
+            .elements()
+            .filter(|w| !members.iter().any(|m| &m.window == *w))
+            .filter_map(|w| Some((w.clone(), data.space.element_geometry(w)?)))
+            .collect();
+
+        for (mw, mr) in &moved {
+            for (ow, or) in &others {
+                if touching(mr, or) {
+                    tracing::info!("Angedockt");
+                    data.clusters.join(mw, ow);
+                }
+            }
+        }
+    }
 }

@@ -1,6 +1,7 @@
 use std::{ffi::OsString, sync::Arc};
 
 use crate::{
+    cluster::Clusters,
     canvas::{Canvas, DEFAULT_CANVAS_HEIGHT, DEFAULT_CANVAS_WIDTH},
     render::Grid,
 };
@@ -43,6 +44,8 @@ pub struct InfinityDesk {
     pub output: Option<Output>,
     /// Fenster, die noch keinen Inhalt hatten und deshalb noch nicht platziert sind.
     pub unplaced: Vec<Window>,
+    /// Welche Fenster zu welchem Cluster gehören.
+    pub clusters: Clusters<Window>,
     pub grid: Grid,
 
     // Smithay-Protokollzustände
@@ -82,6 +85,7 @@ impl InfinityDesk {
             popups: PopupManager::default(),
             output: None,
             unplaced: Vec::new(),
+            clusters: Clusters::default(),
             grid: Grid::default(),
             compositor_state,
             xdg_shell_state,
@@ -160,6 +164,16 @@ impl InfinityDesk {
             .elements()
             .find(|w| w.toplevel().unwrap().wl_surface() == surface)
             .cloned()
+    }
+
+    /// Holt ein Fenster samt seinem ganzen Cluster nach vorne.
+    pub fn raise_cluster(&mut self, window: &Window) {
+        for w in self.clusters.members(window) {
+            if &w != window {
+                self.space.raise_element(&w, false);
+            }
+        }
+        self.space.raise_element(window, true);
     }
 
     /// Findet die Oberfläche (Fenster/Popup) unter einem Punkt.
