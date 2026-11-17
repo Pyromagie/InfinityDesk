@@ -49,7 +49,7 @@ impl InfinityDesk {
                     },
                 );
                 match action {
-                    Some(Action::Spawn(command)) => crate::spawn(command),
+                    Some(Action::Spawn(command)) => crate::spawn(command, &self.socket_name),
                     Some(Action::CloseWindow) => {
                         let focused = keyboard
                             .current_focus()
