@@ -69,7 +69,7 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
 ## 6b. Hintergrund (später)
 
 - 💡 Ebenen von hinten nach vorne: **Hintergrund** (fest am Bildschirm) → **Canvas** (Raster + Fenster, bewegt sich beim Pan) → ggf. Leisten obendrauf.
-- ✅ `layer-shell`-Protokoll ist eingebaut (für fuzzel). Damit sollten auch swaybg/swww und Waybar gehen, damit vorhandene Tools funktionieren (swaybg/swww für Wallpaper, Waybar als Leiste).
+- ✅ `layer-shell`-Protokoll ist eingebaut (für fuzzel). Damit sollten auch swaybg/swww (Wallpaper) und Waybar (Leiste) funktionieren.
 - 💬 Hintergrund komplett fest oder leichter **Parallax**-Effekt (bewegt sich beim Pannen langsam mit)?
 
 ## 6c. Veröffentlichung & Konfiguration
@@ -77,7 +77,7 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
 - ✅ Das Repo wird veröffentlicht; andere sollen InfinityDesk nutzen und anpassen können.
 - ✅ Konfiguration per **Lua** (z. B. `~/.config/infinitydesk/init.lua`), über die Rust-Bibliothek `mlua`.
 - 💡 Ausbaustufen:
-  1. **Einstellungen:** Canvas-Größe, Snap-Schwellwert, Ruck-Werte, Farben, Raster, Zoom-Verhalten …
+  1. **Einstellungen:** Canvas-Größe, Snap-Schwellwert, Werte der Lös-Geste, Farben, Raster, Zoom-Verhalten …
   2. **Tastenbelegung & Maus-Bedienung:** frei belegbar, mit sinnvollen Standardwerten.
   3. **Fensterregeln:** z. B. "Programm X öffnet immer an Position Y / in Cluster Z".
   4. **Ereignisse & Skripting:** Lua-Funktionen, die auf Ereignisse reagieren (Fenster geöffnet, Cluster gebildet …).
