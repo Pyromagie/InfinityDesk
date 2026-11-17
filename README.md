@@ -104,9 +104,9 @@ All controls will become configurable.
 
 ### Settings
 
-Settings are read at startup from `~/.config/infinitydesk/init.lua` (Lua 5.4; respects
-`$XDG_CONFIG_HOME`, and `INFINITYDESK_CONFIG` points to another file). Everything is optional;
-these are the defaults:
+Settings are read from `~/.config/infinitydesk/init.lua` (Lua 5.4; respects
+`$XDG_CONFIG_HOME`, and `INFINITYDESK_CONFIG` points to another file). Saving the file applies
+it right away, no restart needed. Everything is optional; these are the defaults:
 
 ```lua
 local desk = require("infinitydesk")
@@ -133,7 +133,8 @@ desk.colors { background = "#1a1a1f", grid = "#474752", accent = "#59a6ff" }
 ```
 
 A mistake (a typo in a setting name, a wrong type, a value out of range) is logged with the
-setting, file and line, and the defaults are used instead.
+setting, file and line. At startup the defaults are used instead; while running, the previous
+settings stay. If the canvas gets smaller, clusters outside it move back in as a whole.
 
 ## Code overview
 

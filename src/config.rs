@@ -9,11 +9,17 @@
 //! ```
 //!
 //! Everything is optional. Without the file the defaults apply; if the file has an error, it is
-//! logged and the defaults apply as well. `INFINITYDESK_CONFIG` points to another file.
+//! logged and the defaults apply as well. Changes to the file are picked up while running; a
+//! changed file with an error keeps the previous settings. `INFINITYDESK_CONFIG` points to
+//! another file.
 
-use std::{path::PathBuf, time::Duration};
+use std::{
+    path::{Path, PathBuf},
+    time::{Duration, SystemTime},
+};
 
 use mlua::{FromLua, Lua, Table, Value};
+use smithay::input::keyboard::XkbConfig;
 
 pub struct Config {
     pub keyboard: Keyboard,
@@ -35,28 +41,42 @@ pub struct Config {
     pub accent: [f32; 4],
 }
 
-/// Keyboard layout (xkb names; empty means the system default) and key repeat.
+/// Keyboard layout and key repeat.
 pub struct Keyboard {
-    pub rules: String,
-    pub model: String,
-    pub layout: String,
-    pub variant: String,
-    pub options: Option<String>,
+    pub xkb: Xkb,
     /// Milliseconds before a held key repeats.
     pub repeat_delay: i32,
     /// Repeats per second (0: no repeat).
     pub repeat_rate: i32,
 }
 
+/// Keyboard layout as xkb names; empty means the system default.
+#[derive(Clone, Default, PartialEq)]
+pub struct Xkb {
+    pub rules: String,
+    pub model: String,
+    pub layout: String,
+    pub variant: String,
+    pub options: Option<String>,
+}
+
+impl Xkb {
+    pub fn to_smithay(&self) -> XkbConfig<'_> {
+        XkbConfig {
+            rules: &self.rules,
+            model: &self.model,
+            layout: &self.layout,
+            variant: &self.variant,
+            options: self.options.clone(),
+        }
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
             keyboard: Keyboard {
-                rules: String::new(),
-                model: String::new(),
-                layout: String::new(),
-                variant: String::new(),
-                options: None,
+                xkb: Xkb::default(),
                 repeat_delay: 200,
                 repeat_rate: 25,
             },
@@ -73,32 +93,48 @@ impl Default for Config {
 }
 
 impl Config {
-    /// Reads the config file (see the module docs).
+    /// Reads the config file at startup (see the module docs).
     pub fn load() -> Self {
-        let Some(path) = config_path() else {
+        let Some(path) = Self::path() else {
             return Self::default();
         };
-        let source = match std::fs::read_to_string(&path) {
+        Self::read(&path).unwrap_or_else(|err| {
+            tracing::error!("Error in the config, using the defaults:\n{err}");
+            Self::default()
+        })
+    }
+
+    /// Reads the config file; without the file, the defaults.
+    pub fn read(path: &Path) -> Result<Self, String> {
+        let source = match std::fs::read_to_string(path) {
             Ok(source) => source,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
                 tracing::info!("No config at {}, using the defaults", path.display());
-                return Self::default();
+                return Ok(Self::default());
             }
-            Err(err) => {
-                tracing::error!("Cannot read {}: {err}; using the defaults", path.display());
-                return Self::default();
-            }
+            Err(err) => return Err(format!("cannot read {}: {err}", path.display())),
         };
-        match Self::from_lua(&source, &path.display().to_string()) {
-            Ok(config) => {
-                tracing::info!("Loaded the config from {}", path.display());
-                config
-            }
-            Err(err) => {
-                tracing::error!("Error in the config, using the defaults:\n{err}");
-                Self::default()
-            }
+        let config = Self::from_lua(&source, &path.display().to_string());
+        let config = config.map_err(|err| err.to_string())?;
+        tracing::info!("Loaded the config from {}", path.display());
+        Ok(config)
+    }
+
+    /// `$INFINITYDESK_CONFIG`, else `$XDG_CONFIG_HOME/infinitydesk/init.lua`, else
+    /// `~/.config/infinitydesk/init.lua`.
+    pub fn path() -> Option<PathBuf> {
+        if let Some(path) = std::env::var_os("INFINITYDESK_CONFIG") {
+            return Some(path.into());
         }
+        let config_dir = (std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from))
+            .filter(|p| p.is_absolute())
+            .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))?;
+        Some(config_dir.join("infinitydesk").join("init.lua"))
+    }
+
+    /// When the config file was last changed (`None`: there is none), to notice changes.
+    pub fn stamp() -> Option<SystemTime> {
+        Self::path()?.metadata().ok()?.modified().ok()
     }
 
     /// Runs a config script; `name` shows up in error messages.
@@ -141,6 +177,7 @@ fn input(config: &mut Config, t: &Table) -> mlua::Result<()> {
     )?;
     let k = &mut config.keyboard;
     if let Some(xkb) = get::<Table>(&kb, "input.keyboard", "xkb")? {
+        let x = &mut k.xkb;
         let section = "input.keyboard.xkb";
         check_keys(
             &xkb,
@@ -148,16 +185,16 @@ fn input(config: &mut Config, t: &Table) -> mlua::Result<()> {
             &["rules", "model", "layout", "variant", "options"],
         )?;
         for (key, field) in [
-            ("rules", &mut k.rules),
-            ("model", &mut k.model),
-            ("layout", &mut k.layout),
-            ("variant", &mut k.variant),
+            ("rules", &mut x.rules),
+            ("model", &mut x.model),
+            ("layout", &mut x.layout),
+            ("variant", &mut x.variant),
         ] {
             if let Some(v) = get(&xkb, section, key)? {
                 *field = v;
             }
         }
-        k.options = get(&xkb, section, "options")?.or(k.options.take());
+        x.options = get(&xkb, section, "options")?.or(x.options.take());
     }
     if let Some(v) = get_in(&kb, "input.keyboard", "repeat_delay", 1..=5000)? {
         k.repeat_delay = v;
@@ -259,18 +296,6 @@ fn setting_error(section: &str, key: &str, message: &str) -> mlua::Error {
     mlua::Error::runtime(format!("{section}.{key}: {message}"))
 }
 
-/// `$INFINITYDESK_CONFIG`, else `$XDG_CONFIG_HOME/infinitydesk/init.lua`, else
-/// `~/.config/infinitydesk/init.lua`.
-fn config_path() -> Option<PathBuf> {
-    if let Some(path) = std::env::var_os("INFINITYDESK_CONFIG") {
-        return Some(path.into());
-    }
-    let config_dir = (std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from))
-        .filter(|p| p.is_absolute())
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))?;
-    Some(config_dir.join("infinitydesk").join("init.lua"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -296,9 +321,9 @@ mod tests {
             "##,
         )
         .unwrap();
-        assert_eq!(config.keyboard.layout, "de");
-        assert_eq!(config.keyboard.options.as_deref(), Some("caps:escape"));
-        assert_eq!(config.keyboard.variant, "");
+        assert_eq!(config.keyboard.xkb.layout, "de");
+        assert_eq!(config.keyboard.xkb.options.as_deref(), Some("caps:escape"));
+        assert_eq!(config.keyboard.xkb.variant, "");
         assert_eq!(
             (config.keyboard.repeat_delay, config.keyboard.repeat_rate),
             (300, 40)

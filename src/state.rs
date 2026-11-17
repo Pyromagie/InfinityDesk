@@ -5,6 +5,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// How often the config file is checked for changes.
+const CONFIG_CHECK: Duration = Duration::from_secs(1);
 /// How long the "unlocked" pulse lasts.
 const PULSE_TIME: Duration = Duration::from_millis(350);
 /// How far the pulse grows outward (in pixels).
@@ -25,10 +27,14 @@ use crate::{
 use smithay::{
     backend::input::InputTime,
     desktop::{PopupManager, Space, Window, WindowSurfaceType, layer_map_for_output},
-    input::{Seat, SeatState, keyboard::XkbConfig, pointer::CursorIcon},
+    input::{Seat, SeatState, pointer::CursorIcon},
     output::Output,
     reexports::{
-        calloop::{EventLoop, Interest, LoopSignal, Mode, PostAction, generic::Generic},
+        calloop::{
+            EventLoop, Interest, LoopSignal, Mode, PostAction,
+            generic::Generic,
+            timer::{TimeoutAction, Timer},
+        },
         wayland_server::{
             Display, DisplayHandle, backend::ClientData, protocol::wl_surface::WlSurface,
         },
@@ -115,14 +121,7 @@ impl InfinityDesk {
         let mut seat_state = SeatState::new();
         let mut seat: Seat<Self> = seat_state.new_wl_seat(&dh, "seat0");
         let k = &config.keyboard;
-        let xkb = XkbConfig {
-            rules: &k.rules,
-            model: &k.model,
-            layout: &k.layout,
-            variant: &k.variant,
-            options: k.options.clone(),
-        };
-        if let Err(err) = seat.add_keyboard(xkb, k.repeat_delay, k.repeat_rate) {
+        if let Err(err) = seat.add_keyboard(k.xkb.to_smithay(), k.repeat_delay, k.repeat_rate) {
             // E.g. a layout name that does not exist.
             tracing::error!("Keyboard layout from the config failed ({err:?}), using the default");
             (seat.add_keyboard(Default::default(), k.repeat_delay, k.repeat_rate))
@@ -131,6 +130,20 @@ impl InfinityDesk {
         seat.add_pointer();
 
         let socket_name = Self::init_wayland_listener(display, event_loop);
+
+        // Changes to the config file are picked up while running.
+        let mut stamp = Config::stamp();
+        let timer = Timer::from_duration(CONFIG_CHECK);
+        (event_loop.handle())
+            .insert_source(timer, move |_, _, state| {
+                let now = Config::stamp();
+                if now != stamp {
+                    stamp = now;
+                    state.reload_config();
+                }
+                TimeoutAction::ToDuration(CONFIG_CHECK)
+            })
+            .expect("failed to set up the config check");
 
         Self {
             start_time: std::time::Instant::now(),
@@ -194,6 +207,64 @@ impl InfinityDesk {
             .unwrap();
 
         socket_name
+    }
+
+    /// The config file changed: its settings take effect right away. With an error in it, the
+    /// previous settings stay.
+    pub fn reload_config(&mut self) {
+        let Some(path) = Config::path() else {
+            return;
+        };
+        match Config::read(&path) {
+            Ok(config) => self.apply_config(config),
+            Err(err) => tracing::error!("Error in the config, keeping the settings:\n{err}"),
+        }
+    }
+
+    fn apply_config(&mut self, mut config: Config) {
+        let keyboard = self.seat.get_keyboard().unwrap();
+        let k = &mut config.keyboard;
+        if k.xkb != self.config.keyboard.xkb
+            && let Err(err) = keyboard.set_xkb_config(self, k.xkb.to_smithay())
+        {
+            tracing::error!(
+                "Keyboard layout from the config failed ({err:?}), keeping the old one"
+            );
+            k.xkb = self.config.keyboard.xkb.clone();
+        }
+        keyboard.change_repeat_info(k.repeat_rate, k.repeat_delay);
+        if config.canvas_size != self.config.canvas_size {
+            self.canvas.set_size(config.canvas_size.into());
+            self.fit_clusters_into_canvas();
+            self.apply_viewport();
+            self.fit_fullscreen();
+        }
+        self.config = config;
+    }
+
+    /// Moves clusters that lie (partly) outside the canvas back in, each as a whole.
+    fn fit_clusters_into_canvas(&mut self) {
+        let mut done: Vec<Window> = Vec::new();
+        let windows: Vec<Window> = self.space.elements().cloned().collect();
+        for window in windows {
+            if done.contains(&window) {
+                continue;
+            }
+            let members = self.clusters.members(&window);
+            let geos: Vec<(Window, Rectangle<i32, Logical>)> = (members.iter())
+                .filter_map(|w| Some((w.clone(), self.space.element_geometry(w)?)))
+                .collect();
+            if let Some(bbox) = geos.iter().map(|(_, g)| *g).reduce(|a, b| a.merge(b)) {
+                let shift = self.canvas.clamp_window_loc(bbox.loc, bbox.size) - bbox.loc;
+                for (w, geo) in geos.into_iter().filter(|_| shift != (0, 0).into()) {
+                    if let Some(r) = self.resizing.get_mut(&w) {
+                        r.rect.loc += shift;
+                    }
+                    self.space.map_element(w, geo.loc + shift, false);
+                }
+            }
+            done.extend(members);
+        }
     }
 
     /// Moves the output within the space to the canvas viewport position.

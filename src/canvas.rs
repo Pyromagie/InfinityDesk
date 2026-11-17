@@ -65,6 +65,14 @@ impl Canvas {
         self.center_viewport_on(center);
     }
 
+    /// The canvas got a new size (config); the viewport keeps its center as far as it can.
+    pub fn set_size(&mut self, size: Size<i32, Logical>) {
+        let center = self.viewport_center();
+        self.size = size;
+        self.zoom = self.zoom.clamp(self.min_zoom(), 1.0);
+        self.center_viewport_on(center);
+    }
+
     /// Moves the viewport; it stays inside the canvas (or centered on it when zoomed out
     /// further than the canvas) and on whole pixels.
     pub fn set_viewport_loc(&mut self, loc: Point<f64, Logical>) {
@@ -268,6 +276,24 @@ mod tests {
         // Too tall instead: limited by the height.
         c.focus_on(Rectangle::new((3_000, 2_000).into(), (1_000, 2_160).into()));
         assert_eq!(c.zoom(), 0.5);
+    }
+
+    #[test]
+    fn smaller_canvas_keeps_the_viewport_inside() {
+        let mut c = canvas();
+        c.zoom_at((0.0, 0.0).into(), 0.18);
+        c.set_viewport_loc((8_000.0, 5_000.0).into());
+        c.set_size((5_000, 3_000).into());
+        // Zoom limited to the whole (smaller) canvas: it fits the height and is centered
+        // horizontally (the screen is wider than the canvas).
+        assert_eq!(c.zoom(), 1080.0 / 3000.0);
+        let vp = c.viewport();
+        assert_eq!((vp.loc.y, vp.size.h), (0.0, 3_000.0));
+        assert!((vp.loc.x + vp.size.w / 2.0 - 2_500.0).abs() < 1.0, "{vp:?}");
+        // Zoomed in again, the viewport stays inside the canvas.
+        c.zoom_at((960.0, 540.0).into(), 10.0);
+        let vp = c.viewport();
+        assert!(vp.loc.x >= 0.0 && vp.loc.x + vp.size.w <= 5_000.0, "{vp:?}");
     }
 
     #[test]
