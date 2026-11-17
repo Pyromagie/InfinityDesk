@@ -114,18 +114,19 @@ pub fn snap_delta(moving: &[Rect], others: &[Rect], threshold: i32) -> Point<i32
         let (ml, mr, mt, mb) = edges(m);
         for o in others {
             let (ol, or, ot, ob) = edges(o);
-            // Do the ranges overlap (with some tolerance) on the other axis?
-            let v_near = mt < ob + threshold && ot < mb + threshold;
-            let h_near = ml < or + threshold && ol < mr + threshold;
+            // Only windows that really face each other can dock: side by side they must overlap
+            // vertically, stacked horizontally. Otherwise the alignment could jump across.
+            let v_overlap = mt < ob && ot < mb;
+            let h_overlap = ml < or && ol < mr;
             let candidates = [
-                (v_near, ol - mr, ot - mt, true),  // left of o, tops flush
-                (v_near, or - ml, ot - mt, true),  // right of o, tops flush
-                (h_near, ot - mb, ol - ml, false), // above o, left edges flush
-                (h_near, ob - mt, ol - ml, false), // below o, left edges flush
+                (v_overlap, ol - mr, ot - mt, true),  // left of o, tops flush
+                (v_overlap, or - ml, ot - mt, true),  // right of o, tops flush
+                (h_overlap, ot - mb, ol - ml, false), // above o, left edges flush
+                (h_overlap, ob - mt, ol - ml, false), // below o, left edges flush
             ];
-            for (near, dock, align, side_by_side) in candidates {
+            for (faces, dock, align, side_by_side) in candidates {
                 let score = (dock.abs(), align.abs());
-                if near && dock.abs() <= threshold && best.is_none_or(|(d, a, _)| score < (d, a)) {
+                if faces && dock.abs() <= threshold && best.is_none_or(|(d, a, _)| score < (d, a)) {
                     let delta = if side_by_side {
                         (dock, align)
                     } else {
@@ -202,6 +203,15 @@ mod tests {
             grid_size(&rect(0, 300, 200, 500), &other),
             (400, 500).into()
         );
+    }
+
+    #[test]
+    fn docks_beside_a_column_instead_of_jumping_onto_it() {
+        // Column: `top` above `bottom`. A window approaches the column from the right, 20 px away.
+        let top = rect(0, 0, 400, 300);
+        let bottom = rect(0, 300, 400, 300);
+        let moving = rect(420, 5, 400, 300);
+        assert_eq!(snap_delta(&[moving], &[top, bottom], 27), (-20, -5).into());
     }
 
     #[test]
