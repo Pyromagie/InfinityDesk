@@ -11,7 +11,7 @@ use smithay::{
         PointerInnerHandle, RelativeMotionEvent,
     },
     reexports::wayland_server::protocol::wl_surface::WlSurface,
-    utils::{Logical, Point},
+    utils::{Logical, Point, Rectangle},
 };
 
 use crate::{
@@ -87,6 +87,11 @@ enum DragKind {
         last: (Point<f64, Logical>, Instant),
         speed: f64,
     },
+    /// A selection box is dragged open (Alt+Shift on empty space); windows inside get marked.
+    Select {
+        /// Windows marked before, they stay marked.
+        initial: Vec<Window>,
+    },
     /// The canvas is moved underneath the screen.
     Pan {
         /// Pointer position on screen at the start.
@@ -130,6 +135,15 @@ impl DragGrab {
                 members,
                 pressed,
                 speed: 0.0,
+            },
+        }
+    }
+
+    pub fn select(state: &InfinityDesk, start_data: GrabStartData<InfinityDesk>) -> Self {
+        Self {
+            start_data,
+            kind: DragKind::Select {
+                initial: state.selected.clone(),
             },
         }
     }
@@ -183,10 +197,21 @@ impl PointerGrab<InfinityDesk> for DragGrab {
                     if time.elapsed() < HOLD_TIME {
                         data.pulse = None;
                     } else {
-                        tracing::info!("Window pulled out of its cluster");
-                        members.retain(|m| &m.window == grabbed);
+                        // A marked window takes all marked windows of its cluster along.
+                        let group: Vec<Window> = if data.selected.contains(grabbed) {
+                            let in_cluster = members.iter().map(|m| &m.window);
+                            in_cluster
+                                .filter(|w| data.selected.contains(w))
+                                .cloned()
+                                .collect()
+                        } else {
+                            vec![grabbed.clone()]
+                        };
+                        tracing::info!("{} window(s) pulled out of their cluster", group.len());
+                        members.retain(|m| group.contains(&m.window));
                         let space = &data.space;
-                        data.clusters.remove(grabbed, |w| space.element_geometry(w));
+                        data.clusters.detach(&group, |w| space.element_geometry(w));
+                        data.selected.clear();
                     }
                 }
 
@@ -196,6 +221,18 @@ impl PointerGrab<InfinityDesk> for DragGrab {
                     data.space
                         .map_element(m.window.clone(), m.initial_loc + delta, false);
                 }
+            }
+            DragKind::Select { initial } => {
+                let corners = [self.start_data.location, event.location];
+                let selection_box = Rectangle::bounding_box(corners).to_i32_round();
+                let inside = data.space.elements().filter(|w| {
+                    let geo = data.space.element_geometry(w);
+                    geo.is_some_and(|g| g.overlaps(selection_box)) && !initial.contains(w)
+                });
+                let mut selected = initial.clone();
+                selected.extend(inside.cloned());
+                data.selected = selected;
+                data.selection_box = Some(selection_box);
             }
             DragKind::Pan {
                 start_screen,
@@ -327,6 +364,7 @@ impl PointerGrab<InfinityDesk> for DragGrab {
 
     /// Button released: if the cluster now touches other windows, they get docked.
     fn unset(&mut self, data: &mut InfinityDesk) {
+        data.selection_box = None;
         let DragKind::MoveWindows {
             members, pressed, ..
         } = &self.kind

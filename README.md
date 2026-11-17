@@ -31,6 +31,10 @@ cargo run -- -c kitty     # start a different program inside
 | Move a window / its cluster   | Alt + left-drag on a window         |
 | Dock windows                  | Drag a window close to another one  |
 | Detach a window from cluster  | Alt + left-click, hold still briefly, then drag |
+| Mark / unmark a window        | Alt + Shift + click                 |
+| Mark windows with a box       | Alt + Shift + drag on empty space   |
+| Detach marked windows together| Hold and drag one of them (as above) |
+| Clear marks                   | Click on empty space                |
 | Open a terminal (alacritty)   | Alt + T                             |
 | App launcher (fuzzel)         | Alt + D                             |
 | Close the focused window      | Alt + Q                             |

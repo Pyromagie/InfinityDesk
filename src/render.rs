@@ -29,10 +29,9 @@ const GRID_MIN_SCREEN_SPACING: f64 = 40.0;
 const GRID_DOT_SIZE: f32 = 2.0;
 const GRID_DOT_COLOR: [f32; 4] = [0.28, 0.28, 0.32, 1.0];
 
-const PULSE_COLOR: [f32; 4] = [0.35, 0.65, 1.0, 1.0];
-/// Thickness of the pulse ring and how far it grows outward (in pixels).
-const PULSE_WIDTH: i32 = 4;
-const PULSE_GROW: f64 = 16.0;
+const OUTLINE_COLOR: [f32; 4] = [0.35, 0.65, 1.0, 1.0];
+/// Thickness of outlines in pixels.
+pub const OUTLINE_WIDTH: i32 = 4;
 
 render_elements! {
     pub DeskElement<=GlesRenderer>;
@@ -105,10 +104,19 @@ fn grid_element(shader: &GlesPixelProgram, canvas: &Canvas) -> Option<PixelShade
     ))
 }
 
-/// A ring around a window that grows outward and fades: the window was unlocked from its cluster.
-fn pulse_elements(rect: Rectangle<i32, Logical>, t: f64) -> Vec<SolidColorRenderElement> {
-    let color = Color32F::from(PULSE_COLOR) * (1.0 - t) as f32;
-    let o = (t * PULSE_GROW) as i32 + PULSE_WIDTH;
+/// A blue frame around a window (selected, or pulsing when unlocked) or a selection box.
+pub struct Outline {
+    /// Screen rectangle the frame is drawn around.
+    pub rect: Rectangle<i32, Logical>,
+    /// Extra distance from the rectangle (negative: drawn inside it).
+    pub grow: i32,
+    pub alpha: f32,
+}
+
+fn outline_elements(outline: &Outline) -> Vec<SolidColorRenderElement> {
+    let Outline { rect, grow, alpha } = *outline;
+    let color = Color32F::from(OUTLINE_COLOR) * alpha;
+    let o = grow + OUTLINE_WIDTH;
     let (x, y, w, h) = (
         rect.loc.x - o,
         rect.loc.y - o,
@@ -116,10 +124,10 @@ fn pulse_elements(rect: Rectangle<i32, Logical>, t: f64) -> Vec<SolidColorRender
         rect.size.h + 2 * o,
     );
     let edges = [
-        (x, y, w, PULSE_WIDTH),
-        (x, y + h - PULSE_WIDTH, w, PULSE_WIDTH),
-        (x, y, PULSE_WIDTH, h),
-        (x + w - PULSE_WIDTH, y, PULSE_WIDTH, h),
+        (x, y, w, OUTLINE_WIDTH),
+        (x, y + h - OUTLINE_WIDTH, w, OUTLINE_WIDTH),
+        (x, y, OUTLINE_WIDTH, h),
+        (x + w - OUTLINE_WIDTH, y, OUTLINE_WIDTH, h),
     ];
     edges
         .into_iter()
@@ -151,19 +159,18 @@ fn layer_elements(
         .collect()
 }
 
-/// All elements of a frame, front to back: pulse, top layers, windows, grid, bottom layers.
+/// All elements of a frame, front to back: outlines, top layers, windows, grid, bottom layers.
 pub fn desk_elements(
     renderer: &mut GlesRenderer,
     output: &Output,
     space: &Space<Window>,
     canvas: &Canvas,
     grid_shader: &GlesPixelProgram,
-    pulse: Option<(Rectangle<i32, Logical>, f64)>,
+    outlines: &[Outline],
 ) -> Vec<DeskElement> {
-    let mut elements: Vec<DeskElement> = pulse
-        .map(|(rect, t)| pulse_elements(rect, t))
-        .unwrap_or_default()
-        .into_iter()
+    let mut elements: Vec<DeskElement> = outlines
+        .iter()
+        .flat_map(outline_elements)
         .map(DeskElement::Solid)
         .collect();
     let upper = layer_elements(renderer, output, &[Layer::Overlay, Layer::Top]);

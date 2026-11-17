@@ -6,11 +6,14 @@ use std::{
 
 /// How long the "unlocked" pulse lasts.
 const PULSE_TIME: Duration = Duration::from_millis(350);
+/// How far the pulse grows outward (in pixels).
+const PULSE_GROW: f64 = 16.0;
 
 use crate::{
     canvas::{Canvas, DEFAULT_CANVAS_HEIGHT, DEFAULT_CANVAS_WIDTH},
     cluster::Clusters,
     grabs::HOLD_TIME,
+    render::{OUTLINE_WIDTH, Outline},
 };
 use smithay::{
     desktop::{PopupManager, Space, Window, WindowSurfaceType, layer_map_for_output},
@@ -56,6 +59,10 @@ pub struct InfinityDesk {
     pub clusters: Clusters<Window>,
     /// A window held to pull it out of its cluster, with the press time. It pulses when unlocked.
     pub pulse: Option<(Window, Instant)>,
+    /// Marked windows (Alt+Shift); they are pulled out of their cluster together.
+    pub selected: Vec<Window>,
+    /// The selection box being dragged open, in canvas coordinates.
+    pub selection_box: Option<Rectangle<i32, Logical>>,
 
     // Smithay protocol state
     pub compositor_state: CompositorState,
@@ -98,6 +105,8 @@ impl InfinityDesk {
             unplaced: Vec::new(),
             clusters: Clusters::default(),
             pulse: None,
+            selected: Vec::new(),
+            selection_box: None,
             compositor_state,
             xdg_shell_state,
             layer_shell_state,
@@ -196,19 +205,55 @@ impl InfinityDesk {
         self.space.raise_element(window, true);
     }
 
-    /// The "unlocked" pulse around a held window: its screen rectangle and progress (0..1).
-    pub fn pulse(&mut self) -> Option<(Rectangle<i32, Logical>, f64)> {
-        let (window, pressed) = self.pulse.clone()?;
-        let since_unlock = pressed.elapsed().checked_sub(HOLD_TIME)?;
-        let t = since_unlock.as_secs_f64() / PULSE_TIME.as_secs_f64();
-        let geo = self.space.element_geometry(&window).filter(|_| t < 1.0);
-        let Some(geo) = geo else {
-            self.pulse = None;
-            return None;
-        };
-        let loc = self.canvas.canvas_to_screen(geo.loc.to_f64());
-        let size = geo.size.to_f64().upscale(self.canvas.zoom());
-        Some((Rectangle::new(loc, size).to_i32_round(), t))
+    /// Blue frames to draw: the "unlocked" pulse, selected windows and the selection box.
+    pub fn outlines(&mut self) -> Vec<Outline> {
+        let mut outlines: Vec<Outline> = self
+            .selected
+            .iter()
+            .filter_map(|w| self.space.element_geometry(w))
+            .map(|geo| Outline {
+                rect: self.screen_rect(geo),
+                grow: 0,
+                alpha: 1.0,
+            })
+            .collect();
+        if let Some(rect) = self.selection_box {
+            outlines.push(Outline {
+                rect: self.screen_rect(rect),
+                grow: -OUTLINE_WIDTH,
+                alpha: 1.0,
+            });
+        }
+        // The pulse grows outward and fades once a held window is unlocked.
+        if let Some((window, pressed)) = self.pulse.clone() {
+            let since_unlock = pressed.elapsed().checked_sub(HOLD_TIME);
+            let t = since_unlock.map(|d| d.as_secs_f64() / PULSE_TIME.as_secs_f64());
+            match (t, self.space.element_geometry(&window)) {
+                (Some(t), Some(geo)) if t < 1.0 => outlines.push(Outline {
+                    rect: self.screen_rect(geo),
+                    grow: (t * PULSE_GROW) as i32,
+                    alpha: (1.0 - t) as f32,
+                }),
+                (None, Some(_)) => {} // Not unlocked yet.
+                _ => self.pulse = None,
+            }
+        }
+        outlines
+    }
+
+    /// Converts a rectangle on the canvas into one on the screen.
+    fn screen_rect(&self, rect: Rectangle<i32, Logical>) -> Rectangle<i32, Logical> {
+        let loc = self.canvas.canvas_to_screen(rect.loc.to_f64());
+        let size = rect.size.to_f64().upscale(self.canvas.zoom());
+        Rectangle::new(loc, size).to_i32_round()
+    }
+
+    /// Alt+Shift+click: marks a window, or unmarks it.
+    pub fn toggle_selected(&mut self, window: Window) {
+        match self.selected.iter().position(|w| w == &window) {
+            Some(i) => drop(self.selected.remove(i)),
+            None => self.selected.push(window),
+        }
     }
 
     /// Finds the surface under a canvas point: launchers/bars on top, then windows, then wallpapers.

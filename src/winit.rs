@@ -85,7 +85,7 @@ pub fn init_winit(
                 let damage = Rectangle::from_size(size);
 
                 {
-                    let pulse = state.pulse();
+                    let outlines = state.outlines();
                     let (renderer, mut framebuffer) = backend.bind().unwrap();
                     let elements = desk_elements(
                         renderer,
@@ -93,7 +93,7 @@ pub fn init_winit(
                         &state.space,
                         &state.canvas,
                         &grid_shader,
-                        pulse,
+                        &outlines,
                     );
                     if let Err(err) = damage_tracker.render_output(
                         renderer,

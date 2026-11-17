@@ -76,11 +76,24 @@ impl<K: Eq + Hash + Clone> Clusters<K> {
         for w in &members {
             self.cluster_of.remove(w);
         }
+        let rest: Vec<K> = members.into_iter().filter(|w| w != k).collect();
+        self.join_touching(&rest, &rect_of);
+    }
 
-        let rects: Vec<(K, Rect)> = members
-            .into_iter()
-            .filter(|w| w != k)
-            .filter_map(|w| rect_of(&w).map(|r| (w, r)))
+    /// Takes several windows out of their cluster together; among themselves they stay
+    /// connected wherever they touch.
+    pub fn detach(&mut self, group: &[K], rect_of: impl Fn(&K) -> Option<Rect>) {
+        for k in group {
+            self.remove(k, &rect_of);
+        }
+        self.join_touching(group, &rect_of);
+    }
+
+    /// Connects every pair of the given windows that lies edge to edge.
+    fn join_touching(&mut self, windows: &[K], rect_of: impl Fn(&K) -> Option<Rect>) {
+        let rects: Vec<(&K, Rect)> = windows
+            .iter()
+            .filter_map(|w| rect_of(w).map(|r| (w, r)))
             .collect();
         for (i, (a, ra)) in rects.iter().enumerate() {
             for (b, rb) in &rects[i + 1..] {
@@ -286,6 +299,22 @@ mod tests {
         c.join(&2, &3);
         assert_eq!(sorted(c.members(&4)), vec![1, 2, 3, 4]);
         assert_eq!(c.members(&9), vec![9]);
+    }
+
+    #[test]
+    fn detaching_a_group_keeps_it_together() {
+        // Row 1 | 2 | 3. Taking 2 and 3 out leaves 1 alone and 2+3 as their own cluster.
+        let rects = HashMap::from([
+            (1, rect(0, 0, 100, 100)),
+            (2, rect(100, 0, 100, 100)),
+            (3, rect(200, 0, 100, 100)),
+        ]);
+        let mut c = Clusters::default();
+        c.join(&1, &2);
+        c.join(&2, &3);
+        c.detach(&[2, 3], |k| rects.get(k).copied());
+        assert_eq!(c.members(&1), vec![1]);
+        assert_eq!(sorted(c.members(&2)), vec![2, 3]);
     }
 
     #[test]

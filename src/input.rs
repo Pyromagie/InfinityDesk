@@ -79,6 +79,9 @@ impl InfinityDesk {
                 // Provisional controls until bindings become configurable:
                 //   Alt + left-drag on a window          -> move the window's whole cluster
                 //   Alt + left, hold still, then drag  -> pull just this window out of its cluster
+                //                                         (or all marked windows, if it is marked)
+                //   Alt + Shift + click on a window      -> mark / unmark it
+                //   Alt + Shift + drag on empty canvas   -> mark windows with a selection box
                 //   left-drag on empty canvas   -> pan the viewport
                 let location = pointer.current_location();
                 // Launchers and bars on top of everything just get the click.
@@ -87,7 +90,8 @@ impl InfinityDesk {
                     .is_some();
                 if button_state == ButtonState::Pressed && !pointer.is_grabbed() && !on_layer {
                     let clicked = self.space.element_under(location).map(|(w, _)| w.clone());
-                    let alt = keyboard.modifier_state().alt;
+                    let mods = keyboard.modifier_state();
+                    let (alt, select) = (mods.alt, mods.alt && mods.shift && button == BTN_LEFT);
                     let start_data = GrabStartData {
                         focus: None,
                         button,
@@ -96,7 +100,9 @@ impl InfinityDesk {
 
                     if let Some(window) = clicked {
                         self.focus_window(&window);
-                        if alt && button == BTN_LEFT {
+                        if select {
+                            self.toggle_selected(window);
+                        } else if alt && button == BTN_LEFT {
                             let grab = DragGrab::move_window(self, start_data, window);
                             pointer.set_grab(self, grab, serial, Focus::Clear);
                         }
@@ -108,7 +114,11 @@ impl InfinityDesk {
                             w.toplevel().unwrap().send_pending_configure();
                         });
                         keyboard.set_focus(self, Option::<WlSurface>::None, serial);
-                        if button == BTN_LEFT {
+                        if select {
+                            let grab = DragGrab::select(self, start_data);
+                            pointer.set_grab(self, grab, serial, Focus::Clear);
+                        } else if button == BTN_LEFT {
+                            self.selected.clear();
                             let grab = DragGrab::pan(self, start_data);
                             pointer.set_grab(self, grab, serial, Focus::Clear);
                         }

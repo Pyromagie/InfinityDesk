@@ -53,6 +53,7 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
   - ✅ "Verschoben" gilt für alles, was auf der anderen Seite der Kante im Cluster hängt. Das Cluster bleibt zusammen, wird nur größer/kleiner.
 - ✅ Fenster aus dem Cluster lösen: **Alt+Klick, 0,3 s stillhalten (blauer Puls-Ring), dann ziehen** = nur dieses Fenster. Sofort ziehen = ganzes Cluster.
   - Ausprobiert und verworfen: Ruck (zu empfindlich), Schütteln, gegen Widerstand ziehen (ging, aber schlechter). Doppelklick + Ziehen übersprungen.
+- ✅ **Mehrere Fenster gemeinsam lösen:** Fenster markieren (blauer Rahmen) mit Alt+Shift+Klick oder per Auswahlrahmen (Alt+Shift+Ziehen auf leerer Fläche). Halten + Ziehen auf ein markiertes Fenster löst alle markierten Fenster dieses Clusters zusammen heraus; sie bleiben untereinander verbunden. Klick auf leere Fläche hebt die Markierung auf.
 - ✅ Orangener Punkt in der Skizze: ohne Bedeutung (Artefakt vom Zeichenprogramm).
 
 ## 6. Navigation
@@ -65,7 +66,8 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
   - Linksziehen auf leerer Fläche: Fläche verschieben (Pan)
   - Alt + Mausrad: zoomen (um den Mauszeiger herum)
   - Alt + Linksziehen auf einem Fenster: Cluster verschieben
-  - Alt + Linksklick, kurz stillhalten, dann ziehen: Fenster aus dem Cluster lösen
+  - Alt + Linksklick, kurz stillhalten, dann ziehen: Fenster aus dem Cluster lösen (markierte Fenster gemeinsam)
+  - Alt + Shift + Klick: Fenster markieren · Alt + Shift + Ziehen auf leerer Fläche: Auswahlrahmen
   - Mod+T Terminal (alacritty), Mod+D Launcher (fuzzel), Mod+Q Fenster schließen (wie niri). Mod = Alt im genesteten Betrieb, später Super
   - (Super ist im genesteten Betrieb von niri belegt, daher Alt)
 
