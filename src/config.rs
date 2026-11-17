@@ -175,7 +175,7 @@ pub enum Action {
     Focus(Dir),
     /// Swaps the active window with its neighbor in the cluster.
     Swap(Dir),
-    /// Right/up: the active window gets wider/taller, left/down: narrower/lower.
+    /// Moves the right (bottom) edge of the active window towards the arrow.
     Resize(Dir),
     /// Moves the view.
     Pan(Dir),

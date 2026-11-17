@@ -73,7 +73,7 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
 - ✅ **Tastatur-Bedienung** (17.11.2026, von Pyro ausgewählt; Mod = Alt genestet, später Super; alles per `desk.bind` änderbar). Keine Workspaces: InfinityDesk hat ein eigenes Konzept und muss sich nicht an andere Fenstermanager halten.
   - Mod+Pfeile: Fokus zum nächsten Fenster in der Richtung, auch ins nächste Cluster; die Ansicht rückt mit.
   - Mod+Strg+Pfeile: aktives Fenster mit dem Nachbarn im Cluster tauschen (Plätze tauschen, Größen gehen mit).
-  - Mod+Shift+Pfeile: Größe ändern in Schritten von 10 % des Bildschirms (→/↑ größer, ←/↓ kleiner; Pyro: hoch = größer), Nachbarn gehen mit wie beim Ziehen.
+  - Mod+Shift+Pfeile: Größe ändern in Schritten von 10 % des Bildschirms . Es bewegt sich immer nur die rechte bzw. untere Kante, und zwar in Pfeilrichtung: → und ↓ machen größer, ← und ↑ kleiner (Pyro, nach dem ersten Test; vorher wanderte je nach Nachbar mal die linke/obere Kante, und ↑ hieß größer). Nachbarn gehen mit wie beim Ziehen.
   - Mod+Strg+Shift+Pfeile: Ansicht verschieben · Mod+Minus/Plus: zoomen um die Bildschirmmitte · Mod+C: aktives Cluster in die Mitte.
   - Mod+Tab und Mod+O: Übersicht (alle Fenster passen auf den Bildschirm; Mod+O, weil niri Alt+Tab genestet für sich behält). Nochmal Mod+Tab: zurück, oder zum Fenster, das in der Übersicht gewählt wurde (Klick oder Pfeile).
   - Alt+Tab: zuletzt benutzte Fenster. Alt halten, jedes Tab geht eins weiter zurück, die Ansicht fährt hin (die Fläche ist die Vorschau); Loslassen wählt. Genestet fängt niri Alt+Tab ab (und Mod+Tab wären dieselben Tasten); zum Ausprobieren `desk.bind("Ctrl+Tab", desk.recent_windows)`. 💬 Eigene Vorschau-Leiste nur, wenn sie beim Ausprobieren fehlt.

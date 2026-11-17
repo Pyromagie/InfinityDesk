@@ -10,7 +10,7 @@ use smithay::{
 
 use crate::{
     InfinityDesk,
-    cluster::{Rect, TOUCH_TOLERANCE, touching},
+    cluster::{Rect, TOUCH_TOLERANCE},
     grabs::min_size,
     resize::{self, Edge},
 };
@@ -161,10 +161,9 @@ impl InfinityDesk {
         self.apply_viewport();
     }
 
-    /// Mod+Shift+arrow: right/up makes the active window wider/taller, left/down narrower/lower,
-    /// by a tenth of the screen; neighbors follow like when dragging the edge. The right (bottom)
-    /// edge moves, unless only the left (top) one has a neighbor: then that one, so a row that
-    /// fills the screen keeps filling it.
+    /// Mod+Shift+arrow: the right (bottom) edge of the active window moves towards the arrow by
+    /// a tenth of the screen, so right/down make it bigger, left/up smaller. Neighbors follow like
+    /// when dragging that edge.
     pub fn resize_in(&mut self, dir: Dir) {
         let Some(active) = self.active.clone() else {
             return;
@@ -173,27 +172,12 @@ impl InfinityDesk {
         let Some(i) = windows.iter().position(|w| w == &active) else {
             return;
         };
-        // Right and up make it bigger, left and down smaller.
         let (axis, forward) = dir.axis();
-        let grow = if axis == 0 { forward } else { !forward };
-        let r = rects[i];
-        let (start, end) = span(&r, axis);
-        let neighbor_at = |line: i32, side: fn((i32, i32)) -> i32| {
-            (rects.iter().enumerate()).any(|(j, o)| {
-                j != i && touching(&r, o) && (side(span(o, axis)) - line).abs() <= TOUCH_TOLERANCE
-            })
-        };
-        let only_before = neighbor_at(start, |s| s.1) && !neighbor_at(end, |s| s.0);
-        let edge = if only_before { Edge::Start } else { Edge::End };
         let screen = self.canvas.screen_size();
         let step = [screen.w, screen.h][axis] / RESIZE_STEP;
-        let step = if grow == (edge == Edge::End) {
-            step
-        } else {
-            -step
-        };
+        let step = if forward { step } else { -step };
         let mut edges = [Edge::None; 2];
-        edges[axis] = edge;
+        edges[axis] = Edge::End;
         let mut delta = [0, 0];
         delta[axis] = step;
         let follow = resize::plan(&rects, i, edges, false);

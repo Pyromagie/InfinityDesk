@@ -124,7 +124,7 @@ Keyboard shortcuts can be changed in the config (see Settings); mouse controls w
 | Resize, rest of cluster moves   | The same with Shift                                |
 | Focus the next window           | Alt + arrow keys                                   |
 | Swap with the neighbor          | Alt + Ctrl + arrow keys                            |
-| Wider / narrower, taller / lower| Alt + Shift + → / ←, ↑ / ↓ (a tenth of the screen) |
+| Move the right / bottom edge    | Alt + Shift + arrow keys (a tenth of the screen)   |
 | Pan the view                    | Alt + Ctrl + Shift + arrow keys                    |
 | Zoom in / out (screen middle)   | Alt + Plus / Alt + Minus                           |
 | Center the active cluster       | Alt + C                                            |
