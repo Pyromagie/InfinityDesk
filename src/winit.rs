@@ -9,7 +9,7 @@ use smithay::{
     },
     output::{Mode, Output, PhysicalProperties, Subpixel},
     reexports::calloop::EventLoop,
-    utils::{Rectangle, Transform},
+    utils::Transform,
 };
 
 use crate::{
@@ -61,6 +61,8 @@ pub fn init_winit(
 
     let mut damage_tracker = OutputDamageTracker::from_output(&output);
     let grid_shader = compile_grid_shader(backend.renderer());
+    // The back buffer has no age before the first frame (asking EGL then logs an error).
+    let mut first_frame = true;
 
     event_loop
         .handle()
@@ -81,31 +83,42 @@ pub fn init_winit(
             }
             WinitEvent::Input(event) => state.process_input_event(event),
             WinitEvent::Redraw => {
-                let size = backend.window_size();
-                let damage = Rectangle::from_size(size);
-
-                {
-                    let outlines = state.outlines();
-                    let (renderer, mut framebuffer) = backend.bind().unwrap();
-                    let elements = desk_elements(
-                        renderer,
-                        &output,
-                        &state.space,
-                        &state.canvas,
-                        &grid_shader,
-                        &outlines,
-                    );
-                    if let Err(err) = damage_tracker.render_output(
-                        renderer,
-                        &mut framebuffer,
-                        0,
-                        &elements,
-                        BACKGROUND,
-                    ) {
-                        tracing::error!("rendering failed: {err:?}");
+                // Only redraw what changed since this back buffer was last used.
+                let age = match first_frame {
+                    true => 0,
+                    false => backend.buffer_age().unwrap_or(0),
+                };
+                first_frame = false;
+                let outlines = state.outlines();
+                let damage = match backend.bind() {
+                    Ok((renderer, mut framebuffer)) => {
+                        let elements = desk_elements(
+                            renderer,
+                            &output,
+                            &state.space,
+                            &state.canvas,
+                            &grid_shader,
+                            &outlines,
+                        );
+                        damage_tracker
+                            .render_output(renderer, &mut framebuffer, age, &elements, BACKGROUND)
+                            .map(|result| result.damage.cloned())
+                            .unwrap_or_else(|err| {
+                                tracing::error!("rendering failed: {err:?}");
+                                None
+                            })
                     }
+                    Err(err) => {
+                        tracing::error!("binding the back buffer failed: {err:?}");
+                        None
+                    }
+                };
+                // Nothing changed: nothing to show.
+                if let Some(damage) = damage
+                    && let Err(err) = backend.submit(Some(&damage))
+                {
+                    tracing::warn!("submitting the frame failed: {err:?}");
                 }
-                backend.submit(Some(&[damage])).unwrap();
 
                 // Tell clients they may draw their next frame.
                 state.space.elements().for_each(|window| {
