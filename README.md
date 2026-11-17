@@ -32,7 +32,8 @@ step further into two dimensions. Built in Rust on [Smithay](https://github.com/
   visible windows are rendered)
 - **Docking:** edges snap together within 15 screen pixels at any zoom level and line up flush
   (tops or bottoms side by side, left or right edges stacked, whichever is closer), so windows
-  of different sizes dock too and there are no offset connections. Spots that are
+  of different sizes dock too and there are no offset connections. Pushing a window a bit too
+  far, onto its neighbor, still docks it at the edge. Spots that are
   already taken are skipped, and windows passing by quickly do not snap.
 - **Clusters** move as a whole, split automatically when a window leaves, and merge when they
   touch another window

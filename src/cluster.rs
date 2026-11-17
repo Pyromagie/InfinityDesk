@@ -23,6 +23,9 @@ pub const TOUCH_TOLERANCE: i32 = 2;
 /// Docking also lines up the other edge (tops or left edges), but only if that edge is at most
 /// this many times the snap distance away. Otherwise a window would jump far to line up.
 const ALIGN_FACTOR: i32 = 4;
+/// A window pushed too far, already over its neighbor, still docks at the edge up to this many
+/// times the snap distance deep, so docking does not need precise aiming.
+const OVERSHOOT_FACTOR: i32 = 4;
 
 /// Which windows are docked to which. A cluster is everything connected through these links;
 /// a window without links stands alone.
@@ -108,8 +111,10 @@ pub fn touching(a: &Rect, b: &Rect) -> bool {
 /// window. An edge within `threshold` (canvas pixels) of a neighbor docks to it, and the other
 /// axis always lines up with that neighbor, so there is a clean corner: side by side the tops or
 /// the bottoms are flush, stacked the left or the right edges (whichever pair is closer, so
-/// windows of different sizes dock too). The closest dock wins; ties go to the smallest
-/// alignment jump. A spot that is already taken by another window is skipped.
+/// windows of different sizes dock too). A window pushed past the edge, already overlapping its
+/// neighbor, docks too (up to `OVERSHOOT_FACTOR` times `threshold` deep). The closest dock wins;
+/// ties go to the smallest alignment jump. A spot that is already taken by another window is
+/// skipped.
 pub fn snap_delta(moving: &[Rect], others: &[Rect], threshold: i32) -> Point<i32, Logical> {
     // (dock distance, alignment distance, delta)
     let mut best: Option<(i32, i32, Point<i32, Logical>)> = None;
@@ -121,17 +126,19 @@ pub fn snap_delta(moving: &[Rect], others: &[Rect], threshold: i32) -> Point<i32
             // vertically, stacked horizontally. Otherwise the alignment could jump across.
             let v_overlap = mt < ob && ot < mb;
             let h_overlap = ml < or && ol < mr;
+            // `gap` is the dock distance with its sign: positive = still apart, negative = the
+            // windows already overlap (pushed too far).
             let candidates = [
-                (v_overlap, ol - mr, ot - mt, true),  // left of o, tops flush
-                (v_overlap, ol - mr, ob - mb, true),  // left of o, bottoms flush
-                (v_overlap, or - ml, ot - mt, true),  // right of o, tops flush
-                (v_overlap, or - ml, ob - mb, true),  // right of o, bottoms flush
-                (h_overlap, ot - mb, ol - ml, false), // above o, left edges flush
-                (h_overlap, ot - mb, or - mr, false), // above o, right edges flush
-                (h_overlap, ob - mt, ol - ml, false), // below o, left edges flush
-                (h_overlap, ob - mt, or - mr, false), // below o, right edges flush
+                (v_overlap, ol - mr, ol - mr, ot - mt, true), // left of o, tops flush
+                (v_overlap, ol - mr, ol - mr, ob - mb, true), // left of o, bottoms flush
+                (v_overlap, or - ml, ml - or, ot - mt, true), // right of o, tops flush
+                (v_overlap, or - ml, ml - or, ob - mb, true), // right of o, bottoms flush
+                (h_overlap, ot - mb, ot - mb, ol - ml, false), // above o, left edges flush
+                (h_overlap, ot - mb, ot - mb, or - mr, false), // above o, right edges flush
+                (h_overlap, ob - mt, mt - ob, ol - ml, false), // below o, left edges flush
+                (h_overlap, ob - mt, mt - ob, or - mr, false), // below o, right edges flush
             ];
-            for (faces, dock, align, side_by_side) in candidates {
+            for (faces, dock, gap, align, side_by_side) in candidates {
                 let score = (dock.abs(), align.abs());
                 let delta = if side_by_side {
                     (dock, align)
@@ -140,7 +147,8 @@ pub fn snap_delta(moving: &[Rect], others: &[Rect], threshold: i32) -> Point<i32
                 }
                 .into();
                 if faces
-                    && dock.abs() <= threshold
+                    && gap <= threshold
+                    && -gap <= threshold * OVERSHOOT_FACTOR
                     && align.abs() <= threshold * ALIGN_FACTOR
                     && best.is_none_or(|(d, a, _)| score < (d, a))
                     && is_free(moving, others, delta)
@@ -273,6 +281,33 @@ mod tests {
         let docked = Rect::new(moving.loc + d, moving.size);
         assert!(touching(&docked, &small));
         assert!(touching(&docked, &tall));
+    }
+
+    #[test]
+    fn overshooting_still_docks() {
+        // Pushed 40 px too far into `other` from the left (more than the snap distance):
+        // it still docks at the edge.
+        let other = rect(1000, 0, 400, 300);
+        let moving = rect(640, 0, 400, 300);
+        assert_eq!(snap_delta(&[moving], &[other], 15), (-40, 0).into());
+        // Pushed 40 px too far up into a window above it.
+        let moving = rect(1000, 260, 400, 300);
+        assert_eq!(snap_delta(&[moving], &[other], 15), (0, 40).into());
+    }
+
+    #[test]
+    fn approaching_still_needs_the_snap_distance() {
+        // 40 px gap (not overlapping): too far to dock.
+        let other = rect(1000, 0, 400, 300);
+        assert_eq!(
+            snap_delta(&[rect(560, 0, 400, 300)], &[other], 15),
+            (0, 0).into()
+        );
+        // Pushed 70 px deep, beyond 4 × 15: no dock either.
+        assert_eq!(
+            snap_delta(&[rect(670, 0, 400, 300)], &[other], 15),
+            (0, 0).into()
+        );
     }
 
     #[test]

@@ -44,6 +44,7 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
 - ✅ **Keine versetzten Verbindungen:** Beim Andocken richtet sich das Fenster immer bündig am Nachbarn aus (nebeneinander: Ober- **oder** Unterkanten, untereinander: linke **oder** rechte Kanten, je nachdem welches Paar näher ist). So docken auch unterschiedlich große Fenster an und es entstehen saubere Ecken. Angedockt wird nur, wenn diese Kanten schon nah sind (höchstens 60 px auf dem Bildschirm), sonst würde das Fenster weit springen.
 - ✅ **Einstellung `match_size`:** Standard aus = Fenster behalten beim Andocken ihre Größe (unterschiedlich große Fenster dürfen aneinander docken). An = ein einzeln angedocktes Fenster übernimmt die Höhe (nebeneinander) bzw. Breite (untereinander) des Nachbarn, das Cluster wird ein sauberes Raster. Bis zur Lua-Config: `INFINITYDESK_MATCH_SIZE=1 cargo run`.
   - ✅ Ein Platz, an dem schon ein Fenster liegt, wird nicht angedockt (keine überlappenden Fenster).
+  - ✅ **Überschießen wird verziehen:** Schiebt man ein Fenster zu weit, schon über den Nachbarn, dockt es trotzdem an dessen Kante an (bis 60 px tief, Bildschirm). Beim Heranziehen bleibt es bei 15 px.
   - ✅ Schnell vorbeiziehen (über 1000 px/s) rastet nicht ein, damit nichts kurz hin- und herspringt. Beim Loslassen wird immer eingerastet.
 - ✅ Zieht man ein Fenster, bewegt sich sein **ganzes Cluster**. Lässt man los und das Cluster berührt andere Fenster, werden sie zu einem Cluster verbunden.
 - ✅ Nur Ecke-an-Ecke zählt nicht als angedockt, es braucht eine gemeinsame Kante.
