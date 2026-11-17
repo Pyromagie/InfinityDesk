@@ -132,7 +132,7 @@ Keyboard shortcuts can be changed in the config (see Settings); mouse controls w
 |                                 | window chosen meanwhile (click or Alt + arrow)     |
 | Recently used windows           | Alt + Tab (hold Alt; each Tab goes one further     |
 |                                 | back, the view follows; release to choose)         |
-| Open a terminal (alacritty)     | Alt + T                                            |
+| Open a terminal (alacritty)     | Alt + T or Alt + Enter                             |
 | App launcher (fuzzel)           | Alt + Space                                        |
 | Close the focused window        | Alt + Q                                            |
 | Arrange the cluster (templates) | Alt + R, then click a slot or press 1–8 (Esc)      |
@@ -180,7 +180,7 @@ desk.colors { background = "#1a1a1f", grid = "#474752", accent = "#59a6ff" }
 -- Actions: desk.spawn("command line"), desk.close_window, desk.fullscreen, desk.layout_menu,
 -- desk.focus(dir), desk.swap(dir), desk.resize(dir), desk.pan(dir) with dir "left", "right",
 -- "up" or "down", desk.zoom_in, desk.zoom_out, desk.center, desk.overview, desk.recent_windows
-desk.bind("Mod+Return", desk.spawn("alacritty -e btop"))
+desk.bind("Mod+B", desk.spawn("firefox"))
 desk.bind("Mod+L", desk.focus("right"))
 desk.unbind("Mod+Tab")
 ```

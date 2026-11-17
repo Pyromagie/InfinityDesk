@@ -86,7 +86,7 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
   - Alt + Rechtsziehen: Größe ändern, Nachbarn im Cluster passen sich an · mit Shift: Rest des Clusters rückt mit
   - Alt + Linksklick, kurz stillhalten, dann ziehen: Fenster aus dem Cluster lösen (markierte Fenster gemeinsam)
   - Alt + Shift + Klick: Fenster markieren · Alt + Shift + Ziehen auf leerer Fläche: Auswahlrahmen
-  - Tastatur: siehe oben. Dazu Mod+F Vollbild, Mod+T Terminal (alacritty), Mod+Q Fenster schließen (wie niri). Mod = Alt im genesteten Betrieb, später Super
+  - Tastatur: siehe oben. Dazu Mod+F Vollbild, Mod+T und Mod+Enter Terminal (alacritty), Mod+Q Fenster schließen (wie niri). Mod = Alt im genesteten Betrieb, später Super
   - (Super ist im genesteten Betrieb von niri belegt, daher Alt. In der eigenständigen Sitzung werden alle Alt-Kürzel zu Super-Kürzeln, so will es Pyro.)
 
 ## 6b. Hintergrund

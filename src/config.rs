@@ -6,7 +6,7 @@
 //! desk.canvas { width = 20000, height = 12000, grid = { spacing = 100 } }
 //! desk.snapping { threshold = 15, match_size = false, hold_ms = 300 }
 //! desk.colors { background = "#1a1a1f", grid = "#474752", accent = "#59a6ff" }
-//! desk.bind("Mod+Return", desk.spawn("alacritty"))
+//! desk.bind("Mod+B", desk.spawn("firefox"))
 //! desk.unbind("Mod+Space")
 //! ```
 //!
@@ -100,6 +100,7 @@ impl Default for Config {
             accent: [0.35, 0.65, 1.0, 1.0],
             binds: [
                 ("Mod+T".to_string(), Action::Spawn("alacritty".into())),
+                ("Mod+Return".to_string(), Action::Spawn("alacritty".into())),
                 ("Mod+Space".to_string(), Action::Spawn("fuzzel".into())),
                 ("Mod+Q".to_string(), Action::CloseWindow),
                 ("Mod+F".to_string(), Action::Fullscreen),
@@ -681,6 +682,10 @@ mod tests {
         assert_eq!(action(&config, "Mod+Tab"), Some(Action::Overview));
         assert_eq!(action(&config, "Mod+O"), Some(Action::Overview));
         assert_eq!(action(&config, "Mod+R"), Some(Action::LayoutMenu));
+        assert_eq!(
+            action(&config, "Mod+Return"),
+            Some(Action::Spawn("alacritty".into()))
+        );
         assert_eq!(action(&config, "Mod+W"), None);
     }
 
