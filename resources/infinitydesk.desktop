@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=InfinityDesk
+Comment=A Wayland compositor with a huge canvas to place windows on
+Exec=infinitydesk
+Type=Application
+DesktopNames=InfinityDesk

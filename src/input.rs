@@ -4,6 +4,7 @@ use smithay::{
     backend::input::{
         AbsolutePositionEvent, Axis, AxisSource, ButtonState, Event, InputBackend, InputEvent,
         InputTime, KeyState, KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent,
+        PointerMotionEvent,
     },
     input::{
         keyboard::{FilterResult, Keysym},
@@ -13,7 +14,13 @@ use smithay::{
     utils::{Logical, Point, SERIAL_COUNTER},
 };
 
-use crate::{InfinityDesk, config::Action, grabs::DragGrab, layout, resize::Edge};
+use crate::{
+    InfinityDesk,
+    config::{Action, mod_held},
+    grabs::DragGrab,
+    layout,
+    resize::Edge,
+};
 
 /// Mouse buttons (linux/input-event-codes.h).
 const BTN_LEFT: u32 = 0x110;
@@ -29,6 +36,8 @@ enum KeyAction {
     Template(Option<usize>),
     /// In the template menu: other keys do nothing.
     Nothing,
+    /// Ctrl+Alt+F1..F12: switch to another console (standalone).
+    SwitchVt(i32),
 }
 
 impl InfinityDesk {
@@ -59,6 +68,10 @@ impl InfinityDesk {
                             .find(|b| raw.is_some_and(|raw| b.keys.matches(raw, mods)))
                             .map(|b| b.action.clone());
                         let digit = sym.raw().wrapping_sub(Keysym::_1.raw()) as usize;
+                        let vt = sym.raw().wrapping_sub(Keysym::XF86_Switch_VT_1.raw());
+                        if vt < 12 {
+                            return FilterResult::Intercept(KeyAction::SwitchVt(vt as i32 + 1));
+                        }
                         match (state.layout_menu.is_some(), bound) {
                             // The template menu takes all keys while it is open; its own shortcut
                             // closes it again.
@@ -86,9 +99,28 @@ impl InfinityDesk {
                     Some(KeyAction::Bind(action)) => self.run(action),
                     Some(KeyAction::Template(Some(t))) => self.choose_template(t, None),
                     Some(KeyAction::Template(None)) => self.layout_menu = None,
+                    Some(KeyAction::SwitchVt(vt)) => {
+                        if let Some(udev) = &mut self.udev {
+                            udev.switch_vt(vt);
+                        }
+                        return;
+                    }
                     Some(KeyAction::Nothing) | None => return,
                 }
                 self.pointer_moved(self.canvas.screen_to_canvas(screen), event.time());
+            }
+
+            // Mice and touchpads (standalone) move the pointer by an amount, within the screen.
+            InputEvent::PointerMotion { event, .. } => {
+                let pointer = self.seat.get_pointer().unwrap();
+                let screen = self.canvas.canvas_to_screen(pointer.current_location());
+                let size = self.canvas.screen_size().to_f64();
+                let pos = screen + event.delta();
+                let pos = (
+                    pos.x.clamp(0.0, size.w - 1.0),
+                    pos.y.clamp(0.0, size.h - 1.0),
+                );
+                self.pointer_moved(self.canvas.screen_to_canvas(pos.into()), event.time());
             }
 
             InputEvent::PointerMotionAbsolute { event, .. } => {
@@ -107,13 +139,13 @@ impl InfinityDesk {
 
                 // Clicking a window raises and focuses it (with its cluster); clicking empty space unfocuses.
                 // Provisional controls until bindings become configurable:
-                //   Alt + left-drag on a window          -> move the window's whole cluster
-                //   Alt + left, hold still, then drag  -> pull just this window out of its cluster
+                //   Mod + left-drag on a window          -> move the window's whole cluster
+                //   Mod + left, hold still, then drag  -> pull just this window out of its cluster
                 //                                         (or all marked windows, if it is marked)
-                //   Alt + right-drag on a window         -> resize it at the nearest edges; neighbors
+                //   Mod + right-drag on a window         -> resize it at the nearest edges; neighbors
                 //                                         in the cluster follow (Shift: they move)
-                //   Alt + Shift + click on a window      -> mark / unmark it
-                //   Alt + Shift + drag on empty canvas   -> mark windows with a selection box
+                //   Mod + Shift + click on a window      -> mark / unmark it
+                //   Mod + Shift + drag on empty canvas   -> mark windows with a selection box
                 //   left-drag on a window border         -> resize it (Shift: the cluster moves)
                 //   left-drag on empty canvas   -> pan the viewport
                 let location = pointer.current_location();
@@ -137,7 +169,7 @@ impl InfinityDesk {
                 let on_layer = (self.layer_surface_under(location, self.upper_layers())).is_some();
                 // In the overview, a click on a window chooses it (and is not passed on).
                 let clicked = self.space.element_under(location).map(|(w, _)| w.clone());
-                let plain = !keyboard.modifier_state().alt && button == BTN_LEFT;
+                let plain = !mod_held(&keyboard.modifier_state()) && button == BTN_LEFT;
                 if let Some(window) = (clicked.as_ref())
                     .filter(|_| self.overview.is_some() && plain && !on_layer)
                     .filter(|_| button_state == ButtonState::Pressed && !pointer.is_grabbed())
@@ -155,7 +187,8 @@ impl InfinityDesk {
                     && !fullscreen
                 {
                     let mods = keyboard.modifier_state();
-                    let (alt, select) = (mods.alt, mods.alt && mods.shift && button == BTN_LEFT);
+                    let alt = mod_held(&mods);
+                    let select = alt && mods.shift && button == BTN_LEFT;
                     let start_data = GrabStartData {
                         focus: None,
                         button,
@@ -225,9 +258,9 @@ impl InfinityDesk {
                 pointer.frame(self);
             }
 
-            // Alt + scroll zooms around the pointer (not while a window is fullscreen).
+            // Mod + scroll zooms around the pointer (not while a window is fullscreen).
             InputEvent::PointerAxis { event, .. }
-                if self.seat.get_keyboard().unwrap().modifier_state().alt
+                if mod_held(&self.seat.get_keyboard().unwrap().modifier_state())
                     && !self.seat.get_pointer().unwrap().is_grabbed()
                     && self.fullscreen.is_none() =>
             {
@@ -291,6 +324,7 @@ impl InfinityDesk {
                 }
             }
             Action::LayoutMenu => self.toggle_layout_menu(focused),
+            Action::Quit => self.loop_signal.stop(),
             // Moving around ends fullscreen first.
             action => {
                 self.end_fullscreen();
@@ -333,7 +367,7 @@ impl InfinityDesk {
             let mods = self.seat.get_keyboard().unwrap().modifier_state();
             let on_layer = (self.layer_surface_under(pos, self.upper_layers())).is_some();
             let free = self.layout_menu.is_none() && self.fullscreen.is_none();
-            let hint = (!mods.alt && !on_layer && free)
+            let hint = (!mod_held(&mods) && !on_layer && free)
                 .then(|| self.border_under(pos))
                 .flatten();
             self.set_resize_hint(hint, mods.shift);

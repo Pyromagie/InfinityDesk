@@ -5,6 +5,7 @@ mod layer_shell;
 mod xdg_shell;
 
 use smithay::{
+    backend::{allocator::dmabuf::Dmabuf, renderer::ImportDma},
     input::{
         Seat, SeatHandler, SeatState,
         dnd::{DnDGrab, DndGrabHandler, GrabType, Source},
@@ -12,6 +13,7 @@ use smithay::{
     },
     reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface},
     utils::Serial,
+    wayland::dmabuf::{DmabufGlobal, DmabufHandler, DmabufState, ImportNotifier},
     wayland::{
         output::OutputHandler,
         pointer_constraints::PointerConstraintsHandler,
@@ -37,7 +39,9 @@ impl SeatHandler for InfinityDesk {
         &mut self.seat_state
     }
 
-    fn cursor_image(&mut self, _seat: &Seat<Self>, _image: CursorImageStatus) {}
+    fn cursor_image(&mut self, _seat: &Seat<Self>, image: CursorImageStatus) {
+        self.client_cursor = image;
+    }
 
     fn focus_changed(&mut self, seat: &Seat<Self>, focused: Option<&WlSurface>) {
         let dh = &self.display_handle;
@@ -79,6 +83,29 @@ impl WaylandDndGrabHandler for InfinityDesk {
                 ptr.set_grab(self, grab, serial, Focus::Keep);
             }
             GrabType::Touch => source.cancel(),
+        }
+    }
+}
+
+// --- GPU buffers from apps (standalone) ---
+
+impl DmabufHandler for InfinityDesk {
+    fn dmabuf_state(&mut self) -> &mut DmabufState {
+        &mut self.dmabuf_state
+    }
+
+    /// A buffer is only accepted if the GPU can use it.
+    fn dmabuf_imported(
+        &mut self,
+        _global: &DmabufGlobal,
+        dmabuf: Dmabuf,
+        notifier: ImportNotifier,
+    ) {
+        let renderer = self.udev.as_mut().map(|u| &mut u.renderer);
+        if renderer.is_some_and(|r| r.import_dmabuf(&dmabuf, None).is_ok()) {
+            let _ = notifier.successful::<Self>();
+        } else {
+            notifier.failed();
         }
     }
 }

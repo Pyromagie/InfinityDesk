@@ -142,6 +142,16 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
 6. Bedienung festlegen (Standard-Belegung), Hintergrund / layer-shell, Feinschliff
 7. Standalone-Betrieb (eigener Login-Eintrag, ohne niri darunter), README, Veröffentlichung
 
+## 7b. Eigenständige Sitzung (begonnen 17.11.2026)
+
+- ✅ Start ohne `WAYLAND_DISPLAY`/`DISPLAY` (z. B. auf einer Text-Konsole) = eigenständig, sonst genestet als Fenster. Eigenständig ist **Mod = Super**, auch für die Maus-Gesten (Mod+Ziehen, Mod+Mausrad).
+- ✅ Erste Stufe, so klein wie möglich: **eine Grafikkarte, ein Monitor** (die erste Karte mit angeschlossenem Monitor; bei Pyro die NVIDIA RTX 4070 SUPER mit DP-2), Auflösung des Monitors mit der höchsten Bildrate dort (bei Pyro 3440×1440 @ 175 Hz).
+- ✅ Mauszeiger zeichnet InfinityDesk selbst (Thema aus `XCURSOR_THEME`/`XCURSOR_SIZE`), auch die Zeiger der Programme (z. B. Text-Cursor in Firefox).
+- ✅ dmabuf: Programme geben ihre Bilder direkt als GPU-Puffer weiter.
+- ✅ Mod+Shift+E beendet InfinityDesk (wie niri). Strg+Alt+F1…F12 wechselt die Konsole.
+- ✅ Login-Eintrag `resources/infinitydesk.desktop` (für den Login-Manager, wenn die Konsole klappt).
+- Noch nicht: mehrere Monitore, Monitor-Einstellungen in der Config, XWayland (Steam, ältere Programme; z. B. über xwayland-satellite wie niri), Programme beim Start (Autostart), Maus-/Touchpad-Einstellungen (Beschleunigung: bei Pyro flach, 0.45), Zeiger-Thema in der Config, Monitor ab-/anstecken im Betrieb.
+
 ## 8. Offene Fragen
 
 - Bedienung des Ganzen (Punkt 6)

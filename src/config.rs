@@ -17,6 +17,7 @@
 
 use std::{
     path::{Path, PathBuf},
+    sync::atomic::{AtomicBool, Ordering},
     time::{Duration, SystemTime},
 };
 
@@ -110,6 +111,7 @@ impl Default for Config {
                 // Alt, not Mod: like everywhere else. (While nested, Mod+Tab is the same keys
                 // and comes first; standalone, Mod is Super.)
                 ("Alt+Tab".to_string(), Action::RecentWindows),
+                ("Mod+Shift+E".to_string(), Action::Quit),
                 ("Mod+Minus".to_string(), Action::ZoomOut),
                 // "+" is its own key on some layouts (e.g. German), shares "=" on others.
                 ("Mod+Plus".to_string(), Action::ZoomIn),
@@ -184,12 +186,14 @@ pub enum Action {
     Overview,
     /// Goes back through the windows in the order they were used, while the modifiers are held.
     RecentWindows,
+    /// Ends InfinityDesk (and with it the session).
+    Quit,
 }
 
 impl UserData for Action {}
 
 /// The actions that need no argument, by their Lua name.
-const SIMPLE_ACTIONS: [(&str, Action); 8] = [
+const SIMPLE_ACTIONS: [(&str, Action); 9] = [
     ("close_window", Action::CloseWindow),
     ("fullscreen", Action::Fullscreen),
     ("layout_menu", Action::LayoutMenu),
@@ -198,6 +202,7 @@ const SIMPLE_ACTIONS: [(&str, Action); 8] = [
     ("center", Action::Center),
     ("overview", Action::Overview),
     ("recent_windows", Action::RecentWindows),
+    ("quit", Action::Quit),
 ];
 /// The actions that take a direction ("left", "right", "up", "down").
 type DirAction = fn(Dir) -> Action;
@@ -208,8 +213,25 @@ const DIR_ACTIONS: [(&str, DirAction); 4] = [
     ("pan", Action::Pan),
 ];
 
-/// "Mod+Shift+Return" -> modifiers and key. Mod is Alt while running nested (Super is taken by
-/// the host compositor); key names are xkb names (any case): "T", "Return", "F11", "space", ...
+/// Is Mod the Super key (standalone)? Otherwise it is Alt (nested: Super belongs to the host).
+static MOD_IS_SUPER: AtomicBool = AtomicBool::new(false);
+
+/// Chooses what Mod means; set once at startup, before the config is read.
+pub fn set_mod_super(on: bool) {
+    MOD_IS_SUPER.store(on, Ordering::Relaxed);
+}
+
+/// Is Mod held (for the mouse controls, e.g. Mod + drag)?
+pub fn mod_held(mods: &ModifiersState) -> bool {
+    match MOD_IS_SUPER.load(Ordering::Relaxed) {
+        true => mods.logo,
+        false => mods.alt,
+    }
+}
+
+/// "Mod+Shift+Return" -> modifiers and key. Mod is Super standalone and Alt while running nested
+/// (Super is taken by the host compositor); key names are xkb names (any case): "T", "Return",
+/// "F11", "space", ...
 fn parse_keys(text: &str) -> Result<Keys, String> {
     let mut parts: Vec<&str> = text.split('+').map(str::trim).collect();
     let name = parts.pop().filter(|n| !n.is_empty());
@@ -227,6 +249,7 @@ fn parse_keys(text: &str) -> Result<Keys, String> {
     };
     for m in parts {
         let flag = match m.to_ascii_lowercase().as_str() {
+            "mod" if MOD_IS_SUPER.load(Ordering::Relaxed) => &mut keys.logo,
             "mod" | "alt" => &mut keys.alt,
             "super" => &mut keys.logo,
             "ctrl" | "control" => &mut keys.ctrl,

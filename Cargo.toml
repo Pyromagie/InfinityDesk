@@ -6,6 +6,8 @@ edition = "2024"
 [dependencies]
 mlua = { version = "0.12", features = ["lua54", "vendored"] }
 tracing = "0.1"
+# Pointer images from the cursor theme (standalone, where nobody else draws the pointer).
+xcursor = "0.3"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Gepinnt auf einen festen Commit, damit sich die API nicht unter uns ändert.
@@ -13,4 +15,16 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 git = "https://github.com/Smithay/smithay.git"
 rev = "33323a917af13676875c27fb7748ffdaea5f4c2f"
 default-features = false
-features = ["backend_winit", "wayland_frontend", "desktop"]
+features = [
+    "backend_winit",
+    "wayland_frontend",
+    "desktop",
+    # Standalone session: screen (DRM/KMS), GPU buffers, input devices, seat access.
+    "backend_drm",
+    "backend_gbm",
+    "backend_egl",
+    "backend_libinput",
+    "backend_udev",
+    "backend_session_libseat",
+    "renderer_gl",
+]

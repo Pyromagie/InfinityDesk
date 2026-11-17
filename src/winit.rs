@@ -1,7 +1,5 @@
 //! Nested backend: InfinityDesk runs as a window inside the current session.
 
-use std::time::Duration;
-
 use smithay::{
     backend::{
         renderer::damage::OutputDamageTracker,
@@ -16,7 +14,10 @@ use crate::{
     InfinityDesk,
     render::{Grid, compile_grid_shader, desk_elements},
 };
-use smithay::{desktop::layer_map_for_output, input::pointer::CursorIcon};
+use smithay::{
+    desktop::layer_map_for_output,
+    input::pointer::{CursorIcon, CursorImageStatus},
+};
 
 pub fn init_winit(
     event_loop: &mut EventLoop<InfinityDesk>,
@@ -47,14 +48,7 @@ pub fn init_winit(
         Some((0, 0).into()),
     );
     output.set_preferred(mode);
-    // Start with the viewport in the middle of the canvas, leaving room in every direction.
-    state.output = Some(output.clone());
-    state.canvas.set_screen_size(mode.size.to_logical(1));
-    let canvas_size = state.canvas.size().to_f64();
-    state
-        .canvas
-        .center_viewport_on((canvas_size.w / 2.0, canvas_size.h / 2.0).into());
-    state.apply_viewport();
+    state.set_output(output.clone());
 
     let mut damage_tracker = OutputDamageTracker::from_output(&output);
     let grid_shader = compile_grid_shader(backend.renderer());
@@ -90,8 +84,13 @@ pub fn init_winit(
                 };
                 first_frame = false;
                 let bars = state.bars();
-                if state.cursor != cursor {
-                    cursor = state.cursor;
+                // Ours (resize arrows), else what the app asks for (as far as the host can show it).
+                let wanted = match &state.client_cursor {
+                    CursorImageStatus::Named(icon) if state.cursor == CursorIcon::Default => *icon,
+                    _ => state.cursor,
+                };
+                if wanted != cursor {
+                    cursor = wanted;
                     backend.window().set_cursor(cursor.into());
                 }
                 let damage = match backend.bind() {
@@ -135,29 +134,7 @@ pub fn init_winit(
                     tracing::warn!("submitting the frame failed: {err:?}");
                 }
 
-                // Tell clients they may draw their next frame.
-                state.space.elements().for_each(|window| {
-                    window.send_frame(
-                        &output,
-                        state.start_time.elapsed(),
-                        Some(Duration::ZERO),
-                        |_, _| Some(output.clone()),
-                    )
-                });
-
-                for layer in layer_map_for_output(&output).layers() {
-                    layer.send_frame(
-                        &output,
-                        state.start_time.elapsed(),
-                        Some(Duration::ZERO),
-                        |_, _| Some(output.clone()),
-                    );
-                }
-
-                state.space.refresh();
-                state.popups.cleanup();
-                let _ = state.display_handle.flush_clients();
-
+                state.send_frames(&output);
                 backend.window().request_redraw();
             }
             WinitEvent::CloseRequested => state.loop_signal.stop(),

@@ -8,9 +8,9 @@ get around. Think of a desk you can spread your work out on, with the screen as 
 Inspired by [niri](https://github.com/YaLTeR/niri) (freedom to scroll horizontally), taken one
 step further into two dimensions. Built in Rust on [Smithay](https://github.com/Smithay/smithay).
 
-> **Status: early development.** InfinityDesk currently runs *nested* as a window inside an
-> existing Wayland session (e.g. niri, Hyprland, Sway, GNOME, KDE). That is the safe way to try
-> it; running it as your real session comes later.
+> **Status: early development.** InfinityDesk runs *nested* as a window inside an existing
+> Wayland session (e.g. niri, Hyprland, Sway, GNOME, KDE), which is the safe way to try it. It
+> can also run standalone on the screen, but that is very new (one monitor, no XWayland yet).
 
 ## The idea
 
@@ -67,8 +67,8 @@ step further into two dimensions. Built in Rust on [Smithay](https://github.com/
 - **More Lua configuration:** window rules and events, designed to feel familiar when coming
   from niri or Hyprland. Maybe a converter for niri configs later.
 - **Final default controls**, configurable mouse bindings, touchpad gestures
-- **Standalone session** (DRM/KMS backend, own login entry) with Super as the modifier,
-  hardware-accelerated client buffers (dmabuf), multi-monitor support
+- **Standalone session:** several monitors, monitor settings, XWayland (e.g. via
+  xwayland-satellite), programs started with the session, touchpad and mouse settings
 - Visual polish: cluster outlines, decorations, animations
 
 ## Building and running
@@ -81,9 +81,24 @@ cargo run                         # starts nested with an alacritty terminal ins
 cargo run -- -c kitty             # start a different program inside
 ```
 
+Started inside a session (`WAYLAND_DISPLAY` or `DISPLAY` set), InfinityDesk opens as a window
+there and Mod is Alt. Started from a text console (e.g. Ctrl + Alt + F3, then log in), it takes
+over the screen and the input devices, and Mod is Super:
+
+```sh
+infinitydesk 2> ~/infinitydesk.log  # standalone; the log goes to a file, the screen is ours
+```
+
+Super + Shift + E quits, Ctrl + Alt + F1 … F12 switch to another console. It uses the first
+graphics card with a monitor connected (`INFINITYDESK_DRM_DEVICE=/dev/dri/cardN` picks one),
+at the monitor's own resolution and highest refresh rate. The pointer image comes from
+`XCURSOR_THEME` and `XCURSOR_SIZE`. For a login manager, install the binary into the `PATH`
+and `resources/infinitydesk.desktop` into `/usr/share/wayland-sessions/`.
+
 ## Controls (provisional)
 
-Alt is the modifier while running nested (like niri does); standalone it will be Super.
+Alt is the modifier (Mod) while running nested (like niri does); standalone it is Super, also
+for the mouse controls below.
 Keyboard shortcuts can be changed in the config (see Settings); mouse controls will follow.
 
 | Action                          | Input                                              |
@@ -115,6 +130,7 @@ Keyboard shortcuts can be changed in the config (see Settings); mouse controls w
 | Close the focused window        | Alt + Q                                            |
 | Arrange the cluster (templates) | Alt + R, then click a slot or press 1–8 (Esc)      |
 | Fullscreen on / off             | Alt + F                                            |
+| Quit InfinityDesk               | Alt + Shift + E                                    |
 
 While nested, the host compositor may keep some shortcuts for itself (niri: Alt + Tab), which
 is why the overview is on Alt + O too (and Alt + Tab only switches windows standalone, where
@@ -182,6 +198,8 @@ settings stay. If the canvas gets smaller, clusters outside it move back in as a
 | `src/state.rs`    | Compositor state                                              |
 | `src/config.rs`   | Settings from the Lua config (tested)                         |
 | `src/winit.rs`    | Nested backend                                                |
+| `src/udev.rs`     | Standalone backend: screen, GPU, input devices, consoles      |
+| `src/cursor.rs`   | The pointer image (standalone)                                |
 | `src/handlers/`   | Wayland protocol handlers                                     |
 
 ## License

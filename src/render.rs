@@ -3,8 +3,9 @@
 use smithay::{
     backend::renderer::{
         element::{
-            AsRenderElements, Id, Kind, render_elements, solid::SolidColorRenderElement,
-            surface::WaylandSurfaceRenderElement, utils::RescaleRenderElement,
+            AsRenderElements, Id, Kind, memory::MemoryRenderBufferRenderElement, render_elements,
+            solid::SolidColorRenderElement, surface::WaylandSurfaceRenderElement,
+            utils::RescaleRenderElement,
         },
         gles::{
             GlesPixelProgram, GlesRenderer, Uniform, UniformName, UniformType,
@@ -34,6 +35,7 @@ render_elements! {
     Zoomed = RescaleRenderElement<WaylandSurfaceRenderElement<GlesRenderer>>,
     Grid = PixelShaderElement,
     Solid = SolidColorRenderElement,
+    Cursor = MemoryRenderBufferRenderElement<GlesRenderer>,
 }
 
 /// Draws the dot grid on the GPU in one pass, instead of one element per dot.

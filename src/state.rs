@@ -28,7 +28,10 @@ use crate::{
 use smithay::{
     backend::input::InputTime,
     desktop::{PopupManager, Space, Window, WindowSurfaceType, layer_map_for_output},
-    input::{Seat, SeatState, pointer::CursorIcon},
+    input::{
+        Seat, SeatState,
+        pointer::{CursorIcon, CursorImageStatus},
+    },
     output::Output,
     reexports::{
         calloop::{
@@ -43,6 +46,7 @@ use smithay::{
     utils::{Logical, Point, Rectangle, SERIAL_COUNTER},
     wayland::{
         compositor::{CompositorClientState, CompositorState},
+        dmabuf::DmabufState,
         output::OutputManagerState,
         selection::data_device::DataDeviceState,
         shell::{
@@ -85,8 +89,13 @@ pub struct InfinityDesk {
     /// Window edges that move when resizing at the border under the pointer (or while resizing);
     /// they light up.
     pub resize_hint: Vec<(Window, [Follow; 2])>,
-    /// Pointer image shown by the host (resize arrows at window borders).
+    /// Pointer image InfinityDesk shows itself (resize arrows at window borders); `Default`
+    /// leaves it to the app under the pointer.
     pub cursor: CursorIcon,
+    /// The pointer image the app under the pointer asks for.
+    pub client_cursor: CursorImageStatus,
+    /// The screen, GPU and input devices when running standalone (`None`: nested).
+    pub udev: Option<crate::udev::Udev>,
     /// The fullscreen window (Mod+F).
     pub fullscreen: Option<Fullscreen>,
     /// The open template menu (Mod+R).
@@ -113,6 +122,8 @@ pub struct InfinityDesk {
     pub data_device_state: DataDeviceState,
     /// Lets clients scale their buffers (wallpaper tools like awww need it, video players use it).
     pub viewporter_state: ViewporterState,
+    /// Apps hand over GPU buffers directly (standalone only; offered by `udev`).
+    pub dmabuf_state: DmabufState,
     pub seat: Seat<Self>,
 }
 
@@ -173,6 +184,8 @@ impl InfinityDesk {
             selection_box: None,
             resize_hint: Vec::new(),
             cursor: CursorIcon::Default,
+            client_cursor: CursorImageStatus::default_named(),
+            udev: None,
             fullscreen: None,
             layout_menu: None,
             overview: None,
@@ -189,6 +202,7 @@ impl InfinityDesk {
             seat_state,
             data_device_state,
             viewporter_state,
+            dmabuf_state: DmabufState::new(),
             seat,
         }
     }
@@ -280,6 +294,35 @@ impl InfinityDesk {
             }
             done.extend(members);
         }
+    }
+
+    /// The screen is ready: the viewport starts in the middle of the canvas, leaving room in
+    /// every direction.
+    pub fn set_output(&mut self, output: Output) {
+        let size = output.current_mode().unwrap().size.to_logical(1);
+        self.output = Some(output);
+        self.canvas.set_screen_size(size);
+        let canvas = self.canvas.size().to_f64();
+        (self.canvas).center_viewport_on((canvas.w / 2.0, canvas.h / 2.0).into());
+        self.apply_viewport();
+    }
+
+    /// After a frame: tells apps they may draw their next one, and tidies up.
+    pub fn send_frames(&mut self, output: &Output) {
+        let time = self.start_time.elapsed();
+        for window in self.space.elements() {
+            window.send_frame(output, time, Some(Duration::ZERO), |_, _| {
+                Some(output.clone())
+            });
+        }
+        for layer in layer_map_for_output(output).layers() {
+            layer.send_frame(output, time, Some(Duration::ZERO), |_, _| {
+                Some(output.clone())
+            });
+        }
+        self.space.refresh();
+        self.popups.cleanup();
+        let _ = self.display_handle.flush_clients();
     }
 
     /// Moves the output within the space to the canvas viewport position.
