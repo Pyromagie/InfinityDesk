@@ -18,7 +18,7 @@ use smithay::{
 
 use crate::{
     InfinityDesk,
-    cluster::{Rect, SNAP_THRESHOLD, grid_size, snap_delta, touching},
+    cluster::{Rect, SNAP_THRESHOLD, grid_rect, snap_delta, touching},
     resize::{self, Edge, Follow},
     state::Resizing,
 };
@@ -495,19 +495,25 @@ impl PointerGrab<InfinityDesk> for DragGrab {
         let others: Vec<(Window, Rect)> = others(data, members).collect();
 
         for (mw, mr) in &moved {
-            let mut size = mr.size;
+            let mut rect = *mr;
             for (ow, or) in &others {
                 if touching(mr, or) {
                     tracing::info!("Docked");
                     data.clusters.join(mw, ow);
-                    size = grid_size(&Rect::new(mr.loc, size), or);
+                    rect = grid_rect(&rect, or);
                 }
             }
             // Setting: a single docked window takes its neighbors' height/width (clean grid).
-            if data.config.match_size && moved.len() == 1 && size != mr.size {
+            if data.config.match_size && moved.len() == 1 && rect != *mr {
+                // The edge that is already flush (e.g. the bottom) stays while the client resizes.
+                let end = |r: &Rect| [r.loc.x + r.size.w, r.loc.y + r.size.h];
+                let anchor_end = [0, 1].map(|axis| end(mr)[axis] == end(&rect)[axis]);
+                data.resizing
+                    .insert(mw.clone(), Resizing { rect, anchor_end });
                 let toplevel = mw.toplevel().unwrap();
-                toplevel.with_pending_state(|s| s.size = Some(size));
+                toplevel.with_pending_state(|s| s.size = Some(rect.size));
                 toplevel.send_pending_configure();
+                data.place_resized(mw);
             }
         }
     }

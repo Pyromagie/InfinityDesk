@@ -12,7 +12,7 @@ use std::{
     hash::Hash,
 };
 
-use smithay::utils::{Logical, Point, Rectangle, Size};
+use smithay::utils::{Logical, Point, Rectangle};
 
 pub type Rect = Rectangle<i32, Logical>;
 
@@ -106,9 +106,10 @@ pub fn touching(a: &Rect, b: &Rect) -> bool {
 
 /// Computes the correction by which the moving windows must be shifted to dock to a nearby
 /// window. An edge within `threshold` (canvas pixels) of a neighbor docks to it, and the other
-/// axis always lines up with that neighbor (top edges or left edges flush), so clusters form a
-/// clean grid. The closest dock wins; ties go to the smallest alignment jump.
-/// A spot that is already taken by another window is skipped.
+/// axis always lines up with that neighbor, so there is a clean corner: side by side the tops or
+/// the bottoms are flush, stacked the left or the right edges (whichever pair is closer, so
+/// windows of different sizes dock too). The closest dock wins; ties go to the smallest
+/// alignment jump. A spot that is already taken by another window is skipped.
 pub fn snap_delta(moving: &[Rect], others: &[Rect], threshold: i32) -> Point<i32, Logical> {
     // (dock distance, alignment distance, delta)
     let mut best: Option<(i32, i32, Point<i32, Logical>)> = None;
@@ -122,9 +123,13 @@ pub fn snap_delta(moving: &[Rect], others: &[Rect], threshold: i32) -> Point<i32
             let h_overlap = ml < or && ol < mr;
             let candidates = [
                 (v_overlap, ol - mr, ot - mt, true),  // left of o, tops flush
+                (v_overlap, ol - mr, ob - mb, true),  // left of o, bottoms flush
                 (v_overlap, or - ml, ot - mt, true),  // right of o, tops flush
+                (v_overlap, or - ml, ob - mb, true),  // right of o, bottoms flush
                 (h_overlap, ot - mb, ol - ml, false), // above o, left edges flush
+                (h_overlap, ot - mb, or - mr, false), // above o, right edges flush
                 (h_overlap, ob - mt, ol - ml, false), // below o, left edges flush
+                (h_overlap, ob - mt, or - mr, false), // below o, right edges flush
             ];
             for (faces, dock, align, side_by_side) in candidates {
                 let score = (dock.abs(), align.abs());
@@ -157,16 +162,16 @@ fn is_free(moving: &[Rect], others: &[Rect], delta: Point<i32, Logical>) -> bool
     })
 }
 
-/// The size a window docked to `o` gets, so the cluster stays a clean grid:
-/// side by side it takes the height of `o`, stacked the width.
-pub fn grid_size(m: &Rect, o: &Rect) -> Size<i32, Logical> {
+/// Where a window docked to `o` goes, so the cluster stays a clean grid: side by side it takes
+/// the top and height of `o`, stacked the left edge and width.
+pub fn grid_rect(m: &Rect, o: &Rect) -> Rect {
     let (ml, mr, ..) = edges(m);
     let (ol, or, ..) = edges(o);
     let side_by_side = (mr - ol).abs() <= TOUCH_TOLERANCE || (ml - or).abs() <= TOUCH_TOLERANCE;
     if side_by_side {
-        (m.size.w, o.size.h).into()
+        Rect::new((m.loc.x, o.loc.y).into(), (m.size.w, o.size.h).into())
     } else {
-        (o.size.w, m.size.h).into()
+        Rect::new((o.loc.x, m.loc.y).into(), (o.size.w, m.size.h).into())
     }
 }
 
@@ -241,16 +246,55 @@ mod tests {
     }
 
     #[test]
-    fn grid_size_matches_neighbor() {
+    fn side_by_side_aligns_bottoms_when_they_are_closer() {
+        // Smaller window right of a tall one, near its bottom: bottoms are lined up.
+        let other = rect(0, 0, 400, 800);
+        let moving = rect(408, 470, 300, 300);
+        assert_eq!(snap_delta(&[moving], &[other], 15), (-8, 30).into());
+    }
+
+    #[test]
+    fn stacked_aligns_right_edges_when_they_are_closer() {
+        // Wider window below a narrow one, right edges 30 px apart: right edges are lined up.
+        let other = rect(500, 0, 400, 300);
+        let moving = rect(70, 310, 800, 300);
+        assert_eq!(snap_delta(&[moving], &[other], 15), (30, -10).into());
+    }
+
+    #[test]
+    fn wide_window_docks_into_the_corner_of_an_l() {
+        // The case from the screenshot: a small window left of a tall one; a wide window below
+        // the small one docks with its right edge flush, so it also touches the tall window.
+        let small = rect(500, 0, 400, 300);
+        let tall = rect(900, 0, 400, 700);
+        let moving = rect(75, 310, 800, 300);
+        let d = snap_delta(&[moving], &[small, tall], 15);
+        assert_eq!(d, (25, -10).into());
+        let docked = Rect::new(moving.loc + d, moving.size);
+        assert!(touching(&docked, &small));
+        assert!(touching(&docked, &tall));
+    }
+
+    #[test]
+    fn grid_rect_matches_neighbor() {
         let other = rect(0, 0, 400, 300);
-        // Side by side: same height. Below: same width.
+        // Side by side: same top and height. Below: same left edge and width.
         assert_eq!(
-            grid_size(&rect(400, 0, 200, 500), &other),
-            (200, 300).into()
+            grid_rect(&rect(400, 0, 200, 500), &other),
+            rect(400, 0, 200, 300)
         );
         assert_eq!(
-            grid_size(&rect(0, 300, 200, 500), &other),
-            (400, 500).into()
+            grid_rect(&rect(0, 300, 200, 500), &other),
+            rect(0, 300, 400, 500)
+        );
+        // Docked with bottoms or right edges flush: it also takes the top or left edge.
+        assert_eq!(
+            grid_rect(&rect(400, -200, 200, 500), &other),
+            rect(400, 0, 200, 300)
+        );
+        assert_eq!(
+            grid_rect(&rect(-100, 300, 500, 200), &other),
+            rect(0, 300, 400, 200)
         );
     }
 

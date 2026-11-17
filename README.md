@@ -31,7 +31,8 @@ step further into two dimensions. Built in Rust on [Smithay](https://github.com/
 - Canvas with a dot grid, panning and zooming around the pointer (drawn on the GPU, only
   visible windows are rendered)
 - **Docking:** edges snap together within 15 screen pixels at any zoom level and line up flush
-  (tops side by side, left edges stacked), so there are no offset connections. Spots that are
+  (tops or bottoms side by side, left or right edges stacked, whichever is closer), so windows
+  of different sizes dock too and there are no offset connections. Spots that are
   already taken are skipped, and windows passing by quickly do not snap.
 - **Clusters** move as a whole, split automatically when a window leaves, and merge when they
   touch another window
