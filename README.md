@@ -50,8 +50,6 @@ step further into two dimensions. Built in Rust on [Smithay](https://github.com/
 
 ## Roadmap
 
-- **Cluster focus:** jump the viewport to a cluster so its top-left window sits in the
-  top-left corner of the screen, zooming out if the cluster does not fit
 - **New windows dock to the focused cluster** (right of the last used window, or the next
   free side) instead of opening in the middle of the screen
 - **Lua configuration** in `~/.config/infinitydesk/init.lua`, designed to feel familiar when
@@ -96,6 +94,7 @@ All controls will become configurable.
 | Open a terminal (alacritty)     | Alt + T                                            |
 | App launcher (fuzzel)           | Alt + D                                            |
 | Close the focused window        | Alt + Q                                            |
+| Jump to the active cluster      | Alt + F (zooms out only if it does not fit)        |
 
 ### Settings
 

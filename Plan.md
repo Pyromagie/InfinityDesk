@@ -23,7 +23,7 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
 - ✅ **Fenster**: frei platzier- und skalierbar.
 - ✅ **Cluster**: Gruppe aneinander angedockter Fenster, als Ganzes verschiebbar.
 - ✅ **Freie Ansicht**: normalerweise betrachtet man die Fläche frei aus jeder Position, nichts rastet ein.
-- ✅ **Cluster-Fokus (Viewport andocken)**: will man ein Cluster richtig benutzen, wird der Viewport so daran angedockt, dass die linke obere Ecke des obersten linken Fensters an der linken oberen Ecke des Bildschirms sitzt. 💬 Soll dabei auch gezoomt werden, damit das ganze Cluster auf den Bildschirm passt?
+- ✅ **Cluster-Fokus (Viewport andocken)**: will man ein Cluster richtig benutzen, wird der Viewport so daran angedockt, dass die linke obere Ecke des obersten linken Fensters an der linken oberen Ecke des Bildschirms sitzt. Eingebaut: **Mod+F** fokussiert das Cluster des aktiven Fensters (nicht das unter der Maus). Genau genommen kommt die linke obere Ecke des ganzen Clusters (umschließendes Rechteck) in die Bildschirmecke, damit bei versetzten Fenstern nichts links oder oben abgeschnitten wird. Zoom 1:1, wenn das Cluster passt, sonst gerade so weit herausgezoomt, dass es passt.
 - ✅ **Culling**: nur sichtbare Fenster werden gerendert (eingebaut mit dem Zoom).
 
 ## 3. Technik
@@ -73,7 +73,7 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
   - Alt + Linksklick, kurz stillhalten, dann ziehen: Fenster aus dem Cluster lösen (markierte Fenster gemeinsam)
   - Alt + Shift + Klick: Fenster markieren · Alt + Shift + Ziehen auf leerer Fläche: Auswahlrahmen
   - Mod+T Terminal (alacritty), Mod+D Launcher (fuzzel), Mod+Q Fenster schließen (wie niri). Mod = Alt im genesteten Betrieb, später Super
-  - (Super ist im genesteten Betrieb von niri belegt, daher Alt)
+  - (Super ist im genesteten Betrieb von niri belegt, daher Alt. In der eigenständigen Sitzung werden alle Alt-Kürzel zu Super-Kürzeln, so will es Pyro.)
 
 ## 6b. Hintergrund (später)
 
@@ -122,7 +122,7 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
 1. ✅ Minimaler Compositor (genestet, winit), zeigt Wayland-Clients an
 2. ✅ Fenster auf dem Canvas platzieren, Viewport verschieben
 3. ✅ Snapping + Cluster
-4. ✅ Zoom + Culling · ✅ Cluster-Resize · Cluster-Fokus
+4. ✅ Zoom + Culling · ✅ Cluster-Resize · ✅ Cluster-Fokus
 5. Lua-Konfiguration (Einstellungen, dann Tastenbelegung)
 6. Bedienung festlegen (Standard-Belegung), Hintergrund / layer-shell, Feinschliff
 7. Standalone-Betrieb (eigener Login-Eintrag, ohne niri darunter), README, Veröffentlichung

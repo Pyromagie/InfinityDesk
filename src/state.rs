@@ -213,6 +213,19 @@ impl InfinityDesk {
             .cloned()
     }
 
+    /// Alt+F: moves the viewport onto the window's cluster (see `Canvas::focus_on`).
+    pub fn focus_cluster(&mut self, window: &Window) {
+        let members = self.clusters.members(window);
+        let geos = members
+            .iter()
+            .filter_map(|w| self.space.element_geometry(w));
+        let Some(bbox) = geos.reduce(|a, b| a.merge(b)) else {
+            return;
+        };
+        self.canvas.focus_on(bbox);
+        self.apply_viewport();
+    }
+
     /// Raises a window together with its whole cluster.
     pub fn raise_cluster(&mut self, window: &Window) {
         for w in self.clusters.members(window) {

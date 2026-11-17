@@ -25,6 +25,7 @@ const ZOOM_SPEED: f64 = 0.01;
 enum Action {
     Spawn(&'static str),
     CloseWindow,
+    FocusCluster,
 }
 
 impl InfinityDesk {
@@ -45,11 +46,24 @@ impl InfinityDesk {
                         Keysym::t => FilterResult::Intercept(Action::Spawn("alacritty")),
                         Keysym::d => FilterResult::Intercept(Action::Spawn("fuzzel")),
                         Keysym::q => FilterResult::Intercept(Action::CloseWindow),
+                        Keysym::f => FilterResult::Intercept(Action::FocusCluster),
                         _ => FilterResult::Forward,
                     },
                 );
                 match action {
                     Some(Action::Spawn(command)) => crate::spawn(command, &self.socket_name),
+                    Some(Action::FocusCluster) => {
+                        let focused = keyboard
+                            .current_focus()
+                            .and_then(|s| self.window_for_surface(&s));
+                        if let Some(window) = focused {
+                            // The canvas moves under the pointer, which stays put on the screen.
+                            let pointer = self.seat.get_pointer().unwrap();
+                            let screen = self.canvas.canvas_to_screen(pointer.current_location());
+                            self.focus_cluster(&window);
+                            self.pointer_moved(self.canvas.screen_to_canvas(screen), event.time());
+                        }
+                    }
                     Some(Action::CloseWindow) => {
                         let focused = keyboard
                             .current_focus()

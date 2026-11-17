@@ -90,6 +90,15 @@ impl Canvas {
         self.set_viewport_loc(anchor - screen.downscale(self.zoom));
     }
 
+    /// Shows `rect` (e.g. a cluster) with its top-left corner in the top-left corner of the
+    /// screen: at 1:1 if it fits, otherwise zoomed out just enough to fit.
+    pub fn focus_on(&mut self, rect: Rectangle<i32, Logical>) {
+        let w = self.screen.w as f64 / rect.size.w.max(1) as f64;
+        let h = self.screen.h as f64 / rect.size.h.max(1) as f64;
+        self.zoom = w.min(h).clamp(self.min_zoom(), 1.0);
+        self.set_viewport_loc(rect.loc.to_f64());
+    }
+
     /// Zoom at which the whole canvas fits on the screen.
     fn min_zoom(&self) -> f64 {
         let w = self.screen.w as f64 / self.size.w as f64;
@@ -207,6 +216,31 @@ mod tests {
         c.zoom_at((0.0, 0.0).into(), 0.0001);
         assert_eq!(c.zoom(), 0.18);
         assert_eq!(c.viewport().size.h, 6_000.0);
+    }
+
+    #[test]
+    fn focus_on_a_cluster_that_fits() {
+        let mut c = canvas();
+        c.zoom_at((0.0, 0.0).into(), 0.5);
+        c.focus_on(Rectangle::new((3_000, 2_000).into(), (1_200, 800).into()));
+        assert_eq!(c.zoom(), 1.0);
+        assert_eq!(c.viewport_loc(), (3_000.0, 2_000.0).into());
+    }
+
+    #[test]
+    fn focus_on_a_cluster_too_large_zooms_out() {
+        let mut c = canvas();
+        // Twice the screen width, the height fits: zoom 0.5, top-left corner on the screen corner.
+        c.focus_on(Rectangle::new((3_000, 2_000).into(), (3_840, 900).into()));
+        assert_eq!(c.zoom(), 0.5);
+        assert_eq!(c.viewport_loc(), (3_000.0, 2_000.0).into());
+        assert_eq!(
+            c.canvas_to_screen((3_000.0, 2_000.0).into()),
+            (0.0, 0.0).into()
+        );
+        // Too tall instead: limited by the height.
+        c.focus_on(Rectangle::new((3_000, 2_000).into(), (1_000, 2_160).into()));
+        assert_eq!(c.zoom(), 0.5);
     }
 
     #[test]
