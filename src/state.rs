@@ -128,7 +128,8 @@ impl InfinityDesk {
     /// Moves the output within the space to the canvas viewport position.
     pub fn apply_viewport(&mut self) {
         if let Some(output) = &self.output {
-            self.space.map_output(output, self.canvas.viewport_loc().to_i32_round());
+            self.space
+                .map_output(output, self.canvas.viewport_loc().to_i32_round());
         }
     }
 
@@ -168,12 +169,17 @@ impl InfinityDesk {
     }
 
     /// Finds the surface (window/popup) under a point.
-    pub fn surface_under(&self, pos: Point<f64, Logical>) -> Option<(WlSurface, Point<f64, Logical>)> {
-        self.space.element_under(pos).and_then(|(window, location)| {
-            window
-                .surface_under(pos - location.to_f64(), WindowSurfaceType::ALL)
-                .map(|(s, p)| (s, (p + location).to_f64()))
-        })
+    pub fn surface_under(
+        &self,
+        pos: Point<f64, Logical>,
+    ) -> Option<(WlSurface, Point<f64, Logical>)> {
+        self.space
+            .element_under(pos)
+            .and_then(|(window, location)| {
+                window
+                    .surface_under(pos - location.to_f64(), WindowSurfaceType::ALL)
+                    .map(|(s, p)| (s, (p + location).to_f64()))
+            })
     }
 }
 

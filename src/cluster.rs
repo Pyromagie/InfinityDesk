@@ -62,7 +62,10 @@ impl<K: Eq + Hash + Clone> Clusters<K> {
         if let Some(y) = self.cluster_of.insert(b.clone(), x)
             && y != x
         {
-            self.cluster_of.values_mut().filter(|c| **c == y).for_each(|c| *c = x);
+            self.cluster_of
+                .values_mut()
+                .filter(|c| **c == y)
+                .for_each(|c| *c = x);
         }
     }
 
@@ -82,7 +85,10 @@ impl<K: Eq + Hash + Clone> Clusters<K> {
             self.cluster_of.remove(w);
         }
 
-        let rects: Vec<(K, Rect)> = rest.into_iter().filter_map(|w| rect_of(&w).map(|r| (w, r))).collect();
+        let rects: Vec<(K, Rect)> = rest
+            .into_iter()
+            .filter_map(|w| rect_of(&w).map(|r| (w, r)))
+            .collect();
         for (i, (a, ra)) in rects.iter().enumerate() {
             for (b, rb) in &rects[i + 1..] {
                 if touching(ra, rb) {
@@ -188,7 +194,10 @@ mod tests {
     fn far_away_does_not_snap() {
         let other = rect(0, 0, 400, 300);
         let moving = rect(2000, 2000, 400, 300);
-        assert_eq!(snap_delta(&[moving], &[other], SNAP_THRESHOLD), (0, 0).into());
+        assert_eq!(
+            snap_delta(&[moving], &[other], SNAP_THRESHOLD),
+            (0, 0).into()
+        );
     }
 
     #[test]
@@ -196,7 +205,10 @@ mod tests {
         // Same x column but vertically far apart: left edges must not align.
         let other = rect(0, 0, 400, 300);
         let moving = rect(5, 1000, 400, 300);
-        assert_eq!(snap_delta(&[moving], &[other], SNAP_THRESHOLD), (0, 0).into());
+        assert_eq!(
+            snap_delta(&[moving], &[other], SNAP_THRESHOLD),
+            (0, 0).into()
+        );
     }
 
     #[test]
@@ -233,7 +245,11 @@ mod tests {
     #[test]
     fn removing_splits_cluster() {
         // Row 1 | 2 | 3. Removing 2 splits the cluster into 1 and 3.
-        let rects = HashMap::from([(1, rect(0, 0, 100, 100)), (2, rect(100, 0, 100, 100)), (3, rect(200, 0, 100, 100))]);
+        let rects = HashMap::from([
+            (1, rect(0, 0, 100, 100)),
+            (2, rect(100, 0, 100, 100)),
+            (3, rect(200, 0, 100, 100)),
+        ]);
         let mut c = Clusters::default();
         c.join(&1, &2);
         c.join(&2, &3);

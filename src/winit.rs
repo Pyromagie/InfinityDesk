@@ -39,7 +39,12 @@ pub fn init_winit(
         },
     );
     let _global = output.create_global::<InfinityDesk>(&state.display_handle);
-    output.change_current_state(Some(mode), Some(Transform::Flipped180), None, Some((0, 0).into()));
+    output.change_current_state(
+        Some(mode),
+        Some(Transform::Flipped180),
+        None,
+        Some((0, 0).into()),
+    );
     output.set_preferred(mode);
     // Start with the viewport in the middle of the canvas, leaving room in every direction.
     state.output = Some(output.clone());
@@ -52,42 +57,61 @@ pub fn init_winit(
 
     let mut damage_tracker = OutputDamageTracker::from_output(&output);
 
-    event_loop.handle().insert_source(winit, move |event, _, state| match event {
-        WinitEvent::Resized { size, .. } => {
-            output.change_current_state(Some(Mode { size, refresh: 60_000 }), None, None, None);
-            state.canvas.set_viewport_size(size.to_logical(1));
-            state.apply_viewport();
-        }
-        WinitEvent::Input(event) => state.process_input_event(event),
-        WinitEvent::Redraw => {
-            let size = backend.window_size();
-            let damage = Rectangle::from_size(size);
-
-            {
-                let (renderer, mut framebuffer) = backend.bind().unwrap();
-                let elements = desk_elements(renderer, &output, &state.space, &state.canvas);
-                if let Err(err) = damage_tracker.render_output(renderer, &mut framebuffer, 0, &elements, BACKGROUND) {
-                    tracing::error!("rendering failed: {err:?}");
-                }
+    event_loop
+        .handle()
+        .insert_source(winit, move |event, _, state| match event {
+            WinitEvent::Resized { size, .. } => {
+                output.change_current_state(
+                    Some(Mode {
+                        size,
+                        refresh: 60_000,
+                    }),
+                    None,
+                    None,
+                    None,
+                );
+                state.canvas.set_viewport_size(size.to_logical(1));
+                state.apply_viewport();
             }
-            backend.submit(Some(&[damage])).unwrap();
+            WinitEvent::Input(event) => state.process_input_event(event),
+            WinitEvent::Redraw => {
+                let size = backend.window_size();
+                let damage = Rectangle::from_size(size);
 
-            // Tell clients they may draw their next frame.
-            state.space.elements().for_each(|window| {
-                window.send_frame(&output, state.start_time.elapsed(), Some(Duration::ZERO), |_, _| {
-                    Some(output.clone())
-                })
-            });
+                {
+                    let (renderer, mut framebuffer) = backend.bind().unwrap();
+                    let elements = desk_elements(renderer, &output, &state.space, &state.canvas);
+                    if let Err(err) = damage_tracker.render_output(
+                        renderer,
+                        &mut framebuffer,
+                        0,
+                        &elements,
+                        BACKGROUND,
+                    ) {
+                        tracing::error!("rendering failed: {err:?}");
+                    }
+                }
+                backend.submit(Some(&[damage])).unwrap();
 
-            state.space.refresh();
-            state.popups.cleanup();
-            let _ = state.display_handle.flush_clients();
+                // Tell clients they may draw their next frame.
+                state.space.elements().for_each(|window| {
+                    window.send_frame(
+                        &output,
+                        state.start_time.elapsed(),
+                        Some(Duration::ZERO),
+                        |_, _| Some(output.clone()),
+                    )
+                });
 
-            backend.window().request_redraw();
-        }
-        WinitEvent::CloseRequested => state.loop_signal.stop(),
-        _ => (),
-    })?;
+                state.space.refresh();
+                state.popups.cleanup();
+                let _ = state.display_handle.flush_clients();
+
+                backend.window().request_redraw();
+            }
+            WinitEvent::CloseRequested => state.loop_signal.stop(),
+            _ => (),
+        })?;
 
     Ok(())
 }

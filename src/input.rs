@@ -2,8 +2,8 @@
 
 use smithay::{
     backend::input::{
-        AbsolutePositionEvent, Axis, AxisSource, ButtonState, Event, InputBackend, InputEvent, KeyboardKeyEvent,
-        PointerAxisEvent, PointerButtonEvent,
+        AbsolutePositionEvent, Axis, AxisSource, ButtonState, Event, InputBackend, InputEvent,
+        KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent,
     },
     input::{
         keyboard::FilterResult,
@@ -35,7 +35,9 @@ impl InfinityDesk {
             }
 
             InputEvent::PointerMotionAbsolute { event, .. } => {
-                let Some(output) = self.space.outputs().next() else { return };
+                let Some(output) = self.space.outputs().next() else {
+                    return;
+                };
                 let output_geo = self.space.output_geometry(output).unwrap();
                 let pos = event.position_transformed(output_geo.size) + output_geo.loc.to_f64();
 
@@ -78,7 +80,11 @@ impl InfinityDesk {
 
                     if let Some(window) = clicked {
                         self.raise_cluster(&window);
-                        keyboard.set_focus(self, Some(window.toplevel().unwrap().wl_surface().clone()), serial);
+                        keyboard.set_focus(
+                            self,
+                            Some(window.toplevel().unwrap().wl_surface().clone()),
+                            serial,
+                        );
                         if alt && button == BTN_LEFT {
                             let grab = DragGrab::move_window(self, start_data, window);
                             pointer.set_grab(self, grab, serial, Focus::Clear);

@@ -73,7 +73,11 @@ impl Canvas {
     }
 
     /// Adjusts a window position so the window lies completely inside the canvas.
-    pub fn clamp_window_loc(&self, loc: Point<i32, Logical>, window_size: Size<i32, Logical>) -> Point<i32, Logical> {
+    pub fn clamp_window_loc(
+        &self,
+        loc: Point<i32, Logical>,
+        window_size: Size<i32, Logical>,
+    ) -> Point<i32, Logical> {
         (
             clamp_axis(loc.x as f64, window_size.w, self.size.w) as i32,
             clamp_axis(loc.y as f64, window_size.h, self.size.h) as i32,
@@ -84,7 +88,11 @@ impl Canvas {
     /// Position at which a window of the given size is centered in the viewport.
     pub fn centered_in_viewport(&self, window_size: Size<i32, Logical>) -> Point<i32, Logical> {
         let c = self.viewport_center();
-        let loc = Point::from((c.x - window_size.w as f64 / 2.0, c.y - window_size.h as f64 / 2.0)).to_i32_round();
+        let loc = Point::from((
+            c.x - window_size.w as f64 / 2.0,
+            c.y - window_size.h as f64 / 2.0,
+        ))
+        .to_i32_round();
         self.clamp_window_loc(loc, window_size)
     }
 }
@@ -112,7 +120,10 @@ mod tests {
         c.set_viewport_loc((-500.0, -500.0).into());
         assert_eq!(c.viewport_loc(), (0.0, 0.0).into());
         c.set_viewport_loc((99_999.0, 99_999.0).into());
-        assert_eq!(c.viewport_loc(), ((10_000 - 1920) as f64, (6_000 - 1080) as f64).into());
+        assert_eq!(
+            c.viewport_loc(),
+            ((10_000 - 1920) as f64, (6_000 - 1080) as f64).into()
+        );
     }
 
     #[test]
@@ -126,14 +137,20 @@ mod tests {
     fn screen_canvas_conversion() {
         let mut c = canvas();
         c.set_viewport_loc((1_000.0, 2_000.0).into());
-        assert_eq!(c.canvas_to_screen((1_010.0, 2_020.0).into()), (10.0, 20.0).into());
+        assert_eq!(
+            c.canvas_to_screen((1_010.0, 2_020.0).into()),
+            (10.0, 20.0).into()
+        );
     }
 
     #[test]
     fn window_stays_inside_canvas() {
         let c = canvas();
         let size = (800, 600).into();
-        assert_eq!(c.clamp_window_loc((-50, 9_999).into(), size), (0, 6_000 - 600).into());
+        assert_eq!(
+            c.clamp_window_loc((-50, 9_999).into(), size),
+            (0, 6_000 - 600).into()
+        );
     }
 
     #[test]

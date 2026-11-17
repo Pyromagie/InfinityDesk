@@ -4,8 +4,9 @@ use smithay::{
     desktop::Window,
     input::pointer::{
         AxisFrame, ButtonEvent, GestureHoldBeginEvent, GestureHoldEndEvent, GesturePinchBeginEvent,
-        GesturePinchEndEvent, GesturePinchUpdateEvent, GestureSwipeBeginEvent, GestureSwipeEndEvent,
-        GestureSwipeUpdateEvent, GrabStartData, MotionEvent, PointerGrab, PointerInnerHandle, RelativeMotionEvent,
+        GesturePinchEndEvent, GesturePinchUpdateEvent, GestureSwipeBeginEvent,
+        GestureSwipeEndEvent, GestureSwipeUpdateEvent, GrabStartData, MotionEvent, PointerGrab,
+        PointerInnerHandle, RelativeMotionEvent,
     },
     reexports::wayland_server::protocol::wl_surface::WlSurface,
     utils::{Logical, Point},
@@ -19,7 +20,11 @@ use crate::{
 };
 
 /// How far the cluster moves: pointer movement, kept inside the canvas, plus snapping.
-fn cluster_delta(data: &InfinityDesk, members: &[DraggedWindow], pointer_delta: Point<i32, Logical>) -> Point<i32, Logical> {
+fn cluster_delta(
+    data: &InfinityDesk,
+    members: &[DraggedWindow],
+    pointer_delta: Point<i32, Logical>,
+) -> Point<i32, Logical> {
     let initial: Vec<Rect> = members.iter().map(|m| m.initial_geo).collect();
     let Some(bbox) = initial.iter().copied().reduce(|a, b| a.merge(b)) else {
         return pointer_delta;
@@ -82,7 +87,11 @@ pub struct DragGrab {
 
 impl DragGrab {
     /// Dragging a window moves its whole cluster.
-    pub fn move_window(state: &InfinityDesk, start_data: GrabStartData<InfinityDesk>, window: Window) -> Self {
+    pub fn move_window(
+        state: &InfinityDesk,
+        start_data: GrabStartData<InfinityDesk>,
+        window: Window,
+    ) -> Self {
         let members = state
             .clusters
             .members(&window)
@@ -139,12 +148,17 @@ impl PointerGrab<InfinityDesk> for DragGrab {
             } => {
                 // Detect a yank: dragged far, fast, right after the start.
                 let distance = pointer_delta.x.hypot(pointer_delta.y);
-                if !*detached && members.len() > 1 && started.elapsed() < YANK_TIME && distance >= YANK_DISTANCE {
+                if !*detached
+                    && members.len() > 1
+                    && started.elapsed() < YANK_TIME
+                    && distance >= YANK_DISTANCE
+                {
                     *detached = true;
                     tracing::info!("Yank: window detached from its cluster");
                     // Put the other windows back where they were.
                     for m in members.iter().filter(|m| &m.window != grabbed) {
-                        data.space.map_element(m.window.clone(), m.initial_loc, false);
+                        data.space
+                            .map_element(m.window.clone(), m.initial_loc, false);
                     }
                     let space = &data.space;
                     data.clusters.remove(grabbed, |w| space.element_geometry(w));
@@ -153,7 +167,8 @@ impl PointerGrab<InfinityDesk> for DragGrab {
 
                 let delta = cluster_delta(data, members, pointer_delta.to_i32_round());
                 for m in members.iter() {
-                    data.space.map_element(m.window.clone(), m.initial_loc + delta, false);
+                    data.space
+                        .map_element(m.window.clone(), m.initial_loc + delta, false);
                 }
             }
             DragKind::Pan {
@@ -179,18 +194,32 @@ impl PointerGrab<InfinityDesk> for DragGrab {
         handle.relative_motion(data, focus, event);
     }
 
-    fn button(&mut self, data: &mut InfinityDesk, handle: &mut PointerInnerHandle<'_, InfinityDesk>, event: &ButtonEvent) {
+    fn button(
+        &mut self,
+        data: &mut InfinityDesk,
+        handle: &mut PointerInnerHandle<'_, InfinityDesk>,
+        event: &ButtonEvent,
+    ) {
         handle.button(data, event);
         if !handle.current_pressed().contains(&self.start_data.button) {
             handle.unset_grab(self, data, event.serial, event.time, true);
         }
     }
 
-    fn axis(&mut self, data: &mut InfinityDesk, handle: &mut PointerInnerHandle<'_, InfinityDesk>, details: AxisFrame) {
+    fn axis(
+        &mut self,
+        data: &mut InfinityDesk,
+        handle: &mut PointerInnerHandle<'_, InfinityDesk>,
+        details: AxisFrame,
+    ) {
         handle.axis(data, details)
     }
 
-    fn frame(&mut self, data: &mut InfinityDesk, handle: &mut PointerInnerHandle<'_, InfinityDesk>) {
+    fn frame(
+        &mut self,
+        data: &mut InfinityDesk,
+        handle: &mut PointerInnerHandle<'_, InfinityDesk>,
+    ) {
         handle.frame(data);
     }
 

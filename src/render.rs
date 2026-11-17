@@ -2,7 +2,10 @@
 
 use smithay::{
     backend::renderer::{
-        element::{Id, Kind, render_elements, solid::SolidColorRenderElement, surface::WaylandSurfaceRenderElement},
+        element::{
+            Id, Kind, render_elements, solid::SolidColorRenderElement,
+            surface::WaylandSurfaceRenderElement,
+        },
         gles::GlesRenderer,
         utils::CommitCounter,
     },
@@ -37,7 +40,8 @@ fn grid_elements(canvas: &Canvas) -> Vec<SolidColorRenderElement> {
         let mut x = (vp.loc.x / GRID_SPACING).ceil() * GRID_SPACING;
         while x < vp.loc.x + vp.size.w {
             let screen = canvas.canvas_to_screen((x, y).into()).to_i32_round::<i32>();
-            let loc: Point<i32, Physical> = (screen.x - GRID_DOT_SIZE / 2, screen.y - GRID_DOT_SIZE / 2).into();
+            let loc: Point<i32, Physical> =
+                (screen.x - GRID_DOT_SIZE / 2, screen.y - GRID_DOT_SIZE / 2).into();
             out.push(SolidColorRenderElement::new(
                 Id::new(),
                 Rectangle::new(loc, (GRID_DOT_SIZE, GRID_DOT_SIZE).into()),

@@ -16,7 +16,9 @@ use smithay::{
         pointer_constraints::PointerConstraintsHandler,
         selection::{
             SelectionHandler,
-            data_device::{DataDeviceHandler, DataDeviceState, WaylandDndGrabHandler, set_data_device_focus},
+            data_device::{
+                DataDeviceHandler, DataDeviceState, WaylandDndGrabHandler, set_data_device_focus,
+            },
         },
     },
 };

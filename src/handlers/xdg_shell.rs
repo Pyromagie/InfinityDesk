@@ -1,5 +1,7 @@
 use smithay::{
-    desktop::{PopupKind, PopupManager, Space, Window, find_popup_root_surface, get_popup_toplevel_coords},
+    desktop::{
+        PopupKind, PopupManager, Space, Window, find_popup_root_surface, get_popup_toplevel_coords,
+    },
     input::{
         Seat,
         pointer::{Focus, GrabStartData},
@@ -12,7 +14,8 @@ use smithay::{
     wayland::{
         compositor::with_states,
         shell::xdg::{
-            PopupSurface, PositionerState, ToplevelSurface, XdgShellHandler, XdgShellState, XdgToplevelSurfaceData,
+            PopupSurface, PositionerState, ToplevelSurface, XdgShellHandler, XdgShellState,
+            XdgToplevelSurfaceData,
         },
     },
 };
@@ -20,7 +23,11 @@ use smithay::{
 use crate::{InfinityDesk, grabs::DragGrab};
 
 /// Checks that a client move request belongs to a real, currently pressed pointer button.
-fn check_grab(seat: &Seat<InfinityDesk>, surface: &WlSurface, serial: Serial) -> Option<GrabStartData<InfinityDesk>> {
+fn check_grab(
+    seat: &Seat<InfinityDesk>,
+    surface: &WlSurface,
+    serial: Serial,
+) -> Option<GrabStartData<InfinityDesk>> {
     let pointer = seat.get_pointer()?;
     if !pointer.has_grab(serial) {
         return None;
@@ -69,7 +76,9 @@ impl XdgShellHandler for InfinityDesk {
             return;
         };
         let grab = DragGrab::move_window(self, start_data, window);
-        seat.get_pointer().unwrap().set_grab(self, grab, serial, Focus::Clear);
+        seat.get_pointer()
+            .unwrap()
+            .set_grab(self, grab, serial, Focus::Clear);
     }
 
     fn new_popup(&mut self, surface: PopupSurface, _positioner: PositionerState) {
@@ -77,7 +86,12 @@ impl XdgShellHandler for InfinityDesk {
         let _ = self.popups.track_popup(PopupKind::Xdg(surface));
     }
 
-    fn reposition_request(&mut self, surface: PopupSurface, positioner: PositionerState, token: u32) {
+    fn reposition_request(
+        &mut self,
+        surface: PopupSurface,
+        positioner: PositionerState,
+        token: u32,
+    ) {
         surface.with_pending_state(|state| {
             state.geometry = positioner.get_geometry();
             state.positioner = positioner;
@@ -115,7 +129,8 @@ pub fn handle_commit(popups: &mut PopupManager, space: &Space<Window>, surface: 
     if let Some(PopupKind::Xdg(ref xdg)) = popups.find_popup(surface)
         && !xdg.is_initial_configure_sent()
     {
-        xdg.send_configure().expect("initial popup configure failed");
+        xdg.send_configure()
+            .expect("initial popup configure failed");
     }
 }
 
