@@ -7,7 +7,7 @@
 //! desk.snapping { threshold = 15, match_size = false, hold_ms = 300 }
 //! desk.colors { background = "#1a1a1f", grid = "#474752", accent = "#59a6ff" }
 //! desk.bind("Mod+Return", desk.spawn("alacritty"))
-//! desk.unbind("Mod+D")
+//! desk.unbind("Mod+Space")
 //! ```
 //!
 //! Everything is optional. Without the file the defaults apply; if the file has an error, it is
@@ -21,6 +21,8 @@ use std::{
 };
 
 use mlua::{AnyUserData, FromLua, Lua, Table, UserData, Value};
+
+use crate::navigate::Dir;
 use smithay::input::keyboard::{
     Keysym, ModifiersState, XkbConfig,
     xkb::{self, KEYSYM_CASE_INSENSITIVE},
@@ -96,17 +98,35 @@ impl Default for Config {
             grid_color: [0.28, 0.28, 0.32, 1.0],
             accent: [0.35, 0.65, 1.0, 1.0],
             binds: [
-                ("Mod+T", Action::Spawn("alacritty".into())),
-                ("Mod+D", Action::Spawn("fuzzel".into())),
-                ("Mod+Q", Action::CloseWindow),
-                ("Mod+F", Action::Fullscreen),
-                ("Mod+W", Action::LayoutMenu),
+                ("Mod+T".to_string(), Action::Spawn("alacritty".into())),
+                ("Mod+Space".to_string(), Action::Spawn("fuzzel".into())),
+                ("Mod+Q".to_string(), Action::CloseWindow),
+                ("Mod+F".to_string(), Action::Fullscreen),
+                ("Mod+R".to_string(), Action::LayoutMenu),
+                ("Mod+C".to_string(), Action::Center),
+                // Mod+O too: while nested, Alt+Tab usually belongs to the host compositor.
+                ("Mod+Tab".to_string(), Action::Overview),
+                ("Mod+O".to_string(), Action::Overview),
+                ("Mod+Minus".to_string(), Action::ZoomOut),
+                // "+" is its own key on some layouts (e.g. German), shares "=" on others.
+                ("Mod+Plus".to_string(), Action::ZoomIn),
+                ("Mod+Equal".to_string(), Action::ZoomIn),
             ]
+            .into_iter()
+            .chain(Dir::ALL.into_iter().flat_map(|dir| {
+                let key = dir.key();
+                [
+                    (format!("Mod+{key}"), Action::Focus(dir)),
+                    (format!("Mod+Ctrl+{key}"), Action::Swap(dir)),
+                    (format!("Mod+Shift+{key}"), Action::Resize(dir)),
+                    (format!("Mod+Ctrl+Shift+{key}"), Action::Pan(dir)),
+                ]
+            }))
             .map(|(key, action)| Bind {
-                keys: parse_keys(key).unwrap(),
+                keys: parse_keys(&key).unwrap(),
                 action,
             })
-            .into(),
+            .collect(),
         }
     }
 }
@@ -145,9 +165,42 @@ pub enum Action {
     CloseWindow,
     Fullscreen,
     LayoutMenu,
+    /// Focuses the next window in a direction.
+    Focus(Dir),
+    /// Swaps the active window with its neighbor in the cluster.
+    Swap(Dir),
+    /// Right/down: the active window gets wider/taller, left/up: narrower/lower.
+    Resize(Dir),
+    /// Moves the view.
+    Pan(Dir),
+    ZoomIn,
+    ZoomOut,
+    /// Centers the view on the active cluster.
+    Center,
+    /// Zooms out until all windows fit on the screen, or back.
+    Overview,
 }
 
 impl UserData for Action {}
+
+/// The actions that need no argument, by their Lua name.
+const SIMPLE_ACTIONS: [(&str, Action); 7] = [
+    ("close_window", Action::CloseWindow),
+    ("fullscreen", Action::Fullscreen),
+    ("layout_menu", Action::LayoutMenu),
+    ("zoom_in", Action::ZoomIn),
+    ("zoom_out", Action::ZoomOut),
+    ("center", Action::Center),
+    ("overview", Action::Overview),
+];
+/// The actions that take a direction ("left", "right", "up", "down").
+type DirAction = fn(Dir) -> Action;
+const DIR_ACTIONS: [(&str, DirAction); 4] = [
+    ("focus", Action::Focus),
+    ("swap", Action::Swap),
+    ("resize", Action::Resize),
+    ("pan", Action::Pan),
+];
 
 /// "Mod+Shift+Return" -> modifiers and key. Mod is Alt while running nested (Super is taken by
 /// the host compositor); key names are xkb names (any case): "T", "Return", "F11", "space", ...
@@ -248,10 +301,19 @@ impl Config {
             desk.set(name, f)?;
         }
         // Shortcuts.
-        let action = |a: Action| lua.create_userdata(a);
-        desk.set("close_window", action(Action::CloseWindow)?)?;
-        desk.set("fullscreen", action(Action::Fullscreen)?)?;
-        desk.set("layout_menu", action(Action::LayoutMenu)?)?;
+        for (name, action) in SIMPLE_ACTIONS {
+            desk.set(name, lua.create_userdata(action)?)?;
+        }
+        for (name, action) in DIR_ACTIONS {
+            let f = lua.create_function(move |lua, text: String| {
+                let dir = Dir::parse(&text).ok_or_else(|| {
+                    let known = "\"left\", \"right\", \"up\" or \"down\"";
+                    mlua::Error::runtime(format!("desk.{name}(\"{text}\"): expected {known}"))
+                })?;
+                lua.create_userdata(action(dir))
+            })?;
+            desk.set(name, f)?;
+        }
         let spawn = lua
             .create_function(|lua, command: String| lua.create_userdata(Action::Spawn(command)))?;
         desk.set("spawn", spawn)?;
@@ -260,8 +322,7 @@ impl Config {
             let action = (action.as_userdata())
                 .and_then(|a: &AnyUserData| a.borrow::<Action>().ok().map(|a| a.clone()));
             let action = action.ok_or_else(|| {
-                let expected =
-                    "desk.spawn(\"...\"), desk.close_window, desk.fullscreen or desk.layout_menu";
+                let expected = "an action like desk.spawn(\"...\") or desk.close_window";
                 mlua::Error::runtime(format!("bind \"{text}\": the action must be {expected}"))
             })?;
             let mut config = lua.app_data_mut::<Config>().unwrap();
@@ -504,7 +565,7 @@ mod tests {
             desk.bind("Mod+Return", desk.spawn("alacritty -e btop"))
             desk.bind("mod+t", desk.spawn("kitty"))
             desk.bind("Ctrl+Alt+Shift+F11", desk.fullscreen)
-            desk.unbind("Mod+D")
+            desk.unbind("Mod+Space")
             "#,
         )
         .unwrap();
@@ -524,7 +585,7 @@ mod tests {
             action(&config, "Shift+Ctrl+Mod+f11"),
             Some(Action::Fullscreen)
         );
-        assert_eq!(action(&config, "Mod+D"), None);
+        assert_eq!(action(&config, "Mod+Space"), None);
         // Built-in ones stay.
         assert_eq!(action(&config, "Mod+Q"), Some(Action::CloseWindow));
     }
@@ -551,9 +612,47 @@ mod tests {
         let err = error(r#"local d = require("infinitydesk") d.bind("Hyper+T", d.close_window)"#);
         assert!(err.contains(r#"unknown modifier "Hyper""#), "{err}");
         let err = error(r#"local d = require("infinitydesk") d.bind("Mod+T", "alacritty")"#);
-        assert!(err.contains("the action must be desk.spawn"), "{err}");
+        assert!(err.contains("the action must be an action like"), "{err}");
         let err = error(r#"local d = require("infinitydesk") d.bind("Mod+", d.fullscreen)"#);
         assert!(err.contains("no key after the modifiers"), "{err}");
+        let err = error(r#"local d = require("infinitydesk") d.bind("Mod+H", d.focus("west"))"#);
+        assert!(
+            err.contains(r#"desk.focus("west"): expected "left""#),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn navigation_binds() {
+        let config = load(
+            r#"
+            local desk = require("infinitydesk")
+            desk.bind("Mod+H", desk.focus("left"))
+            desk.bind("Mod+Shift+L", desk.resize("Right"))
+            desk.bind("Mod+Shift+O", desk.overview)
+        "#,
+        )
+        .unwrap();
+        assert_eq!(action(&config, "Mod+H"), Some(Action::Focus(Dir::Left)));
+        assert_eq!(
+            action(&config, "Mod+Shift+L"),
+            Some(Action::Resize(Dir::Right))
+        );
+        assert_eq!(action(&config, "Mod+Shift+O"), Some(Action::Overview));
+        // The built-in ones.
+        assert_eq!(action(&config, "Mod+Left"), Some(Action::Focus(Dir::Left)));
+        assert_eq!(
+            action(&config, "Mod+Ctrl+Down"),
+            Some(Action::Swap(Dir::Down))
+        );
+        assert_eq!(
+            action(&config, "Mod+Ctrl+Shift+Up"),
+            Some(Action::Pan(Dir::Up))
+        );
+        assert_eq!(action(&config, "Mod+Tab"), Some(Action::Overview));
+        assert_eq!(action(&config, "Mod+O"), Some(Action::Overview));
+        assert_eq!(action(&config, "Mod+R"), Some(Action::LayoutMenu));
+        assert_eq!(action(&config, "Mod+W"), None);
     }
 
     #[test]

@@ -134,6 +134,16 @@ impl Canvas {
         self.set_viewport_loc(rect.loc.to_f64());
     }
 
+    /// Shows `rect` in the middle of the screen: at 1:1 if it fits, otherwise zoomed out just
+    /// enough to fit.
+    pub fn show(&mut self, rect: Rectangle<i32, Logical>) {
+        let w = self.screen.w as f64 / rect.size.w.max(1) as f64;
+        let h = self.screen.h as f64 / rect.size.h.max(1) as f64;
+        self.zoom = w.min(h).clamp(self.min_zoom(), 1.0);
+        let middle = rect.loc.to_f64() + rect.size.to_f64().downscale(2.0).to_point();
+        self.center_viewport_on(middle);
+    }
+
     /// Zoom at which the whole canvas fits on the screen.
     fn min_zoom(&self) -> f64 {
         let w = self.screen.w as f64 / self.size.w as f64;
@@ -204,6 +214,19 @@ mod tests {
             c.viewport_loc(),
             ((10_000 - 1920) as f64, (6_000 - 1080) as f64).into()
         );
+    }
+
+    #[test]
+    fn show_centers_and_fits() {
+        let mut c = canvas();
+        // Fits at 1:1: centered on it.
+        c.show(Rectangle::new((3000, 2000).into(), (1000, 500).into()));
+        assert_eq!(c.zoom(), 1.0);
+        assert_eq!(c.viewport_center(), (3500.0, 2250.0).into());
+        // Twice the screen width: zoomed out to fit.
+        c.show(Rectangle::new((1000, 1000).into(), (3840, 1000).into()));
+        assert_eq!(c.zoom(), 0.5);
+        assert_eq!(c.viewport_center(), (2920.0, 1500.0).into());
     }
 
     #[test]

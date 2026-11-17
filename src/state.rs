@@ -21,6 +21,7 @@ use crate::{
     canvas::Canvas,
     cluster::Clusters,
     config::Config,
+    navigate::Overview,
     render::{OUTLINE_WIDTH, Outline, outline_bars},
     resize::{self, Edge, Follow},
 };
@@ -86,10 +87,12 @@ pub struct InfinityDesk {
     pub resize_hint: Vec<(Window, [Follow; 2])>,
     /// Pointer image shown by the host (resize arrows at window borders).
     pub cursor: CursorIcon,
-    /// The fullscreen window (Alt+F).
+    /// The fullscreen window (Mod+F).
     pub fullscreen: Option<Fullscreen>,
-    /// The open template menu (Alt+W).
+    /// The open template menu (Mod+R).
     pub layout_menu: Option<LayoutMenu>,
+    /// The open overview (Mod+Tab).
+    pub overview: Option<Overview>,
     /// Slots of the last applied template that new windows fill.
     pub free_slots: Option<FreeSlots>,
     /// The window being worked in (it keeps this while a launcher has the keyboard). New windows
@@ -168,6 +171,7 @@ impl InfinityDesk {
             cursor: CursorIcon::Default,
             fullscreen: None,
             layout_menu: None,
+            overview: None,
             free_slots: None,
             active: None,
             resizing: HashMap::new(),

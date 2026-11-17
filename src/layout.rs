@@ -1,4 +1,4 @@
-//! Layout templates (Alt+W): a cluster is arranged so that it fills exactly one screen, e.g.
+//! Layout templates (Mod+R): a cluster is arranged so that it fills exactly one screen, e.g.
 //! half | half, or a half and two quarters.
 //!
 //! This module is pure logic without Wayland: the templates, where their slots lie, which window

@@ -45,7 +45,7 @@ step further into two dimensions. Built in Rust on [Smithay](https://github.com/
   With Shift, the rest of the cluster moves instead. Grab any window border (a generous zone
   around it shows resize arrows and lights up the edges that will move), or use Alt + right-drag.
   The dragged edge snaps to the edges of other visible windows, so they line up exactly.
-- **Layout templates:** Alt + W opens a menu of templates (half | half, a half and two
+- **Layout templates:** Alt + R opens a menu of templates (half | half, a half and two
   quarters, three columns, four quarters, ...). Picking one arranges the active window's
   cluster so it fills exactly one screen, shown at 1:1. Click the slot the active window should
   go to (the other windows take the slots closest to where they are), or press the template's
@@ -54,7 +54,12 @@ step further into two dimensions. Built in Rust on [Smithay](https://github.com/
   follows if there is no room on the screen). Click empty space first for a free window.
 - **Fullscreen:** Alt + F (or the app itself, e.g. F11 in a browser) lets a window cover the
   screen; its place in the cluster and the view are restored afterwards
-- wlr-layer-shell, so launchers like fuzzel (and bars or wallpaper tools) work
+- **Keyboard navigation:** move the focus to the next window in a direction (also into the
+  next cluster, the view follows), swap a window with its neighbor, resize in steps (the
+  cluster stays closed), pan and zoom the view, center the active cluster, and an overview
+  that zooms out until all windows fit
+- wlr-layer-shell, so launchers like fuzzel, bars and wallpaper tools (e.g. awww, swaybg) work;
+  the wallpaper stays fixed behind the moving canvas
 - Optional setting: docked windows take their neighbor's height or width (clean grid)
 
 ## Roadmap
@@ -62,7 +67,6 @@ step further into two dimensions. Built in Rust on [Smithay](https://github.com/
 - **More Lua configuration:** window rules and events, designed to feel familiar when coming
   from niri or Hyprland. Maybe a converter for niri configs later.
 - **Final default controls**, configurable mouse bindings, touchpad gestures
-- **Background layer** fixed to the screen behind the moving canvas (maybe with parallax)
 - **Standalone session** (DRM/KMS backend, own login entry) with Super as the modifier,
   hardware-accelerated client buffers (dmabuf), multi-monitor support
 - Visual polish: cluster outlines, decorations, animations
@@ -96,11 +100,24 @@ Keyboard shortcuts can be changed in the config (see Settings); mouse controls w
 | Resize (neighbors follow)       | Left-drag on a window border (the edges light up)  |
 |                                 | or Alt + right-drag on a window (nearest edges)    |
 | Resize, rest of cluster moves   | The same with Shift                                |
+| Focus the next window           | Alt + arrow keys                                   |
+| Swap with the neighbor          | Alt + Ctrl + arrow keys                            |
+| Wider / narrower, taller / lower| Alt + Shift + → / ←, ↓ / ↑ (a tenth of the screen) |
+| Pan the view                    | Alt + Ctrl + Shift + arrow keys                    |
+| Zoom in / out (screen middle)   | Alt + Plus / Alt + Minus                           |
+| Center the active cluster       | Alt + C                                            |
+| Overview (all windows)          | Alt + O or Alt + Tab; again to go back, or to the  |
+|                                 | window chosen meanwhile (click or Alt + arrow)     |
 | Open a terminal (alacritty)     | Alt + T                                            |
-| App launcher (fuzzel)           | Alt + D                                            |
+| App launcher (fuzzel)           | Alt + Space                                        |
 | Close the focused window        | Alt + Q                                            |
-| Arrange the cluster (templates) | Alt + W, then click a slot or press 1–8 (Esc)      |
+| Arrange the cluster (templates) | Alt + R, then click a slot or press 1–8 (Esc)      |
 | Fullscreen on / off             | Alt + F                                            |
+
+While nested, the host compositor may keep some shortcuts for itself (niri: Alt + Tab), which
+is why the overview is on Alt + O too. Keyboard resizing moves the window's right (bottom)
+edge, or its left (top) edge if only that one has a neighbor, so a row that fills the screen
+keeps filling it.
 
 ### Settings
 
@@ -131,12 +148,15 @@ desk.snapping {
 -- "#rrggbb" or "#rrggbbaa"; accent is used for frames, lit edges and the template menu
 desk.colors { background = "#1a1a1f", grid = "#474752", accent = "#59a6ff" }
 
--- Shortcuts: the built-in ones (Mod+T, D, Q, F, W) stay unless you change or remove them.
+-- Shortcuts: the built-in ones (see Controls) stay unless you change or remove them.
 -- Modifiers: Mod (Alt while nested, Super later), Super, Alt, Ctrl, Shift. Keys are xkb names
 -- in any case ("T", "Return", "F11", "space", "Print", ...). Shift+Q means the Q key.
--- Actions: desk.spawn("command line"), desk.close_window, desk.fullscreen, desk.layout_menu
+-- Actions: desk.spawn("command line"), desk.close_window, desk.fullscreen, desk.layout_menu,
+-- desk.focus(dir), desk.swap(dir), desk.resize(dir), desk.pan(dir) with dir "left", "right",
+-- "up" or "down", desk.zoom_in, desk.zoom_out, desk.center, desk.overview
 desk.bind("Mod+Return", desk.spawn("alacritty -e btop"))
-desk.unbind("Mod+D")
+desk.bind("Mod+L", desk.focus("right"))
+desk.unbind("Mod+Tab")
 ```
 
 A mistake (a typo in a setting name, a wrong type, a value out of range) is logged with the
@@ -152,6 +172,7 @@ settings stay. If the canvas gets smaller, clusters outside it move back in as a
 | `src/resize.rs`   | Resizing inside a cluster (pure logic, tested)                |
 | `src/layout.rs`   | Layout templates and their menu (pure logic, tested)          |
 | `src/arrange.rs`  | Applying templates and fullscreen to windows                  |
+| `src/navigate.rs` | Keyboard navigation and the overview (direction search tested)|
 | `src/grabs.rs`    | Pointer drags: move, detach, resize, select, pan              |
 | `src/input.rs`    | Keyboard shortcuts and mouse handling                         |
 | `src/render.rs`   | What gets drawn: windows, layers, dot grid, outlines          |

@@ -102,7 +102,7 @@ fn set_resizing(windows: &[Window], follow: &[[Follow; 2]], on: bool) {
 }
 
 /// The smallest size a window may get.
-fn min_size(window: &Window) -> Size<i32, Logical> {
+pub fn min_size(window: &Window) -> Size<i32, Logical> {
     let surface = window.toplevel().unwrap().wl_surface();
     let min = with_states(surface, |states| {
         states
@@ -112,6 +112,25 @@ fn min_size(window: &Window) -> Size<i32, Logical> {
             .min_size
     });
     (min.w.max(MIN_WINDOW_SIZE), min.h.max(MIN_WINDOW_SIZE)).into()
+}
+
+impl InfinityDesk {
+    /// Gives the windows of a cluster their new places from `resize::apply`.
+    pub fn resize_windows(&mut self, windows: &[Window], follow: &[[Follow; 2]], new: Vec<Rect>) {
+        for ((window, f), rect) in windows.iter().zip(follow).zip(new) {
+            if changes_size(f) {
+                let anchor_end = f.map(|f| f == Follow::Start);
+                self.resizing
+                    .insert(window.clone(), Resizing { rect, anchor_end });
+                let toplevel = window.toplevel().unwrap();
+                toplevel.with_pending_state(|s| s.size = Some(rect.size));
+                toplevel.send_pending_configure();
+                self.place_resized(window);
+            } else if f.contains(&Follow::Shift) {
+                self.space.map_element(window.clone(), rect.loc, false);
+            }
+        }
+    }
 }
 
 enum DragKind {
@@ -336,19 +355,7 @@ impl PointerGrab<InfinityDesk> for DragGrab {
                     delta = resize::snap(rect, *edges, snap_targets, delta, threshold);
                 }
                 let new = resize::apply(initial, follow, min, delta);
-                for ((window, f), rect) in windows.iter().zip(follow.iter()).zip(new) {
-                    if changes_size(f) {
-                        let anchor_end = f.map(|f| f == Follow::Start);
-                        data.resizing
-                            .insert(window.clone(), Resizing { rect, anchor_end });
-                        let toplevel = window.toplevel().unwrap();
-                        toplevel.with_pending_state(|s| s.size = Some(rect.size));
-                        toplevel.send_pending_configure();
-                        data.place_resized(window);
-                    } else if f.contains(&Follow::Shift) {
-                        data.space.map_element(window.clone(), rect.loc, false);
-                    }
-                }
+                data.resize_windows(windows, follow, new);
             }
             DragKind::Select { initial } => {
                 let corners = [self.start_data.location, event.location];

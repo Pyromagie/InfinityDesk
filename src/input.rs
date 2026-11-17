@@ -75,36 +75,16 @@ impl InfinityDesk {
                         }
                     },
                 );
-                let focused = (keyboard.current_focus()).and_then(|s| self.window_for_surface(&s));
-                // Fullscreen and templates move the view; the pointer stays put on the screen.
+                // Most actions move the view or windows; the pointer stays put on the screen.
                 let pointer = self.seat.get_pointer().unwrap();
                 let screen = self.canvas.canvas_to_screen(pointer.current_location());
-                match &action {
-                    Some(KeyAction::Bind(Action::Spawn(command))) => {
-                        crate::spawn(command, &self.socket_name)
-                    }
-                    Some(KeyAction::Bind(Action::CloseWindow)) => {
-                        if let Some(window) = focused {
-                            window.toplevel().unwrap().send_close();
-                        }
-                    }
-                    Some(KeyAction::Bind(Action::Fullscreen)) => {
-                        if let Some(window) = focused {
-                            self.toggle_fullscreen(&window);
-                        }
-                    }
-                    Some(KeyAction::Bind(Action::LayoutMenu)) => self.toggle_layout_menu(focused),
-                    Some(KeyAction::Template(Some(t))) => self.choose_template(*t, None),
+                match action {
+                    Some(KeyAction::Bind(action)) => self.run(action),
+                    Some(KeyAction::Template(Some(t))) => self.choose_template(t, None),
                     Some(KeyAction::Template(None)) => self.layout_menu = None,
-                    Some(KeyAction::Nothing) | None => {}
+                    Some(KeyAction::Nothing) | None => return,
                 }
-                let view_moved = matches!(
-                    action,
-                    Some(KeyAction::Bind(Action::Fullscreen) | KeyAction::Template(_))
-                );
-                if view_moved {
-                    self.pointer_moved(self.canvas.screen_to_canvas(screen), event.time());
-                }
+                self.pointer_moved(self.canvas.screen_to_canvas(screen), event.time());
             }
 
             InputEvent::PointerMotionAbsolute { event, .. } => {
@@ -151,6 +131,18 @@ impl InfinityDesk {
                 }
                 // Launchers and bars on top of everything just get the click.
                 let on_layer = (self.layer_surface_under(location, self.upper_layers())).is_some();
+                // In the overview, a click on a window chooses it (and is not passed on).
+                let clicked = self.space.element_under(location).map(|(w, _)| w.clone());
+                let plain = !keyboard.modifier_state().alt && button == BTN_LEFT;
+                if let Some(window) = (clicked.as_ref())
+                    .filter(|_| self.overview.is_some() && plain && !on_layer)
+                    .filter(|_| button_state == ButtonState::Pressed && !pointer.is_grabbed())
+                {
+                    let on_screen = self.canvas.canvas_to_screen(location);
+                    self.choose_in_overview(window);
+                    self.pointer_moved(self.canvas.screen_to_canvas(on_screen), event.time());
+                    return;
+                }
                 // A fullscreen window just gets the click, nothing on the canvas can be grabbed.
                 let fullscreen = self.fullscreen.is_some();
                 if button_state == ButtonState::Pressed
@@ -158,7 +150,6 @@ impl InfinityDesk {
                     && !on_layer
                     && !fullscreen
                 {
-                    let clicked = self.space.element_under(location).map(|(w, _)| w.clone());
                     let mods = keyboard.modifier_state();
                     let (alt, select) = (mods.alt, mods.alt && mods.shift && button == BTN_LEFT);
                     let start_data = GrabStartData {
@@ -275,6 +266,42 @@ impl InfinityDesk {
             }
 
             _ => {}
+        }
+    }
+
+    /// Runs a shortcut's action. Window actions work on the window with the keyboard focus,
+    /// navigation starts from the active window (also while a launcher has the keyboard).
+    fn run(&mut self, action: Action) {
+        let keyboard = self.seat.get_keyboard().unwrap();
+        let focused = (keyboard.current_focus()).and_then(|s| self.window_for_surface(&s));
+        match action {
+            Action::Spawn(command) => crate::spawn(&command, &self.socket_name),
+            Action::CloseWindow => {
+                if let Some(window) = focused {
+                    window.toplevel().unwrap().send_close();
+                }
+            }
+            Action::Fullscreen => {
+                if let Some(window) = focused {
+                    self.toggle_fullscreen(&window);
+                }
+            }
+            Action::LayoutMenu => self.toggle_layout_menu(focused),
+            // Moving around ends fullscreen first.
+            action => {
+                self.end_fullscreen();
+                match action {
+                    Action::Focus(dir) => self.focus_in(dir),
+                    Action::Swap(dir) => self.swap_in(dir),
+                    Action::Resize(dir) => self.resize_in(dir),
+                    Action::Pan(dir) => self.pan(dir),
+                    Action::ZoomIn => self.zoom_by(true),
+                    Action::ZoomOut => self.zoom_by(false),
+                    Action::Center => self.center_cluster(),
+                    Action::Overview => self.toggle_overview(),
+                    _ => {}
+                }
+            }
         }
     }
 

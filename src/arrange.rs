@@ -1,4 +1,4 @@
-//! Arranging windows on the screen: fullscreen (Alt+F) and layout templates (Alt+W), plus the
+//! Arranging windows on the screen: fullscreen (Mod+F) and layout templates (Mod+R), plus the
 //! template menu. The template geometry itself lives in `layout.rs`.
 
 use smithay::{
@@ -45,7 +45,7 @@ pub struct FreeSlots {
 }
 
 impl InfinityDesk {
-    /// Alt+F: the window covers the screen, on top of everything; again: back to its place.
+    /// Mod+F: the window covers the screen, on top of everything; again: back to its place.
     pub fn toggle_fullscreen(&mut self, window: &Window) {
         let same = self
             .fullscreen
@@ -118,7 +118,7 @@ impl InfinityDesk {
         self.place_resized(window);
     }
 
-    /// Alt+W: opens the template menu for the cluster of `window`, or closes it.
+    /// Mod+R: opens the template menu for the cluster of `window`, or closes it.
     pub fn toggle_layout_menu(&mut self, window: Option<Window>) {
         if self.layout_menu.take().is_some() {
             return;
@@ -227,6 +227,17 @@ impl InfinityDesk {
         }
     }
 
+    /// Two windows swapped places: free slots move along with the anchor's place, not with it.
+    pub fn swap_slot_anchor(&mut self, a: &Window, b: &Window) {
+        if let Some(free) = &mut self.free_slots {
+            if &free.anchor == a {
+                free.anchor = b.clone();
+            } else if &free.anchor == b {
+                free.anchor = a.clone();
+            }
+        }
+    }
+
     /// Where a new window docks next to the active window (see `cluster::dock_spot`). Dialogs
     /// stay free, in the middle of the screen.
     pub fn spot_next_to_active(&self, window: &Window, size: Size<i32, Logical>) -> Option<Rect> {
@@ -244,7 +255,7 @@ impl InfinityDesk {
     }
 
     /// Where a window is, or is about to be while it changes its size.
-    fn target_rect(&self, window: &Window) -> Option<Rect> {
+    pub fn target_rect(&self, window: &Window) -> Option<Rect> {
         (self.resizing.get(window).map(|r| r.rect)).or_else(|| self.space.element_geometry(window))
     }
 

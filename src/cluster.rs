@@ -71,6 +71,25 @@ impl<K: Eq + Hash + Clone> Clusters<K> {
         }
     }
 
+    /// `a` and `b` trade places: each gets the other's links.
+    pub fn swap(&mut self, a: &K, b: &K) {
+        let links = |k: &K| self.links.get(k).cloned().unwrap_or_default();
+        let (to_a, to_b) = (links(a), links(b));
+        self.remove(a);
+        self.remove(b);
+        let other = |k: &K| match k {
+            k if k == a => b.clone(),
+            k if k == b => a.clone(),
+            k => k.clone(),
+        };
+        for n in &to_a {
+            self.join(b, &other(n));
+        }
+        for n in &to_b {
+            self.join(a, &other(n));
+        }
+    }
+
     /// Takes several windows out of their cluster together; among themselves they stay docked.
     pub fn detach(&mut self, group: &[K]) {
         for k in group {
@@ -215,6 +234,29 @@ mod tests {
 
     fn rect(x: i32, y: i32, w: i32, h: i32) -> Rect {
         Rectangle::new((x, y).into(), (w, h).into())
+    }
+
+    #[test]
+    fn swapped_windows_trade_links() {
+        // A row 1-2-3, plus 4 below 1. 1 and 3 trade places: 3-2-1, with 4 below 3.
+        let mut c = Clusters::default();
+        c.join(&1, &2);
+        c.join(&2, &3);
+        c.join(&1, &4);
+        c.swap(&1, &3);
+        let linked = |c: &Clusters<i32>, k| {
+            let mut v: Vec<i32> = c.links.get(&k).into_iter().flatten().copied().collect();
+            v.sort();
+            v
+        };
+        assert_eq!(linked(&c, 3), vec![2, 4]);
+        assert_eq!(linked(&c, 1), vec![2]);
+        assert_eq!(linked(&c, 2), vec![1, 3]);
+        assert_eq!(linked(&c, 4), vec![3]);
+        // Neighbors trading places stay linked to each other.
+        c.swap(&2, &3);
+        assert_eq!(linked(&c, 2), vec![3, 4]);
+        assert_eq!(linked(&c, 3), vec![1, 2]);
     }
 
     #[test]

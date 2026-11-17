@@ -23,7 +23,7 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
 - ✅ **Fenster**: frei platzier- und skalierbar.
 - ✅ **Cluster**: Gruppe aneinander angedockter Fenster, als Ganzes verschiebbar.
 - ✅ **Freie Ansicht**: normalerweise betrachtet man die Fläche frei aus jeder Position, nichts rastet ein.
-- ✅ **Cluster-Fokus über Vorlagen (Mod+W)**: will man ein Cluster richtig benutzen, ordnet man es per Vorlage so an, dass es genau einen Bildschirm füllt (wie Snap-Layouts in Windows 11). Mod+W öffnet ein Menü in der Bildschirmmitte mit kleinen Bildern der Vorlagen: ganzer Bildschirm, Hälfte|Hälfte, zwei Drittel|Drittel, Hälfte|zwei Viertel, zwei Viertel|Hälfte, drei Spalten, Viertel|Hälfte|Viertel (für Ultrawide), vier Viertel.
+- ✅ **Cluster-Fokus über Vorlagen (Mod+R)**: will man ein Cluster richtig benutzen, ordnet man es per Vorlage so an, dass es genau einen Bildschirm füllt (wie Snap-Layouts in Windows 11). Mod+R öffnet ein Menü in der Bildschirmmitte mit kleinen Bildern der Vorlagen: ganzer Bildschirm, Hälfte|Hälfte, zwei Drittel|Drittel, Hälfte|zwei Viertel, zwei Viertel|Hälfte, drei Spalten, Viertel|Hälfte|Viertel (für Ultrawide), vier Viertel.
   - Klick auf einen Platz = das aktive Fenster kommt dorthin, die übrigen Fenster des Clusters in die Plätze, die ihrer jetzigen Lage am nächsten sind. Tasten 1–8 = Vorlage mit ganz automatischer Zuordnung. Esc oder Klick daneben schließt.
   - Vorlagen mit weniger Plätzen als das Cluster Fenster hat sind ausgegraut.
   - Freie Plätze bleiben frei; die nächsten neuen Fenster füllen sie der Reihe nach (nur wenn der Platz gerade auf dem Bildschirm und nicht von einem anderen Fenster belegt ist).
@@ -70,7 +70,15 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
 - ✅ Pan **und** Zoom, damit man sich schnell einen Überblick über die ganze Fläche verschaffen kann.
 - ✅ **Zoom-Grenze rein:** maximal 1:1 (Zoomfaktor 1.0, Fenster in ihrer normalen Pixelgröße). Man kann also nie in ein Fenster "hineinzoomen". Das passt sich an die Display-Auflösung an (bei 1920×1080 ist 1:1 die Grenze), damit man nicht auf wenige Pixel eines Fensters zoomen kann.
 - ✅ **Zoom-Grenze raus:** so weit, dass die ganze Canvas-Fläche auf den Bildschirm passt.
-- 💬 Bedienung (Maus / Tastatur / Touchpad-Gesten) – später.
+- ✅ **Tastatur-Bedienung** (17.11.2026, von Pyro ausgewählt; Mod = Alt genestet, später Super; alles per `desk.bind` änderbar). Keine Workspaces: InfinityDesk hat ein eigenes Konzept und muss sich nicht an andere Fenstermanager halten.
+  - Mod+Pfeile: Fokus zum nächsten Fenster in der Richtung, auch ins nächste Cluster; die Ansicht rückt mit.
+  - Mod+Strg+Pfeile: aktives Fenster mit dem Nachbarn im Cluster tauschen (Plätze tauschen, Größen gehen mit).
+  - Mod+Shift+Pfeile: Größe ändern in Schritten von 10 % des Bildschirms (→/↓ größer, ←/↑ kleiner), Nachbarn gehen mit wie beim Ziehen.
+  - Mod+Strg+Shift+Pfeile: Ansicht verschieben · Mod+Minus/Plus: zoomen um die Bildschirmmitte · Mod+C: aktives Cluster in die Mitte.
+  - Mod+Tab und Mod+O: Übersicht (alle Fenster passen auf den Bildschirm; Mod+O, weil niri Alt+Tab genestet für sich behält). Nochmal Mod+Tab: zurück, oder zum Fenster, das in der Übersicht gewählt wurde (Klick oder Pfeile).
+  - Alt+Tab: zuletzt benutzte Fenster (genestet ist Alt+Tab = Mod+Tab, dort gewinnt die Übersicht).
+  - Mod+R: Vorlagen-Menü (war Mod+W; Super+W ist bei Pyro Firefox) · Mod+Leertaste: Launcher (war Mod+D).
+- 💬 Maus-Belegung in der Config, Touchpad-Gesten – später.
 - Vorläufige Test-Bedienung (Platzhalter, bis die Bedienung entschieden ist):
   - Linksziehen auf leerer Fläche: Fläche verschieben (Pan)
   - Alt + Mausrad: zoomen (um den Mauszeiger herum)
@@ -78,15 +86,14 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
   - Alt + Rechtsziehen: Größe ändern, Nachbarn im Cluster passen sich an · mit Shift: Rest des Clusters rückt mit
   - Alt + Linksklick, kurz stillhalten, dann ziehen: Fenster aus dem Cluster lösen (markierte Fenster gemeinsam)
   - Alt + Shift + Klick: Fenster markieren · Alt + Shift + Ziehen auf leerer Fläche: Auswahlrahmen
-  - Mod+W Vorlagen-Menü, Mod+F Vollbild
-  - Mod+T Terminal (alacritty), Mod+D Launcher (fuzzel), Mod+Q Fenster schließen (wie niri). Mod = Alt im genesteten Betrieb, später Super
+  - Tastatur: siehe oben. Dazu Mod+F Vollbild, Mod+T Terminal (alacritty), Mod+Q Fenster schließen (wie niri). Mod = Alt im genesteten Betrieb, später Super
   - (Super ist im genesteten Betrieb von niri belegt, daher Alt. In der eigenständigen Sitzung werden alle Alt-Kürzel zu Super-Kürzeln, so will es Pyro.)
 
-## 6b. Hintergrund (später)
+## 6b. Hintergrund
 
 - 💡 Ebenen von hinten nach vorne: **Hintergrund** (fest am Bildschirm) → **Canvas** (Raster + Fenster, bewegt sich beim Pan) → ggf. Leisten obendrauf.
 - ✅ `layer-shell`-Protokoll ist eingebaut (für fuzzel). Damit sollten auch swaybg/swww (Wallpaper) und Waybar (Leiste) funktionieren.
-- 💬 Hintergrund komplett fest oder leichter **Parallax**-Effekt (bewegt sich beim Pannen langsam mit)?
+- ✅ Hintergrund ist **fest** (Pyro, 17.11.2026). Das macht ein Wallpaper-Programm wie `awww` oder `swaybg` über layer-shell; InfinityDesk muss dafür nichts zeichnen. (awww brauchte das Protokoll `wp_viewporter`, ist eingebaut.) Parallax verworfen.
 
 ## 6c. Veröffentlichung & Konfiguration
 
@@ -94,7 +101,7 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
 - ✅ Konfiguration per **Lua** (z. B. `~/.config/infinitydesk/init.lua`), über die Rust-Bibliothek `mlua`.
 - 💡 Ausbaustufen:
   1. ✅ **Einstellungen** (eingebaut): Tastatur (xkb-Belegung, Wiederholrate), Canvas-Größe, Raster-Abstand, Snap-Schwellwert, `match_size`, Haltezeit der Lös-Geste, Farben (Hintergrund, Raster, Akzent). Gelesen beim Start und **neu geladen, sobald die Datei gespeichert wird** (einmal pro Sekunde wird nachgesehen); Tippfehler, falsche Typen und Werte außerhalb des Bereichs sind Fehler (mit Einstellung, Datei und Zeile im Log), dann gelten beim Start die Standardwerte, im laufenden Betrieb bleiben die bisherigen. Wird die Fläche kleiner, rücken Cluster außerhalb als Ganzes herein. Lua 5.4 ist in die Binary eingebaut (`mlua`, vendored). `INFINITYDESK_CONFIG` zeigt auf eine andere Datei (zum Testen). Noch nicht: Touchpad (kommt mit der eigenständigen Sitzung), Zoom-Verhalten.
-  2. ✅ **Tastenbelegung** (eingebaut): `desk.bind("Mod+Return", desk.spawn("alacritty"))`, `desk.unbind("Mod+D")`. Die eingebauten Kürzel (Mod+T/D/Q/F/W) bleiben, eigene gehen vor oder kommen dazu. Modifikatoren Mod/Super/Alt/Ctrl/Shift, Tasten als xkb-Namen; "Shift+Q" meint die Q-Taste. Aktionen: `desk.spawn("Befehlszeile")` (über `sh -c`, also mit Argumenten), `desk.close_window`, `desk.fullscreen`, `desk.layout_menu`. Lua-Funktionen als Aktion erst mit Stufe 4.
+  2. ✅ **Tastenbelegung** (eingebaut): `desk.bind("Mod+Return", desk.spawn("alacritty"))`, `desk.unbind("Mod+Tab")`. Die eingebauten Kürzel (siehe Punkt 6) bleiben, eigene gehen vor oder kommen dazu. Modifikatoren Mod/Super/Alt/Ctrl/Shift, Tasten als xkb-Namen; "Shift+Q" meint die Q-Taste. Aktionen: `desk.spawn("Befehlszeile")` (über `sh -c`, also mit Argumenten), `desk.close_window`, `desk.fullscreen`, `desk.layout_menu`, `desk.focus/swap/resize/pan("left"|"right"|"up"|"down")`, `desk.zoom_in`, `desk.zoom_out`, `desk.center`, `desk.overview`. Lua-Funktionen als Aktion erst mit Stufe 4.
      **Maus-Bedienung:** wird belegbar, wenn die endgültige Bedienung feststeht (Punkt 6).
   3. **Fensterregeln:** z. B. "Programm X öffnet immer an Position Y / in Cluster Z".
   4. **Ereignisse & Skripting:** Lua-Funktionen, die auf Ereignisse reagieren (Fenster geöffnet, Cluster gebildet …).
@@ -130,7 +137,7 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
 1. ✅ Minimaler Compositor (genestet, winit), zeigt Wayland-Clients an
 2. ✅ Fenster auf dem Canvas platzieren, Viewport verschieben
 3. ✅ Snapping + Cluster
-4. ✅ Zoom + Culling · ✅ Cluster-Resize · ✅ Cluster-Fokus (Vorlagen, Mod+W) · ✅ Vollbild (Mod+F)
+4. ✅ Zoom + Culling · ✅ Cluster-Resize · ✅ Cluster-Fokus (Vorlagen, Mod+R) · ✅ Vollbild (Mod+F)
 5. ✅ Lua-Konfiguration (Einstellungen, Tastenbelegung; Maus-Belegung mit Punkt 6)
 6. Bedienung festlegen (Standard-Belegung), Hintergrund / layer-shell, Feinschliff
 7. Standalone-Betrieb (eigener Login-Eintrag, ohne niri darunter), README, Veröffentlichung
@@ -139,4 +146,4 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
 
 - Bedienung des Ganzen (Punkt 6)
 - Mehrere Monitore: ein Canvas pro Monitor oder ein gemeinsamer?
-- ✅ Neue Fenster (eingebaut): zuerst füllen sie freie Plätze der letzten Vorlage (Mod+W). Sonst docken sie am **aktiven Fenster** an: rechts daneben (Oberkanten bündig), sonst darunter (linke Kanten bündig), links, oben. Seiten, die auf dem Bildschirm liegen, kommen zuerst; ist nirgends auf dem Bildschirm Platz, dockt es trotzdem an der ersten freien Seite an und die **Ansicht rückt gerade so weit mit**, dass es ganz zu sehen ist. Ist kein Fenster aktiv (vorher auf leere Fläche geklickt), erscheint es frei in der Mitte. Dialoge erscheinen immer frei in der Mitte. Ein Launcher (fuzzel) ändert das aktive Fenster nicht. 💬 Feinabstimmung beim Ausprobieren.
+- ✅ Neue Fenster (eingebaut): zuerst füllen sie freie Plätze der letzten Vorlage (Mod+R). Sonst docken sie am **aktiven Fenster** an: rechts daneben (Oberkanten bündig), sonst darunter (linke Kanten bündig), links, oben. Seiten, die auf dem Bildschirm liegen, kommen zuerst; ist nirgends auf dem Bildschirm Platz, dockt es trotzdem an der ersten freien Seite an und die **Ansicht rückt gerade so weit mit**, dass es ganz zu sehen ist. Ist kein Fenster aktiv (vorher auf leere Fläche geklickt), erscheint es frei in der Mitte. Dialoge erscheinen immer frei in der Mitte. Ein Launcher (fuzzel) ändert das aktive Fenster nicht. 💬 Feinabstimmung beim Ausprobieren.

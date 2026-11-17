@@ -10,6 +10,7 @@ mod grabs;
 mod handlers;
 mod input;
 mod layout;
+mod navigate;
 mod render;
 mod resize;
 mod state;
