@@ -1,5 +1,8 @@
 use smithay::{
-    desktop::{PopupKind, Window, find_popup_root_surface, get_popup_toplevel_coords},
+    desktop::{
+        PopupKeyboardGrab, PopupKind, PopupPointerGrab, PopupUngrabStrategy, Window,
+        find_popup_root_surface, get_popup_toplevel_coords,
+    },
     input::{
         Seat,
         pointer::{Focus, GrabStartData},
@@ -130,8 +133,31 @@ impl XdgShellHandler for InfinityDesk {
         surface.send_repositioned(token);
     }
 
-    fn grab(&mut self, _surface: PopupSurface, _seat: wl_seat::WlSeat, _serial: Serial) {
-        // TODO: popup grabs (e.g. menus that close when clicking elsewhere)
+    /// Menus: keyboard and pointer go to the popup until it closes; a click elsewhere closes it.
+    fn grab(&mut self, surface: PopupSurface, seat: wl_seat::WlSeat, serial: Serial) {
+        let Some(seat) = Seat::<Self>::from_resource(&seat) else {
+            return;
+        };
+        let kind = PopupKind::Xdg(surface);
+        let Ok(root) = find_popup_root_surface(&kind) else {
+            return;
+        };
+        let Ok(mut grab) = self.popups.grab_popup(root, kind, &seat, serial) else {
+            return;
+        };
+        // Only if the client's request belongs to the input that is currently going on.
+        let keyboard = seat.get_keyboard().unwrap();
+        let pointer = seat.get_pointer().unwrap();
+        let previous = grab.previous_serial().unwrap_or(serial);
+        if (keyboard.is_grabbed() && !keyboard.has_grab(serial) && !keyboard.has_grab(previous))
+            || (pointer.is_grabbed() && !pointer.has_grab(serial) && !pointer.has_grab(previous))
+        {
+            grab.ungrab(PopupUngrabStrategy::All);
+            return;
+        }
+        keyboard.set_focus(self, grab.current_grab(), serial);
+        keyboard.set_grab(self, PopupKeyboardGrab::new(&grab), serial);
+        pointer.set_grab(self, PopupPointerGrab::new(&grab), serial, Focus::Keep);
     }
 }
 
