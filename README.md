@@ -30,6 +30,8 @@ cargo run -- -c kitty     # start a different program inside
 | Zoom (around the pointer)     | Alt + scroll                        |
 | Move a window / its cluster   | Alt + left-drag on a window         |
 | Dock windows                  | Drag a window close to another one  |
+| Resize (neighbors follow)     | Alt + right-drag on a window (nearest edges) |
+| Resize, cluster moves along   | Alt + Shift + right-drag            |
 | Detach a window from cluster  | Alt + left-click, hold still briefly, then drag |
 | Mark / unmark a window        | Alt + Shift + click                 |
 | Mark windows with a box       | Alt + Shift + drag on empty space   |

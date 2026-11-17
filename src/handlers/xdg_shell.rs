@@ -4,9 +4,12 @@ use smithay::{
         Seat,
         pointer::{Focus, GrabStartData},
     },
-    reexports::wayland_server::{
-        Resource,
-        protocol::{wl_seat, wl_surface::WlSurface},
+    reexports::{
+        wayland_protocols::xdg::shell::server::xdg_toplevel,
+        wayland_server::{
+            Resource,
+            protocol::{wl_seat, wl_surface::WlSurface},
+        },
     },
     utils::Serial,
     wayland::{
@@ -18,7 +21,7 @@ use smithay::{
     },
 };
 
-use crate::{InfinityDesk, grabs::DragGrab};
+use crate::{InfinityDesk, grabs::DragGrab, resize::Edge};
 
 /// Checks that a client move request belongs to a real, currently pressed pointer button.
 fn check_grab(
@@ -66,6 +69,38 @@ impl XdgShellHandler for InfinityDesk {
     }
 
     /// The client asks to be moved (e.g. dragging its own title bar).
+    fn resize_request(
+        &mut self,
+        surface: ToplevelSurface,
+        seat: wl_seat::WlSeat,
+        serial: Serial,
+        edges: xdg_toplevel::ResizeEdge,
+    ) {
+        use xdg_toplevel::ResizeEdge as E;
+        let seat = Seat::from_resource(&seat).unwrap();
+        let Some(start_data) = check_grab(&seat, surface.wl_surface(), serial) else {
+            return;
+        };
+        let Some(window) = self.window_for_surface(surface.wl_surface()) else {
+            return;
+        };
+        let x = match edges {
+            E::Left | E::TopLeft | E::BottomLeft => Edge::Start,
+            E::Right | E::TopRight | E::BottomRight => Edge::End,
+            _ => Edge::None,
+        };
+        let y = match edges {
+            E::Top | E::TopLeft | E::TopRight => Edge::Start,
+            E::Bottom | E::BottomLeft | E::BottomRight => Edge::End,
+            _ => Edge::None,
+        };
+        let shift = self.seat.get_keyboard().unwrap().modifier_state().shift;
+        let grab = DragGrab::resize(self, start_data, window, [x, y], shift);
+        seat.get_pointer()
+            .unwrap()
+            .set_grab(self, grab, serial, Focus::Clear);
+    }
+
     fn move_request(&mut self, surface: ToplevelSurface, seat: wl_seat::WlSeat, serial: Serial) {
         let seat = Seat::from_resource(&seat).unwrap();
         let Some(start_data) = check_grab(&seat, surface.wl_surface(), serial) else {

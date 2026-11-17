@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     ffi::OsString,
     sync::Arc,
     time::{Duration, Instant},
@@ -63,6 +64,8 @@ pub struct InfinityDesk {
     pub pulse: Option<(Vec<Window>, Instant)>,
     /// Marked windows (Alt+Shift); they are pulled out of their cluster together.
     pub selected: Vec<Window>,
+    /// Windows whose size is being changed, with their target rectangle (see `place_resized`).
+    pub resizing: HashMap<Window, Resizing>,
     /// The selection box being dragged open, in canvas coordinates.
     pub selection_box: Option<Rectangle<i32, Logical>>,
 
@@ -110,6 +113,7 @@ impl InfinityDesk {
             pulse: None,
             selected: Vec::new(),
             selection_box: None,
+            resizing: HashMap::new(),
             compositor_state,
             xdg_shell_state,
             layer_shell_state,
@@ -247,6 +251,25 @@ impl InfinityDesk {
         outlines
     }
 
+    /// Places a window that is being resized. Clients take a moment to change their size, so the
+    /// edge that does not move (e.g. the right one while dragging the left) is kept in place,
+    /// whatever size the window currently has. Called while dragging and on every commit.
+    pub fn place_resized(&mut self, window: &Window) {
+        let Some(Resizing { rect, anchor_end }) = self.resizing.get(window) else {
+            return;
+        };
+        let size = window.geometry().size;
+        let pos =
+            |start: i32, len: i32, now: i32, end: bool| if end { start + len - now } else { start };
+        let x = pos(rect.loc.x, rect.size.w, size.w, anchor_end[0]);
+        let y = pos(rect.loc.y, rect.size.h, size.h, anchor_end[1]);
+        // Once the window has the requested size, it is done.
+        if size == rect.size {
+            self.resizing.remove(window);
+        }
+        self.space.map_element(window.clone(), (x, y), false);
+    }
+
     /// Converts a rectangle on the canvas into one on the screen.
     fn screen_rect(&self, rect: Rectangle<i32, Logical>) -> Rectangle<i32, Logical> {
         let loc = self.canvas.canvas_to_screen(rect.loc.to_f64());
@@ -306,3 +329,10 @@ pub struct ClientState {
 }
 
 impl ClientData for ClientState {}
+
+/// Target of a window being resized.
+pub struct Resizing {
+    pub rect: Rectangle<i32, Logical>,
+    /// Per axis: the right/bottom edge stays in place (the left/top one is dragged).
+    pub anchor_end: [bool; 2],
+}

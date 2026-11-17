@@ -14,10 +14,11 @@ use smithay::{
     wayland::shell::wlr_layer::Layer,
 };
 
-use crate::{InfinityDesk, grabs::DragGrab};
+use crate::{InfinityDesk, grabs::DragGrab, resize::Edge};
 
-/// Left mouse button (linux/input-event-codes.h).
+/// Mouse buttons (linux/input-event-codes.h).
 const BTN_LEFT: u32 = 0x110;
+const BTN_RIGHT: u32 = 0x111;
 /// Zoom change per scrolled pixel (a mouse wheel notch is 15 px, about 14 %).
 const ZOOM_SPEED: f64 = 0.01;
 
@@ -80,6 +81,8 @@ impl InfinityDesk {
                 //   Alt + left-drag on a window          -> move the window's whole cluster
                 //   Alt + left, hold still, then drag  -> pull just this window out of its cluster
                 //                                         (or all marked windows, if it is marked)
+                //   Alt + right-drag on a window         -> resize it at the nearest edges; neighbors
+                //                                         in the cluster follow (Shift: they move)
                 //   Alt + Shift + click on a window      -> mark / unmark it
                 //   Alt + Shift + drag on empty canvas   -> mark windows with a selection box
                 //   left-drag on empty canvas   -> pan the viewport
@@ -104,6 +107,21 @@ impl InfinityDesk {
                             self.toggle_selected(window);
                         } else if alt && button == BTN_LEFT {
                             let grab = DragGrab::move_window(self, start_data, window);
+                            pointer.set_grab(self, grab, serial, Focus::Clear);
+                        } else if alt && button == BTN_RIGHT {
+                            // Resize at the edges nearest to the pointer (like a corner).
+                            let geo = self.space.element_geometry(&window).unwrap();
+                            let edge =
+                                |p: f64, start: i32, len: i32| match p < (start + len / 2) as f64 {
+                                    true => Edge::Start,
+                                    false => Edge::End,
+                                };
+                            let edges = [
+                                edge(location.x, geo.loc.x, geo.size.w),
+                                edge(location.y, geo.loc.y, geo.size.h),
+                            ];
+                            let grab =
+                                DragGrab::resize(self, start_data, window, edges, mods.shift);
                             pointer.set_grab(self, grab, serial, Focus::Clear);
                         }
                     } else {

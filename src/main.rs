@@ -9,6 +9,7 @@ mod grabs;
 mod handlers;
 mod input;
 mod render;
+mod resize;
 mod state;
 mod winit;
 
