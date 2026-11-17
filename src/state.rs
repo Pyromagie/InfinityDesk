@@ -196,8 +196,7 @@ impl InfinityDesk {
     }
 
     pub fn window_for_surface(&self, surface: &WlSurface) -> Option<Window> {
-        self.space
-            .elements()
+        (self.space.elements().chain(&self.unplaced))
             .find(|w| w.toplevel().unwrap().wl_surface() == surface)
             .cloned()
     }
@@ -263,8 +262,12 @@ impl InfinityDesk {
             |start: i32, len: i32, now: i32, end: bool| if end { start + len - now } else { start };
         let x = pos(rect.loc.x, rect.size.w, size.w, anchor_end[0]);
         let y = pos(rect.loc.y, rect.size.h, size.h, anchor_end[1]);
-        // Once the window has the requested size, it is done.
-        if size == rect.size {
+        // Done once the client has answered the requested size (even if it kept a larger minimum).
+        let acked = window
+            .toplevel()
+            .unwrap()
+            .with_committed_state(|s| s.and_then(|s| s.size));
+        if acked == Some(rect.size) || size == rect.size {
             self.resizing.remove(window);
         }
         self.space.map_element(window.clone(), (x, y), false);

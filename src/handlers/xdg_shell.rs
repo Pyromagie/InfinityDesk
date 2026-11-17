@@ -49,13 +49,9 @@ impl XdgShellHandler for InfinityDesk {
     /// A client opened a new window.
     fn new_toplevel(&mut self, surface: ToplevelSurface) {
         tracing::info!("New window");
-        let window = Window::new_wayland_window(surface);
-        // The size is only known after the first commit. Until then, park it roughly in the middle;
-        // `place_if_pending` centers it precisely afterwards.
+        // The size is only known after the first commit; `place_if_pending` maps it then.
         // TODO: when a cluster is focused, dock the new window to that cluster instead (Plan.md).
-        let loc = self.canvas.viewport_center().to_i32_round();
-        self.space.map_element(window.clone(), loc, true);
-        self.unplaced.push(window);
+        self.unplaced.push(Window::new_wayland_window(surface));
     }
 
     fn toplevel_destroyed(&mut self, surface: ToplevelSurface) {
@@ -63,6 +59,7 @@ impl XdgShellHandler for InfinityDesk {
         // Leave the cluster; the rest may split into several clusters.
         if let Some(window) = self.window_for_surface(surface.wl_surface()) {
             self.selected.retain(|w| w != &window);
+            self.resizing.remove(&window);
             self.clusters.remove(&window);
         }
     }
