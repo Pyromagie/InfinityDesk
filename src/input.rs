@@ -16,8 +16,9 @@ use smithay::{
 
 use crate::{InfinityDesk, grabs::DragGrab};
 
-/// Left mouse button (linux/input-event-codes.h).
+/// Mouse buttons (linux/input-event-codes.h).
 const BTN_LEFT: u32 = 0x110;
+pub const BTN_RIGHT: u32 = 0x111;
 
 enum Action {
     Spawn(&'static str),
@@ -88,7 +89,8 @@ impl InfinityDesk {
 
                 // Clicking a window raises and focuses it (with its cluster); clicking empty space unfocuses.
                 // Provisional controls until bindings become configurable:
-                //   Alt + left-drag on a window -> move the window's cluster
+                //   Alt + left-drag on a window  -> move the window (pull it out of its cluster)
+                //   Alt + right-drag on a window -> move the window's whole cluster
                 //   left-drag on empty canvas   -> pan the viewport
                 let location = pointer.current_location();
                 // Launchers and bars on top of everything just get the click.
@@ -106,7 +108,7 @@ impl InfinityDesk {
 
                     if let Some(window) = clicked {
                         self.focus_window(&window);
-                        if alt && button == BTN_LEFT {
+                        if alt && (button == BTN_LEFT || button == BTN_RIGHT) {
                             let grab = DragGrab::move_window(self, start_data, window);
                             pointer.set_grab(self, grab, serial, Focus::Clear);
                         }

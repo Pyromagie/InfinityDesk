@@ -48,8 +48,8 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
   - **Mit Shift (o. ä.) gehalten:** nur das gezogene Fenster ändert seine Größe, das Nachbarfenster (und alles dahinter) wird verschoben.
   - ✅ "Verschoben" gilt für alles, was auf der anderen Seite der Kante im Cluster hängt. Das Cluster bleibt zusammen, wird nur größer/kleiner.
 - 💬 Fenster aus dem Cluster lösen, ohne Taste. Der Ruck (schnelles Wegziehen) war zu empfindlich und die anderen Fenster reisten kurz mit. Wir probieren der Reihe nach:
-  1. 🧪 **Schütteln** (aktuell): 3 Richtungswechsel à 40 px innerhalb von 0,6 s
-  2. Gegen Widerstand ziehen
+  1. ❌ **Schütteln**: gefiel nicht
+  2. 🧪 **Gegen Widerstand ziehen** (aktuell): Alt+Linksziehen dehnt das Fenster wie ein Gummiband (¼ der Mausbewegung), ab 120 px reißt es ab; vorher loslassen = zurück. Ganzes Cluster: Alt+Rechtsziehen
   3. Doppelklick + Ziehen
   4. Lange drücken (~0,4 s stillhalten, dann allein ziehen)
 - ✅ Orangener Punkt in der Skizze: ohne Bedeutung (Artefakt vom Zeichenprogramm).
@@ -62,7 +62,8 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
 - 💬 Bedienung (Maus / Tastatur / Touchpad-Gesten) – später.
 - Vorläufige Test-Bedienung (Platzhalter, bis die Bedienung entschieden ist):
   - Linksziehen auf leerer Fläche: Fläche verschieben (Pan)
-  - Alt + Linksziehen auf einem Fenster: Cluster verschieben
+  - Alt + Linksziehen auf einem Fenster: Fenster verschieben / aus dem Cluster ziehen
+  - Alt + Rechtsziehen auf einem Fenster: ganzes Cluster verschieben
   - Mod+T Terminal (alacritty), Mod+D Launcher (fuzzel), Mod+Q Fenster schließen (wie niri). Mod = Alt im genesteten Betrieb, später Super
   - (Super ist im genesteten Betrieb von niri belegt, daher Alt)
 

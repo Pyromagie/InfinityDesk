@@ -12,11 +12,10 @@ use smithay::{
     utils::{Logical, Point},
 };
 
-use std::time::{Duration, Instant};
-
 use crate::{
     InfinityDesk,
     cluster::{Rect, snap_delta, touching},
+    input::BTN_RIGHT,
 };
 
 /// How far the cluster moves: pointer movement, kept inside the canvas, plus snapping.
@@ -56,41 +55,10 @@ fn others<'a>(
         .filter_map(|w| Some((w.clone(), data.space.element_geometry(w)?)))
 }
 
-/// Shaking a window detaches it from its cluster: this many direction reversals ...
-const SHAKE_REVERSALS: usize = 3;
-/// ... each swinging back at least this far (in pixels) ...
-const SHAKE_SWING: f64 = 40.0;
-/// ... within this time.
-const SHAKE_TIME: Duration = Duration::from_millis(600);
-
-/// Detects shaking along one axis: the pointer quickly reverses direction several times.
-#[derive(Default)]
-struct Shake {
-    /// Current direction (+1 / -1), 0 before the first swing.
-    dir: f64,
-    /// Furthest point reached in the current direction.
-    extreme: Option<f64>,
-    reversals: Vec<Instant>,
-}
-
-impl Shake {
-    fn update(&mut self, pos: f64, now: Instant) -> bool {
-        let extreme = *self.extreme.get_or_insert(pos);
-        let moved = pos - extreme;
-        if self.dir == 0.0 && moved.abs() >= SHAKE_SWING {
-            self.dir = moved.signum();
-            self.extreme = Some(pos);
-        } else if moved * self.dir > 0.0 {
-            self.extreme = Some(pos);
-        } else if self.dir != 0.0 && -moved * self.dir >= SHAKE_SWING {
-            self.dir = -self.dir;
-            self.extreme = Some(pos);
-            self.reversals.push(now);
-        }
-        self.reversals.retain(|t| now - *t <= SHAKE_TIME);
-        self.reversals.len() >= SHAKE_REVERSALS
-    }
-}
+/// A window pulled out of its cluster stretches until the pointer is this far away (in pixels) ...
+const TEAR_DISTANCE: f64 = 120.0;
+/// ... and only follows the pointer by this fraction until then, like a rubber band.
+const STRETCH: f64 = 0.25;
 
 /// A window being dragged along, with its starting position.
 struct DraggedWindow {
@@ -100,15 +68,11 @@ struct DraggedWindow {
 }
 
 enum DragKind {
-    /// A cluster (or a single window) is dragged across the canvas.
-    MoveCluster {
-        /// The window the user grabbed.
-        grabbed: Window,
+    /// Windows are dragged across the canvas: a whole cluster, or one window pulled out of it.
+    MoveWindows {
         members: Vec<DraggedWindow>,
-        /// Shake detection for the x and y axis.
-        shake: [Shake; 2],
-        /// Was the grabbed window shaken out of its cluster?
-        detached: bool,
+        /// The single dragged window still sticks to its cluster and only stretches.
+        sticking: bool,
     },
     /// The canvas is moved underneath the screen.
     Pan {
@@ -124,15 +88,17 @@ pub struct DragGrab {
 }
 
 impl DragGrab {
-    /// Dragging a window moves its whole cluster.
+    /// Right-drag moves the window's whole cluster; any other drag pulls the window out of it.
     pub fn move_window(
         state: &InfinityDesk,
         start_data: GrabStartData<InfinityDesk>,
         window: Window,
     ) -> Self {
-        let members = state
-            .clusters
-            .members(&window)
+        let cluster = state.clusters.members(&window);
+        let whole_cluster = start_data.button == BTN_RIGHT;
+        let sticking = !whole_cluster && cluster.len() > 1;
+        let windows = if whole_cluster { cluster } else { vec![window] };
+        let members = windows
             .into_iter()
             .filter_map(|w| {
                 Some(DraggedWindow {
@@ -144,12 +110,7 @@ impl DragGrab {
             .collect();
         Self {
             start_data,
-            kind: DragKind::MoveCluster {
-                grabbed: window,
-                members,
-                shake: Default::default(),
-                detached: false,
-            },
+            kind: DragKind::MoveWindows { members, sticking },
         }
     }
 
@@ -178,26 +139,21 @@ impl PointerGrab<InfinityDesk> for DragGrab {
 
         let pointer_delta = event.location - self.start_data.location;
         match &mut self.kind {
-            DragKind::MoveCluster {
-                grabbed,
-                members,
-                shake,
-                detached,
-            } => {
-                let now = Instant::now();
-                let shaken =
-                    shake[0].update(event.location.x, now) | shake[1].update(event.location.y, now);
-                if shaken && !*detached && members.len() > 1 {
-                    *detached = true;
-                    tracing::info!("Shake: window detached from its cluster");
-                    // Put the other windows back where they were.
-                    for m in members.iter().filter(|m| &m.window != grabbed) {
+            DragKind::MoveWindows { members, sticking } => {
+                if *sticking {
+                    let distance = pointer_delta.x.hypot(pointer_delta.y);
+                    let m = &members[0];
+                    if distance < TEAR_DISTANCE {
+                        let stretch = pointer_delta.upscale(STRETCH).to_i32_round();
                         data.space
-                            .map_element(m.window.clone(), m.initial_loc, false);
+                            .map_element(m.window.clone(), m.initial_loc + stretch, false);
+                        return;
                     }
+                    *sticking = false;
+                    tracing::info!("Window torn out of its cluster");
                     let space = &data.space;
-                    data.clusters.remove(grabbed, |w| space.element_geometry(w));
-                    members.retain(|m| &m.window == grabbed);
+                    data.clusters
+                        .remove(&m.window, |w| space.element_geometry(w));
                 }
 
                 let delta = cluster_delta(data, members, pointer_delta.to_i32_round());
@@ -336,9 +292,16 @@ impl PointerGrab<InfinityDesk> for DragGrab {
 
     /// Button released: if the cluster now touches other windows, they get docked.
     fn unset(&mut self, data: &mut InfinityDesk) {
-        let DragKind::MoveCluster { members, .. } = &self.kind else {
+        let DragKind::MoveWindows { members, sticking } = &self.kind else {
             return;
         };
+        // Released before tearing it out: the window snaps back into its cluster.
+        if *sticking {
+            let m = &members[0];
+            data.space
+                .map_element(m.window.clone(), m.initial_loc, false);
+            return;
+        }
         let moved: Vec<(Window, Rect)> = members
             .iter()
             .filter_map(|m| Some((m.window.clone(), data.space.element_geometry(&m.window)?)))
@@ -353,41 +316,5 @@ impl PointerGrab<InfinityDesk> for DragGrab {
                 }
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Feeds positions to a detector, one every `step_ms`, and reports whether it fired.
-    fn shake(positions: &[f64], step_ms: u64) -> bool {
-        let start = Instant::now();
-        let mut s = Shake::default();
-        positions
-            .iter()
-            .enumerate()
-            .any(|(i, &p)| s.update(p, start + Duration::from_millis(i as u64 * step_ms)))
-    }
-
-    #[test]
-    fn quick_shake_detaches() {
-        assert!(shake(&[0.0, 60.0, 0.0, 60.0, 0.0], 50));
-    }
-
-    #[test]
-    fn steady_drag_does_not_detach() {
-        let positions: Vec<f64> = (0..50).map(|i| i as f64 * 30.0).collect();
-        assert!(!shake(&positions, 10));
-    }
-
-    #[test]
-    fn small_wobble_does_not_detach() {
-        assert!(!shake(&[0.0, 20.0, 0.0, 20.0, 0.0, 20.0, 0.0], 30));
-    }
-
-    #[test]
-    fn slow_back_and_forth_does_not_detach() {
-        assert!(!shake(&[0.0, 100.0, 0.0, 100.0, 0.0], 400));
     }
 }
