@@ -59,9 +59,9 @@ step further into two dimensions. Built in Rust on [Smithay](https://github.com/
 
 ## Roadmap
 
-- **More Lua configuration:** keybindings, then window rules and events, designed to feel
-  familiar when coming from niri or Hyprland. Maybe a converter for niri configs later.
-- **Final default controls**, configurable bindings, touchpad gestures
+- **More Lua configuration:** window rules and events, designed to feel familiar when coming
+  from niri or Hyprland. Maybe a converter for niri configs later.
+- **Final default controls**, configurable mouse bindings, touchpad gestures
 - **Background layer** fixed to the screen behind the moving canvas (maybe with parallax)
 - **Standalone session** (DRM/KMS backend, own login entry) with Super as the modifier,
   hardware-accelerated client buffers (dmabuf), multi-monitor support
@@ -80,7 +80,7 @@ cargo run -- -c kitty             # start a different program inside
 ## Controls (provisional)
 
 Alt is the modifier while running nested (like niri does); standalone it will be Super.
-All controls will become configurable.
+Keyboard shortcuts can be changed in the config (see Settings); mouse controls will follow.
 
 | Action                          | Input                                              |
 |---------------------------------|----------------------------------------------------|
@@ -130,6 +130,13 @@ desk.snapping {
 
 -- "#rrggbb" or "#rrggbbaa"; accent is used for frames, lit edges and the template menu
 desk.colors { background = "#1a1a1f", grid = "#474752", accent = "#59a6ff" }
+
+-- Shortcuts: the built-in ones (Mod+T, D, Q, F, W) stay unless you change or remove them.
+-- Modifiers: Mod (Alt while nested, Super later), Super, Alt, Ctrl, Shift. Keys are xkb names
+-- in any case ("T", "Return", "F11", "space", "Print", ...). Shift+Q means the Q key.
+-- Actions: desk.spawn("command line"), desk.close_window, desk.fullscreen, desk.layout_menu
+desk.bind("Mod+Return", desk.spawn("alacritty -e btop"))
+desk.unbind("Mod+D")
 ```
 
 A mistake (a typo in a setting name, a wrong type, a value out of range) is logged with the

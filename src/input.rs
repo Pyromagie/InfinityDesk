@@ -13,7 +13,7 @@ use smithay::{
     utils::{Logical, Point, SERIAL_COUNTER},
 };
 
-use crate::{InfinityDesk, grabs::DragGrab, layout, resize::Edge};
+use crate::{InfinityDesk, config::Action, grabs::DragGrab, layout, resize::Edge};
 
 /// Mouse buttons (linux/input-event-codes.h).
 const BTN_LEFT: u32 = 0x110;
@@ -21,11 +21,10 @@ const BTN_RIGHT: u32 = 0x111;
 /// Zoom change per scrolled pixel (a mouse wheel notch is 15 px, about 14 %).
 const ZOOM_SPEED: f64 = 0.01;
 
-enum Action {
-    Spawn(&'static str),
-    CloseWindow,
-    Fullscreen,
-    LayoutMenu,
+/// What a key press does.
+enum KeyAction {
+    /// A shortcut from the config.
+    Bind(Action),
     /// In the template menu: a template by its number (0-based), or `None` to close the menu.
     Template(Option<usize>),
     /// In the template menu: other keys do nothing.
@@ -44,29 +43,35 @@ impl InfinityDesk {
                     event.state(),
                     SERIAL_COUNTER.next_serial(),
                     event.time(),
-                    // Provisional niri-like bindings. Mod is Alt while nested (niri does the same).
+                    // Shortcuts from the config (see `config::Bind`), matched by the key without
+                    // Shift, so "Mod+Shift+Q" is the Q key.
                     |state, mods, keysym| {
+                        if !pressed {
+                            return FilterResult::Forward;
+                        }
                         let sym = keysym.modified_sym();
+                        let raw = keysym.raw_syms().first().copied();
+                        let bound = (state.config.binds.iter())
+                            .find(|b| raw.is_some_and(|raw| b.keys.matches(raw, mods)))
+                            .map(|b| b.action.clone());
                         let digit = sym.raw().wrapping_sub(Keysym::_1.raw()) as usize;
-                        match sym {
-                            _ if !pressed => FilterResult::Forward,
-                            // The template menu takes all keys while it is open.
-                            Keysym::Escape if state.layout_menu.is_some() => {
-                                FilterResult::Intercept(Action::Template(None))
+                        match (state.layout_menu.is_some(), bound) {
+                            // The template menu takes all keys while it is open; its own shortcut
+                            // closes it again.
+                            (true, Some(Action::LayoutMenu)) => {
+                                FilterResult::Intercept(KeyAction::Bind(Action::LayoutMenu))
                             }
-                            _ if state.layout_menu.is_some() && digit < layout::TEMPLATES.len() => {
-                                FilterResult::Intercept(Action::Template(Some(digit)))
+                            (true, _) if sym == Keysym::Escape => {
+                                FilterResult::Intercept(KeyAction::Template(None))
                             }
-                            Keysym::w if mods.alt => FilterResult::Intercept(Action::LayoutMenu),
-                            _ if state.layout_menu.is_some() => {
-                                FilterResult::Intercept(Action::Nothing)
+                            (true, _) if digit < layout::TEMPLATES.len() => {
+                                FilterResult::Intercept(KeyAction::Template(Some(digit)))
                             }
-                            _ if !mods.alt => FilterResult::Forward,
-                            Keysym::t => FilterResult::Intercept(Action::Spawn("alacritty")),
-                            Keysym::d => FilterResult::Intercept(Action::Spawn("fuzzel")),
-                            Keysym::q => FilterResult::Intercept(Action::CloseWindow),
-                            Keysym::f => FilterResult::Intercept(Action::Fullscreen),
-                            _ => FilterResult::Forward,
+                            (true, _) => FilterResult::Intercept(KeyAction::Nothing),
+                            (false, Some(action)) => {
+                                FilterResult::Intercept(KeyAction::Bind(action))
+                            }
+                            (false, None) => FilterResult::Forward,
                         }
                     },
                 );
@@ -74,24 +79,30 @@ impl InfinityDesk {
                 // Fullscreen and templates move the view; the pointer stays put on the screen.
                 let pointer = self.seat.get_pointer().unwrap();
                 let screen = self.canvas.canvas_to_screen(pointer.current_location());
-                match action {
-                    Some(Action::Spawn(command)) => crate::spawn(command, &self.socket_name),
-                    Some(Action::CloseWindow) => {
+                match &action {
+                    Some(KeyAction::Bind(Action::Spawn(command))) => {
+                        crate::spawn(command, &self.socket_name)
+                    }
+                    Some(KeyAction::Bind(Action::CloseWindow)) => {
                         if let Some(window) = focused {
                             window.toplevel().unwrap().send_close();
                         }
                     }
-                    Some(Action::Fullscreen) => {
+                    Some(KeyAction::Bind(Action::Fullscreen)) => {
                         if let Some(window) = focused {
                             self.toggle_fullscreen(&window);
                         }
                     }
-                    Some(Action::LayoutMenu) => self.toggle_layout_menu(focused),
-                    Some(Action::Template(Some(t))) => self.choose_template(t, None),
-                    Some(Action::Template(None)) => self.layout_menu = None,
-                    Some(Action::Nothing) | None => {}
+                    Some(KeyAction::Bind(Action::LayoutMenu)) => self.toggle_layout_menu(focused),
+                    Some(KeyAction::Template(Some(t))) => self.choose_template(*t, None),
+                    Some(KeyAction::Template(None)) => self.layout_menu = None,
+                    Some(KeyAction::Nothing) | None => {}
                 }
-                if matches!(action, Some(Action::Fullscreen | Action::Template(_))) {
+                let view_moved = matches!(
+                    action,
+                    Some(KeyAction::Bind(Action::Fullscreen) | KeyAction::Template(_))
+                );
+                if view_moved {
                     self.pointer_moved(self.canvas.screen_to_canvas(screen), event.time());
                 }
             }

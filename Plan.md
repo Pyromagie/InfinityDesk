@@ -94,7 +94,8 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
 - ✅ Konfiguration per **Lua** (z. B. `~/.config/infinitydesk/init.lua`), über die Rust-Bibliothek `mlua`.
 - 💡 Ausbaustufen:
   1. ✅ **Einstellungen** (eingebaut): Tastatur (xkb-Belegung, Wiederholrate), Canvas-Größe, Raster-Abstand, Snap-Schwellwert, `match_size`, Haltezeit der Lös-Geste, Farben (Hintergrund, Raster, Akzent). Gelesen beim Start und **neu geladen, sobald die Datei gespeichert wird** (einmal pro Sekunde wird nachgesehen); Tippfehler, falsche Typen und Werte außerhalb des Bereichs sind Fehler (mit Einstellung, Datei und Zeile im Log), dann gelten beim Start die Standardwerte, im laufenden Betrieb bleiben die bisherigen. Wird die Fläche kleiner, rücken Cluster außerhalb als Ganzes herein. Lua 5.4 ist in die Binary eingebaut (`mlua`, vendored). `INFINITYDESK_CONFIG` zeigt auf eine andere Datei (zum Testen). Noch nicht: Touchpad (kommt mit der eigenständigen Sitzung), Zoom-Verhalten.
-  2. **Tastenbelegung & Maus-Bedienung:** frei belegbar, mit sinnvollen Standardwerten.
+  2. ✅ **Tastenbelegung** (eingebaut): `desk.bind("Mod+Return", desk.spawn("alacritty"))`, `desk.unbind("Mod+D")`. Die eingebauten Kürzel (Mod+T/D/Q/F/W) bleiben, eigene gehen vor oder kommen dazu. Modifikatoren Mod/Super/Alt/Ctrl/Shift, Tasten als xkb-Namen; "Shift+Q" meint die Q-Taste. Aktionen: `desk.spawn("Befehlszeile")` (über `sh -c`, also mit Argumenten), `desk.close_window`, `desk.fullscreen`, `desk.layout_menu`. Lua-Funktionen als Aktion erst mit Stufe 4.
+     **Maus-Bedienung:** wird belegbar, wenn die endgültige Bedienung feststeht (Punkt 6).
   3. **Fensterregeln:** z. B. "Programm X öffnet immer an Position Y / in Cluster Z".
   4. **Ereignisse & Skripting:** Lua-Funktionen, die auf Ereignisse reagieren (Fenster geöffnet, Cluster gebildet …).
 - ✅ **Leichter Umstieg von niri/Hyprland:** gleiche Begriffe, Struktur und (wo sinnvoll) gleiche Standardtasten wie dort, nur in Lua.
@@ -130,7 +131,7 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
 2. ✅ Fenster auf dem Canvas platzieren, Viewport verschieben
 3. ✅ Snapping + Cluster
 4. ✅ Zoom + Culling · ✅ Cluster-Resize · ✅ Cluster-Fokus (Vorlagen, Mod+W) · ✅ Vollbild (Mod+F)
-5. Lua-Konfiguration (✅ Einstellungen, dann Tastenbelegung)
+5. ✅ Lua-Konfiguration (Einstellungen, Tastenbelegung; Maus-Belegung mit Punkt 6)
 6. Bedienung festlegen (Standard-Belegung), Hintergrund / layer-shell, Feinschliff
 7. Standalone-Betrieb (eigener Login-Eintrag, ohne niri darunter), README, Veröffentlichung
 

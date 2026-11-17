@@ -47,8 +47,10 @@ fn init_logging() {
 }
 
 /// Starts a program inside InfinityDesk: it connects to our socket, not to the host compositor.
+/// The command line goes through `sh -c`, so arguments, quotes and `~` work.
 pub fn spawn(command: &str, socket: &std::ffi::OsStr) {
-    match (std::process::Command::new(command))
+    match (std::process::Command::new("sh"))
+        .args(["-c", command])
         .env("WAYLAND_DISPLAY", socket)
         .spawn()
     {

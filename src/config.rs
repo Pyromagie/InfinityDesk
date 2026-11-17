@@ -6,6 +6,8 @@
 //! desk.canvas { width = 20000, height = 12000, grid = { spacing = 100 } }
 //! desk.snapping { threshold = 15, match_size = false, hold_ms = 300 }
 //! desk.colors { background = "#1a1a1f", grid = "#474752", accent = "#59a6ff" }
+//! desk.bind("Mod+Return", desk.spawn("alacritty"))
+//! desk.unbind("Mod+D")
 //! ```
 //!
 //! Everything is optional. Without the file the defaults apply; if the file has an error, it is
@@ -18,11 +20,16 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use mlua::{FromLua, Lua, Table, Value};
-use smithay::input::keyboard::XkbConfig;
+use mlua::{AnyUserData, FromLua, Lua, Table, UserData, Value};
+use smithay::input::keyboard::{
+    Keysym, ModifiersState, XkbConfig,
+    xkb::{self, KEYSYM_CASE_INSENSITIVE},
+};
 
 pub struct Config {
     pub keyboard: Keyboard,
+    /// Keyboard shortcuts: the built-in ones, changed by `desk.bind` and `desk.unbind`.
+    pub binds: Vec<Bind>,
     /// Canvas size in logical pixels.
     pub canvas_size: (i32, i32),
     /// Distance between the grid dots on the canvas.
@@ -88,8 +95,93 @@ impl Default for Config {
             background: [0.1, 0.1, 0.12, 1.0],
             grid_color: [0.28, 0.28, 0.32, 1.0],
             accent: [0.35, 0.65, 1.0, 1.0],
+            binds: [
+                ("Mod+T", Action::Spawn("alacritty".into())),
+                ("Mod+D", Action::Spawn("fuzzel".into())),
+                ("Mod+Q", Action::CloseWindow),
+                ("Mod+F", Action::Fullscreen),
+                ("Mod+W", Action::LayoutMenu),
+            ]
+            .map(|(key, action)| Bind {
+                keys: parse_keys(key).unwrap(),
+                action,
+            })
+            .into(),
         }
     }
+}
+
+/// A keyboard shortcut.
+pub struct Bind {
+    pub keys: Keys,
+    pub action: Action,
+}
+
+/// A key with modifiers, e.g. "Mod+Shift+Return".
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Keys {
+    pub logo: bool,
+    pub alt: bool,
+    pub ctrl: bool,
+    pub shift: bool,
+    /// The key as without Shift (lowercase letters).
+    pub key: Keysym,
+}
+
+impl Keys {
+    /// Does a key press (its unshifted symbol and the modifiers held) match?
+    pub fn matches(&self, key: Keysym, mods: &ModifiersState) -> bool {
+        self.key == key
+            && (self.logo, self.alt, self.ctrl, self.shift)
+                == (mods.logo, mods.alt, mods.ctrl, mods.shift)
+    }
+}
+
+/// What a shortcut does.
+#[derive(Clone, PartialEq, Debug)]
+pub enum Action {
+    /// Runs a command line (through `sh -c`, so arguments work).
+    Spawn(String),
+    CloseWindow,
+    Fullscreen,
+    LayoutMenu,
+}
+
+impl UserData for Action {}
+
+/// "Mod+Shift+Return" -> modifiers and key. Mod is Alt while running nested (Super is taken by
+/// the host compositor); key names are xkb names (any case): "T", "Return", "F11", "space", ...
+fn parse_keys(text: &str) -> Result<Keys, String> {
+    let mut parts: Vec<&str> = text.split('+').map(str::trim).collect();
+    let name = parts.pop().filter(|n| !n.is_empty());
+    let name = name.ok_or_else(|| format!("\"{text}\": no key after the modifiers"))?;
+    let key = xkb::keysym_from_name(name, KEYSYM_CASE_INSENSITIVE);
+    if key == Keysym::NoSymbol {
+        return Err(format!("\"{text}\": unknown key \"{name}\""));
+    }
+    let mut keys = Keys {
+        logo: false,
+        alt: false,
+        ctrl: false,
+        shift: false,
+        key,
+    };
+    for m in parts {
+        let flag = match m.to_ascii_lowercase().as_str() {
+            "mod" | "alt" => &mut keys.alt,
+            "super" => &mut keys.logo,
+            "ctrl" | "control" => &mut keys.ctrl,
+            "shift" => &mut keys.shift,
+            _ => {
+                let known = "Mod, Super, Alt, Ctrl, Shift";
+                return Err(format!(
+                    "\"{text}\": unknown modifier \"{m}\" (known: {known})"
+                ));
+            }
+        };
+        *flag = true;
+    }
+    Ok(keys)
 }
 
 impl Config {
@@ -155,6 +247,37 @@ impl Config {
             })?;
             desk.set(name, f)?;
         }
+        // Shortcuts.
+        let action = |a: Action| lua.create_userdata(a);
+        desk.set("close_window", action(Action::CloseWindow)?)?;
+        desk.set("fullscreen", action(Action::Fullscreen)?)?;
+        desk.set("layout_menu", action(Action::LayoutMenu)?)?;
+        let spawn = lua
+            .create_function(|lua, command: String| lua.create_userdata(Action::Spawn(command)))?;
+        desk.set("spawn", spawn)?;
+        let bind = lua.create_function(|lua, (text, action): (String, Value)| {
+            let keys = parse_keys(&text).map_err(|e| mlua::Error::runtime(format!("bind {e}")))?;
+            let action = (action.as_userdata())
+                .and_then(|a: &AnyUserData| a.borrow::<Action>().ok().map(|a| a.clone()));
+            let action = action.ok_or_else(|| {
+                let expected =
+                    "desk.spawn(\"...\"), desk.close_window, desk.fullscreen or desk.layout_menu";
+                mlua::Error::runtime(format!("bind \"{text}\": the action must be {expected}"))
+            })?;
+            let mut config = lua.app_data_mut::<Config>().unwrap();
+            config.binds.retain(|b| b.keys != keys);
+            config.binds.push(Bind { keys, action });
+            Ok(())
+        })?;
+        desk.set("bind", bind)?;
+        let unbind = lua.create_function(|lua, text: String| {
+            let keys =
+                parse_keys(&text).map_err(|e| mlua::Error::runtime(format!("unbind {e}")))?;
+            let mut config = lua.app_data_mut::<Config>().unwrap();
+            config.binds.retain(|b| b.keys != keys);
+            Ok(())
+        })?;
+        desk.set("unbind", unbind)?;
         let loaded: Table = lua.globals().get::<Table>("package")?.get("loaded")?;
         loaded.set("infinitydesk", desk)?;
         lua.load(source).set_name(format!("@{name}")).exec()?;
@@ -365,6 +488,72 @@ mod tests {
         // Lua errors carry the file name and line.
         let err = error("local x = \n nil + 1");
         assert!(err.contains("init.lua:2"), "{err}");
+    }
+
+    fn action(config: &Config, text: &str) -> Option<Action> {
+        let keys = parse_keys(text).unwrap();
+        let bind = config.binds.iter().find(|b| b.keys == keys)?;
+        Some(bind.action.clone())
+    }
+
+    #[test]
+    fn binds_add_replace_and_remove() {
+        let config = load(
+            r#"
+            local desk = require("infinitydesk")
+            desk.bind("Mod+Return", desk.spawn("alacritty -e btop"))
+            desk.bind("mod+t", desk.spawn("kitty"))
+            desk.bind("Ctrl+Alt+Shift+F11", desk.fullscreen)
+            desk.unbind("Mod+D")
+            "#,
+        )
+        .unwrap();
+        let spawn = |c: &str| Some(Action::Spawn(c.into()));
+        assert_eq!(action(&config, "Mod+Return"), spawn("alacritty -e btop"));
+        // Replaced, not added twice.
+        assert_eq!(action(&config, "Mod+T"), spawn("kitty"));
+        assert_eq!(
+            config
+                .binds
+                .iter()
+                .filter(|b| b.keys.key == Keysym::t)
+                .count(),
+            1
+        );
+        assert_eq!(
+            action(&config, "Shift+Ctrl+Mod+f11"),
+            Some(Action::Fullscreen)
+        );
+        assert_eq!(action(&config, "Mod+D"), None);
+        // Built-in ones stay.
+        assert_eq!(action(&config, "Mod+Q"), Some(Action::CloseWindow));
+    }
+
+    #[test]
+    fn keys_match_presses() {
+        let keys = parse_keys("Mod+Shift+Q").unwrap();
+        let mut mods = ModifiersState::default();
+        (mods.alt, mods.shift) = (true, true);
+        assert!(keys.matches(Keysym::q, &mods));
+        mods.ctrl = true;
+        assert!(!keys.matches(Keysym::q, &mods));
+        assert_eq!(parse_keys("Super+1").unwrap().key, Keysym::_1);
+    }
+
+    #[test]
+    fn bind_mistakes_are_explained() {
+        let err =
+            error(r#"local d = require("infinitydesk") d.bind("Mod+Retrun", d.close_window)"#);
+        assert!(
+            err.contains(r#"bind "Mod+Retrun": unknown key "Retrun""#),
+            "{err}"
+        );
+        let err = error(r#"local d = require("infinitydesk") d.bind("Hyper+T", d.close_window)"#);
+        assert!(err.contains(r#"unknown modifier "Hyper""#), "{err}");
+        let err = error(r#"local d = require("infinitydesk") d.bind("Mod+T", "alacritty")"#);
+        assert!(err.contains("the action must be desk.spawn"), "{err}");
+        let err = error(r#"local d = require("infinitydesk") d.bind("Mod+", d.fullscreen)"#);
+        assert!(err.contains("no key after the modifiers"), "{err}");
     }
 
     #[test]
