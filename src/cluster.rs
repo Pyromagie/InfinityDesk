@@ -9,7 +9,7 @@
 
 use std::{collections::HashMap, hash::Hash};
 
-use smithay::utils::{Logical, Point, Rectangle};
+use smithay::utils::{Logical, Point, Rectangle, Size};
 
 pub type Rect = Rectangle<i32, Logical>;
 
@@ -103,56 +103,53 @@ pub fn touching(a: &Rect, b: &Rect) -> bool {
     (side_by_side && v_overlap) || (stacked && h_overlap)
 }
 
-/// Computes the correction by which the moving windows must be shifted so they snap to nearby
-/// edges of the other windows. Per axis, the smallest correction wins.
-///
-/// Two kinds of snapping:
-/// - **Docking:** right edge to left edge (or bottom to top) when the windows are next to each other.
-/// - **Aligning:** top edges flush (or left edges) when the windows are docking to each other.
-///   This produces clean corners, like in a 2×2 cluster.
-///
-/// `threshold` is the snap distance in canvas pixels.
+/// Computes the correction by which the moving windows must be shifted to dock to a nearby
+/// window. An edge within `threshold` (canvas pixels) of a neighbor docks to it, and the other
+/// axis always lines up with that neighbor (top edges or left edges flush), so clusters form a
+/// clean grid. The closest dock wins; ties go to the smallest alignment jump.
 pub fn snap_delta(moving: &[Rect], others: &[Rect], threshold: i32) -> Point<i32, Logical> {
-    let mut best_x: Option<i32> = None;
-    let mut best_y: Option<i32> = None;
-    let consider = |best: &mut Option<i32>, d: i32| {
-        if d.abs() <= threshold && best.is_none_or(|b| d.abs() < b.abs()) {
-            *best = Some(d);
-        }
-    };
-
+    // (dock distance, alignment distance, delta)
+    let mut best: Option<(i32, i32, Point<i32, Logical>)> = None;
     for m in moving {
         let (ml, mr, mt, mb) = edges(m);
         for o in others {
             let (ol, or, ot, ob) = edges(o);
-
             // Do the ranges overlap (with some tolerance) on the other axis?
             let v_near = mt < ob + threshold && ot < mb + threshold;
             let h_near = ml < or + threshold && ol < mr + threshold;
-            // Are they close edge to edge?
-            let x_adjacent = (mr - ol).abs() <= threshold || (ml - or).abs() <= threshold;
-            let y_adjacent = (mb - ot).abs() <= threshold || (mt - ob).abs() <= threshold;
-
-            if v_near {
-                consider(&mut best_x, ol - mr); // dock left of o
-                consider(&mut best_x, or - ml); // dock right of o
-            }
-            if h_near {
-                consider(&mut best_y, ot - mb); // dock above o
-                consider(&mut best_y, ob - mt); // dock below o
-            }
-            if y_adjacent && h_near {
-                consider(&mut best_x, ol - ml); // left edges flush
-                consider(&mut best_x, or - mr); // right edges flush
-            }
-            if x_adjacent && v_near {
-                consider(&mut best_y, ot - mt); // top edges flush
-                consider(&mut best_y, ob - mb); // bottom edges flush
+            let candidates = [
+                (v_near, ol - mr, ot - mt, true),  // left of o, tops flush
+                (v_near, or - ml, ot - mt, true),  // right of o, tops flush
+                (h_near, ot - mb, ol - ml, false), // above o, left edges flush
+                (h_near, ob - mt, ol - ml, false), // below o, left edges flush
+            ];
+            for (near, dock, align, side_by_side) in candidates {
+                let score = (dock.abs(), align.abs());
+                if near && dock.abs() <= threshold && best.is_none_or(|(d, a, _)| score < (d, a)) {
+                    let delta = if side_by_side {
+                        (dock, align)
+                    } else {
+                        (align, dock)
+                    };
+                    best = Some((score.0, score.1, delta.into()));
+                }
             }
         }
     }
+    best.map_or((0, 0).into(), |(_, _, delta)| delta)
+}
 
-    (best_x.unwrap_or(0), best_y.unwrap_or(0)).into()
+/// The size a window docked to `o` gets, so the cluster stays a clean grid:
+/// side by side it takes the height of `o`, stacked the width.
+pub fn grid_size(m: &Rect, o: &Rect) -> Size<i32, Logical> {
+    let (ml, mr, ..) = edges(m);
+    let (ol, or, ..) = edges(o);
+    let side_by_side = (mr - ol).abs() <= TOUCH_TOLERANCE || (ml - or).abs() <= TOUCH_TOLERANCE;
+    if side_by_side {
+        (m.size.w, o.size.h).into()
+    } else {
+        (o.size.w, m.size.h).into()
+    }
 }
 
 /// (left, right, top, bottom)
@@ -183,6 +180,28 @@ mod tests {
         let moving = rect(3, 312, 400, 300);
         let d = snap_delta(&[moving], &[other], 15);
         assert_eq!(d, (-3, -12).into());
+    }
+
+    #[test]
+    fn docking_always_aligns() {
+        // Docks to the right of `other` although 200 px lower: tops are lined up anyway.
+        let other = rect(0, 0, 400, 300);
+        let moving = rect(405, 200, 400, 500);
+        assert_eq!(snap_delta(&[moving], &[other], 15), (-5, -200).into());
+    }
+
+    #[test]
+    fn grid_size_matches_neighbor() {
+        let other = rect(0, 0, 400, 300);
+        // Side by side: same height. Below: same width.
+        assert_eq!(
+            grid_size(&rect(400, 0, 200, 500), &other),
+            (200, 300).into()
+        );
+        assert_eq!(
+            grid_size(&rect(0, 300, 200, 500), &other),
+            (400, 500).into()
+        );
     }
 
     #[test]

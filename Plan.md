@@ -41,6 +41,8 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
 ## 5. Andocken / Snapping
 
 - ✅ Einrasten an Kanten innerhalb von 15 px **auf dem Bildschirm** (gilt bei jedem Zoom gleich): **Andocken** (Kante an Kante) und **Ausrichten** (bündige Ober-/Seitenkanten, ergibt saubere Ecken).
+- ✅ **Cluster sind ein sauberes Raster** (keine versetzten Verbindungen): Beim Andocken richtet sich das Fenster immer bündig am Nachbarn aus (nebeneinander: Oberkanten, untereinander: linke Kanten). Ein einzeln angedocktes Fenster übernimmt die Höhe (nebeneinander) bzw. Breite (untereinander) des Nachbarn.
+  - 💬 Dockt ein ganzes Cluster an, wird nur ausgerichtet, nicht in der Größe angepasst.
 - ✅ Zieht man ein Fenster, bewegt sich sein **ganzes Cluster**. Lässt man los und das Cluster berührt andere Fenster, werden sie zu einem Cluster verbunden.
 - ✅ Nur Ecke-an-Ecke zählt nicht als angedockt, es braucht eine gemeinsame Kante.
 - ✅ Resize einer geteilten Kante, zwei Modi:
