@@ -50,6 +50,7 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
 - ✅ Nur Ecke-an-Ecke zählt nicht als angedockt, es braucht eine gemeinsame Kante.
 - ✅ Resize einer geteilten Kante (eingebaut: **Alt + Rechtsziehen**, es bewegen sich die Kanten nächst zum Mauszeiger; auch Ziehen am Fensterrand des Programms), zwei Modi:
   - ✅ **Am Fensterrand ziehen** (ohne Alt): eigene Greifzone, 10 px außerhalb und 5 px innerhalb des Fensters (Bildschirm-Pixel). Rückmeldung: Resize-Pfeile als Mauszeiger, und die Kanten, die sich bewegen werden (auch die der Nachbarn), leuchten blau.
+  - ✅ **Kanten rasten beim Resize ein** (wie in PowerPoint): Die gezogene Kante rastet innerhalb von 15 px (Bildschirm) bündig an Kanten anderer sichtbarer Fenster ein, z.B. Unterkante an Unterkante.
   - **Standard:** Nachbarn im Cluster wachsen/schrumpfen mit (der Viewport ist nur ein Bildschirm, daher nicht einfach wegschieben).
   - **Mit Shift (o. ä.) gehalten:** nur das gezogene Fenster ändert seine Größe, das Nachbarfenster (und alles dahinter) wird verschoben.
   - ✅ "Verschoben" gilt für alles, was auf der anderen Seite der Kante im Cluster hängt. Das Cluster bleibt zusammen, wird nur größer/kleiner.

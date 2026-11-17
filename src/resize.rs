@@ -154,6 +154,52 @@ pub fn apply(
         .collect()
 }
 
+/// Edges the dragged edges can snap to, per axis: every edge that stays where it is during the
+/// resize. A window that only follows along x still offers its top and bottom edges, and one
+/// whose left edge follows still offers its right edge.
+pub fn snap_targets(windows: impl Iterator<Item = (Rect, [Follow; 2])>) -> [Vec<i32>; 2] {
+    let mut targets = [Vec::new(), Vec::new()];
+    for (r, follow) in windows {
+        for axis in [0, 1] {
+            let (start, end) = span(&r, axis);
+            match follow[axis] {
+                Follow::None => targets[axis].extend([start, end]),
+                Follow::Start => targets[axis].push(end),
+                Follow::End => targets[axis].push(start),
+                Follow::Shift => {}
+            }
+        }
+    }
+    targets
+}
+
+/// Pointer movement adjusted so that the dragged edges of `dragged` line up with the closest
+/// edge in `targets` (see `snap_targets`) within `threshold`, like objects in a drawing program.
+pub fn snap(
+    dragged: &Rect,
+    edges: [Edge; 2],
+    targets: &[Vec<i32>; 2],
+    delta: Point<i32, Logical>,
+    threshold: i32,
+) -> Point<i32, Logical> {
+    let mut d = [delta.x, delta.y];
+    for axis in [0, 1] {
+        let (start, end) = span(dragged, axis);
+        let edge = match edges[axis] {
+            Edge::None => continue,
+            Edge::Start => start,
+            Edge::End => end,
+        };
+        let target = (targets[axis].iter().copied())
+            .min_by_key(|c| (c - (edge + d[axis])).abs())
+            .filter(|c| (c - (edge + d[axis])).abs() <= threshold);
+        if let Some(c) = target {
+            d[axis] = c - edge;
+        }
+    }
+    (d[0], d[1]).into()
+}
+
 /// The edges of `r` grabbed at `pos`: up to `outer` outside the window or `inner` inside it.
 /// `None` deeper inside the window or further away. Beyond a corner both edges are grabbed.
 pub fn border_edges(
@@ -310,6 +356,90 @@ mod tests {
         let rects = vec![rect(0, 0, 100, 100), rect(0, 100, 100, 100)];
         let follow = plan(&rects, 0, [Edge::End, Edge::None], false);
         assert_eq!(follow[1], [Follow::None, Follow::None]);
+    }
+
+    #[test]
+    fn dragged_edges_snap_to_nearby_edges() {
+        // The case from the screenshot: the big window's bottom edge lines up with the bottom of
+        // the window at the bottom right, the top-right window's right edge with its right edge.
+        let big = rect(0, 0, 800, 600);
+        let bottom_right = rect(800, 380, 600, 380);
+        let d = snap(
+            &big,
+            [Edge::None, Edge::End],
+            &fixed(&[bottom_right]),
+            (0, 150).into(),
+            15,
+        );
+        assert_eq!(d, (0, 160).into());
+        let top_right = rect(800, 0, 560, 380);
+        let d = snap(
+            &top_right,
+            [Edge::End, Edge::None],
+            &fixed(&[bottom_right]),
+            (30, 0).into(),
+            15,
+        );
+        assert_eq!(d, (40, 0).into());
+    }
+
+    /// Snap targets of windows that do not move at all.
+    fn fixed(rects: &[Rect]) -> [Vec<i32>; 2] {
+        snap_targets(rects.iter().map(|r| (*r, [Follow::None; 2])))
+    }
+
+    #[test]
+    fn corner_drag_snaps_to_edges_of_windows_that_only_move_sideways() {
+        // The case from the second video: Alt + right-drag at the bottom-right corner of the
+        // tall left window. The right windows follow its right edge (x), but the bottom of the
+        // bottom-right window stays put, so the bottom edge still snaps to it.
+        let rects = l_shape();
+        let follow = plan(&rects, 0, [Edge::End, Edge::End], false);
+        assert_eq!(follow[2], [Follow::Start, Follow::None]);
+        let targets = snap_targets(rects.iter().copied().zip(follow.iter().copied()));
+        let d = snap(
+            &rects[0],
+            [Edge::End, Edge::End],
+            &targets,
+            (20, 10).into(),
+            15,
+        );
+        // y: 600 + 10 snaps back to the common bottom at 600. x: the fixed x edges are 0 and
+        // 700, both too far, so x stays as dragged.
+        assert_eq!(d, (20, 0).into());
+    }
+
+    #[test]
+    fn left_edge_snaps_and_far_edges_do_not() {
+        let other = rect(0, 500, 300, 300);
+        let r = rect(400, 0, 300, 300);
+        // Left edge dragged to x = 110: no edge within 15 px (others are at 0 and 300).
+        let d = snap(
+            &r,
+            [Edge::Start, Edge::None],
+            &fixed(&[other]),
+            (-290, 0).into(),
+            15,
+        );
+        assert_eq!(d, (-290, 0).into());
+        // Left edge dragged to x = 290: snaps to 300.
+        let d = snap(
+            &r,
+            [Edge::Start, Edge::None],
+            &fixed(&[other]),
+            (-110, 0).into(),
+            15,
+        );
+        assert_eq!(d, (-100, 0).into());
+        // The axis that is not dragged stays as it is.
+        let d = snap(
+            &r,
+            [Edge::Start, Edge::None],
+            &fixed(&[other]),
+            (-110, 7).into(),
+            15,
+        );
+        assert_eq!(d, (-100, 7).into());
     }
 
     #[test]

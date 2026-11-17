@@ -44,6 +44,7 @@ step further into two dimensions. Built in Rust on [Smithay](https://github.com/
 - **Cluster resize:** resizing a window takes its neighbors along, so the cluster stays closed.
   With Shift, the rest of the cluster moves instead. Grab any window border (a generous zone
   around it shows resize arrows and lights up the edges that will move), or use Alt + right-drag.
+  The dragged edge snaps to the edges of other visible windows, so they line up exactly.
 - wlr-layer-shell, so launchers like fuzzel (and bars or wallpaper tools) work
 - Optional setting: docked windows take their neighbor's height or width (clean grid)
 

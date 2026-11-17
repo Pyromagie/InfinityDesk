@@ -136,6 +136,12 @@ enum DragKind {
         initial: Vec<Rect>,
         follow: Vec<[Follow; 2]>,
         min: Vec<Size<i32, Logical>>,
+        /// The window whose edges are dragged (index into `windows`), and which edges.
+        dragged: usize,
+        edges: [Edge; 2],
+        /// Edges of visible windows that stay where they are, per axis; the dragged edges snap
+        /// to them.
+        snap_targets: [Vec<i32>; 2],
     },
     /// A selection box is dragged open (Alt+Shift on empty space); windows inside get marked.
     Select {
@@ -220,6 +226,16 @@ impl DragGrab {
             .collect();
         state.set_cursor_for(edges);
         let min = windows.iter().map(min_size).collect();
+        let viewport = state.canvas.viewport().to_i32_round();
+        let visible = (state.space.elements()).filter_map(|w| {
+            let geo = state
+                .space
+                .element_geometry(w)
+                .filter(|g| g.overlaps(viewport))?;
+            let i = windows.iter().position(|c| c == w);
+            Some((geo, i.map_or([Follow::None; 2], |i| follow[i])))
+        });
+        let snap_targets = resize::snap_targets(visible);
         Self {
             start_data,
             kind: DragKind::Resize {
@@ -227,6 +243,9 @@ impl DragGrab {
                 initial,
                 follow,
                 min,
+                dragged,
+                edges,
+                snap_targets,
             },
         }
     }
@@ -308,8 +327,16 @@ impl PointerGrab<InfinityDesk> for DragGrab {
                 initial,
                 follow,
                 min,
+                dragged,
+                edges,
+                snap_targets,
             } => {
-                let new = resize::apply(initial, follow, min, pointer_delta.to_i32_round());
+                let mut delta = pointer_delta.to_i32_round();
+                if let Some(rect) = initial.get(*dragged) {
+                    let threshold = (SNAP_THRESHOLD / data.canvas.zoom()).round() as i32;
+                    delta = resize::snap(rect, *edges, snap_targets, delta, threshold);
+                }
+                let new = resize::apply(initial, follow, min, delta);
                 for ((window, f), rect) in windows.iter().zip(follow.iter()).zip(new) {
                     if changes_size(f) {
                         let anchor_end = f.map(|f| f == Follow::Start);
