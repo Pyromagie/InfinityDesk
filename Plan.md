@@ -54,11 +54,15 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
 - ✅ **Zoom-Grenze rein:** maximal 1:1 (Zoomfaktor 1.0, Fenster in ihrer normalen Pixelgröße). Man kann also nie in ein Fenster "hineinzoomen". Das passt sich an die Display-Auflösung an (bei 1920×1080 ist 1:1 die Grenze), damit man nicht auf wenige Pixel eines Fensters zoomen kann.
 - ✅ **Zoom-Grenze raus:** so weit, dass die ganze Canvas-Fläche auf den Bildschirm passt.
 - 💬 Bedienung (Maus / Tastatur / Touchpad-Gesten) – später.
+- Vorläufige Test-Bedienung (Platzhalter, bis die Bedienung entschieden ist):
+  - Linksziehen auf leerer Fläche: Fläche verschieben (Pan)
+  - Alt + Linksziehen auf einem Fenster: Fenster verschieben
+  - (Super ist im genesteten Betrieb von niri belegt, daher Alt)
 
 ## 7. Roadmap
 
-1. Minimaler Compositor (genestet, winit), zeigt Wayland-Clients an
-2. Fenster auf dem Canvas platzieren, Viewport verschieben
+1. ✅ Minimaler Compositor (genestet, winit), zeigt Wayland-Clients an
+2. ✅ Fenster auf dem Canvas platzieren, Viewport verschieben
 3. Snapping + Cluster
 4. Cluster-Resize, Culling, Zoom, Cluster-Fokus
 5. Bedienung, Konfiguration, Feinschliff

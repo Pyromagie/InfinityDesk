@@ -7,13 +7,16 @@ use smithay::{
     },
     input::{
         keyboard::FilterResult,
-        pointer::{AxisFrame, ButtonEvent, MotionEvent},
+        pointer::{AxisFrame, ButtonEvent, Focus, GrabStartData, MotionEvent},
     },
     reexports::wayland_server::protocol::wl_surface::WlSurface,
     utils::SERIAL_COUNTER,
 };
 
-use crate::InfinityDesk;
+use crate::{InfinityDesk, grabs::DragGrab};
+
+/// Linke Maustaste (Linux input-event-codes.h).
+const BTN_LEFT: u32 = 0x110;
 
 impl InfinityDesk {
     pub fn process_input_event<I: InputBackend>(&mut self, event: InputEvent<I>) {
@@ -57,20 +60,38 @@ impl InfinityDesk {
                 let serial = SERIAL_COUNTER.next_serial();
                 let button_state = event.state();
 
+                let button = event.button_code();
+
                 // Klick auf ein Fenster: nach vorne holen und fokussieren. Klick daneben: Fokus weg.
+                // Vorläufige Bedienung (Plan.md, Abschnitt 6):
+                //   Alt + Linksziehen auf Fenster  -> Fenster verschieben
+                //   Linksziehen auf leerer Fläche  -> Fläche verschieben (Pan)
                 if button_state == ButtonState::Pressed && !pointer.is_grabbed() {
-                    let clicked = self
-                        .space
-                        .element_under(pointer.current_location())
-                        .map(|(w, _)| w.clone());
+                    let location = pointer.current_location();
+                    let clicked = self.space.element_under(location).map(|(w, _)| w.clone());
+                    let alt = keyboard.modifier_state().alt;
+                    let start_data = GrabStartData {
+                        focus: None,
+                        button,
+                        location,
+                    };
+
                     if let Some(window) = clicked {
                         self.space.raise_element(&window, true);
                         keyboard.set_focus(self, Some(window.toplevel().unwrap().wl_surface().clone()), serial);
+                        if alt && button == BTN_LEFT {
+                            let grab = DragGrab::move_window(self, start_data, window);
+                            pointer.set_grab(self, grab, serial, Focus::Clear);
+                        }
                     } else {
                         self.space.elements().for_each(|w| {
                             w.set_activated(false);
                         });
                         keyboard.set_focus(self, Option::<WlSurface>::None, serial);
+                        if button == BTN_LEFT {
+                            let grab = DragGrab::pan(self, start_data);
+                            pointer.set_grab(self, grab, serial, Focus::Clear);
+                        }
                     }
                     self.space.elements().for_each(|w| {
                         w.toplevel().unwrap().send_pending_configure();
@@ -80,7 +101,7 @@ impl InfinityDesk {
                 pointer.button(
                     self,
                     &ButtonEvent {
-                        button: event.button_code(),
+                        button,
                         state: button_state,
                         serial,
                         time: event.time(),

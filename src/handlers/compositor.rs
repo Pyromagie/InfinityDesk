@@ -42,6 +42,7 @@ impl CompositorHandler for InfinityDesk {
         }
 
         xdg_shell::handle_commit(&mut self.popups, &self.space, surface);
+        self.place_if_pending(surface);
     }
 }
 

@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use smithay::{
     backend::{
-        renderer::{damage::OutputDamageTracker, element::surface::WaylandSurfaceRenderElement, gles::GlesRenderer},
+        renderer::damage::OutputDamageTracker,
         winit::{self, WinitEvent},
     },
     output::{Mode, Output, PhysicalProperties, Subpixel},
@@ -12,7 +12,7 @@ use smithay::{
     utils::{Rectangle, Transform},
 };
 
-use crate::InfinityDesk;
+use crate::{InfinityDesk, render::desk_elements};
 
 /// Hintergrundfarbe der Arbeitsfläche (RGBA).
 const BACKGROUND: [f32; 4] = [0.1, 0.1, 0.12, 1.0];
@@ -41,13 +41,22 @@ pub fn init_winit(
     let _global = output.create_global::<InfinityDesk>(&state.display_handle);
     output.change_current_state(Some(mode), Some(Transform::Flipped180), None, Some((0, 0).into()));
     output.set_preferred(mode);
-    state.space.map_output(&output, (0, 0));
+    // Start: Viewport in der Mitte des Canvas, damit man in alle Richtungen Platz hat.
+    state.output = Some(output.clone());
+    state.canvas.set_viewport_size(mode.size.to_logical(1));
+    let canvas_size = state.canvas.size().to_f64();
+    state
+        .canvas
+        .center_viewport_on((canvas_size.w / 2.0, canvas_size.h / 2.0).into());
+    state.apply_viewport();
 
     let mut damage_tracker = OutputDamageTracker::from_output(&output);
 
     event_loop.handle().insert_source(winit, move |event, _, state| match event {
         WinitEvent::Resized { size, .. } => {
             output.change_current_state(Some(Mode { size, refresh: 60_000 }), None, None, None);
+            state.canvas.set_viewport_size(size.to_logical(1));
+            state.apply_viewport();
         }
         WinitEvent::Input(event) => state.process_input_event(event),
         WinitEvent::Redraw => {
@@ -56,18 +65,10 @@ pub fn init_winit(
 
             {
                 let (renderer, mut framebuffer) = backend.bind().unwrap();
-                smithay::desktop::space::render_output::<_, WaylandSurfaceRenderElement<GlesRenderer>, _, _>(
-                    &output,
-                    renderer,
-                    &mut framebuffer,
-                    1.0,
-                    0,
-                    [&state.space],
-                    &[],
-                    &mut damage_tracker,
-                    BACKGROUND,
-                )
-                .unwrap();
+                let elements = desk_elements(renderer, &output, &state.space, &state.canvas, &mut state.grid);
+                if let Err(err) = damage_tracker.render_output(renderer, &mut framebuffer, 0, &elements, BACKGROUND) {
+                    tracing::error!("Rendern fehlgeschlagen: {err:?}");
+                }
             }
             backend.submit(Some(&[damage])).unwrap();
 

@@ -1,6 +1,13 @@
 use smithay::{
     desktop::{PopupKind, PopupManager, Space, Window, find_popup_root_surface, get_popup_toplevel_coords},
-    reexports::wayland_server::protocol::{wl_seat, wl_surface::WlSurface},
+    input::{
+        Seat,
+        pointer::{Focus, GrabStartData},
+    },
+    reexports::wayland_server::{
+        Resource,
+        protocol::{wl_seat, wl_surface::WlSurface},
+    },
     utils::Serial,
     wayland::{
         compositor::with_states,
@@ -10,7 +17,21 @@ use smithay::{
     },
 };
 
-use crate::InfinityDesk;
+use crate::{InfinityDesk, grabs::DragGrab};
+
+/// Prüft, ob ein Verschiebe-Wunsch zu einem echten, gerade gedrückten Mausklick gehört.
+fn check_grab(seat: &Seat<InfinityDesk>, surface: &WlSurface, serial: Serial) -> Option<GrabStartData<InfinityDesk>> {
+    let pointer = seat.get_pointer()?;
+    if !pointer.has_grab(serial) {
+        return None;
+    }
+    let start_data = pointer.grab_start_data()?;
+    let (focus, _) = start_data.focus.as_ref()?;
+    if !focus.id().same_client_as(&surface.id()) {
+        return None;
+    }
+    Some(start_data)
+}
 
 impl XdgShellHandler for InfinityDesk {
     fn xdg_shell_state(&mut self) -> &mut XdgShellState {
@@ -21,10 +42,29 @@ impl XdgShellHandler for InfinityDesk {
     fn new_toplevel(&mut self, surface: ToplevelSurface) {
         tracing::info!("Neues Fenster");
         let window = Window::new_wayland_window(surface);
-        // Vorläufig: leicht versetzt stapeln, damit man mehrere Fenster sieht.
-        // Die richtige Platzierung (Bildschirmmitte / an Cluster andocken) kommt mit dem Canvas.
-        let n = self.space.elements().count() as i32;
-        self.space.map_element(window, (40 + 40 * n, 40 + 40 * n), true);
+        // Die Größe kennen wir erst beim ersten Inhalt. Bis dahin grob in die Mitte legen,
+        // danach zentriert `place_if_pending` es genau.
+        // TODO: bei fokussiertem Cluster stattdessen an das Cluster andocken (Plan.md).
+        let loc = self.canvas.viewport_center().to_i32_round();
+        self.space.map_element(window.clone(), loc, true);
+        self.unplaced.push(window);
+    }
+
+    fn toplevel_destroyed(&mut self, surface: ToplevelSurface) {
+        self.unplaced.retain(|w| w.toplevel().unwrap() != &surface);
+    }
+
+    /// Das Programm möchte verschoben werden (z. B. Ziehen an der eigenen Titelleiste).
+    fn move_request(&mut self, surface: ToplevelSurface, seat: wl_seat::WlSeat, serial: Serial) {
+        let seat = Seat::from_resource(&seat).unwrap();
+        let Some(start_data) = check_grab(&seat, surface.wl_surface(), serial) else {
+            return;
+        };
+        let Some(window) = self.window_for_surface(surface.wl_surface()) else {
+            return;
+        };
+        let grab = DragGrab::move_window(self, start_data, window);
+        seat.get_pointer().unwrap().set_grab(self, grab, serial, Focus::Clear);
     }
 
     fn new_popup(&mut self, surface: PopupSurface, _positioner: PositionerState) {

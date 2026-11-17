@@ -1,8 +1,13 @@
 use std::{ffi::OsString, sync::Arc};
 
+use crate::{
+    canvas::{Canvas, DEFAULT_CANVAS_HEIGHT, DEFAULT_CANVAS_WIDTH},
+    render::Grid,
+};
 use smithay::{
     desktop::{PopupManager, Space, Window, WindowSurfaceType},
     input::{Seat, SeatState},
+    output::Output,
     reexports::{
         calloop::{EventLoop, Interest, LoopSignal, Mode, PostAction, generic::Generic},
         wayland_server::{
@@ -29,9 +34,16 @@ pub struct InfinityDesk {
     pub display_handle: DisplayHandle,
     pub loop_signal: LoopSignal,
 
-    /// Alle Fenster und Ausgaben (Monitore) in einer 2D-Fläche.
+    /// Die Arbeitsfläche mit Viewport.
+    pub canvas: Canvas,
+    /// Alle Fenster und Ausgaben in Canvas-Koordinaten. Die Ausgabe sitzt dort, wo der Viewport ist.
     pub space: Space<Window>,
     pub popups: PopupManager,
+    /// Der Bildschirm (im genesteten Betrieb: das winit-Fenster).
+    pub output: Option<Output>,
+    /// Fenster, die noch keinen Inhalt hatten und deshalb noch nicht platziert sind.
+    pub unplaced: Vec<Window>,
+    pub grid: Grid,
 
     // Smithay-Protokollzustände
     pub compositor_state: CompositorState,
@@ -65,8 +77,12 @@ impl InfinityDesk {
             socket_name,
             display_handle: dh,
             loop_signal: event_loop.get_signal(),
+            canvas: Canvas::new((DEFAULT_CANVAS_WIDTH, DEFAULT_CANVAS_HEIGHT).into()),
             space: Space::default(),
             popups: PopupManager::default(),
+            output: None,
+            unplaced: Vec::new(),
+            grid: Grid::default(),
             compositor_state,
             xdg_shell_state,
             shm_state,
@@ -106,6 +122,44 @@ impl InfinityDesk {
             .unwrap();
 
         socket_name
+    }
+
+    /// Überträgt die Viewport-Position des Canvas auf die Ausgabe im Space.
+    pub fn apply_viewport(&mut self) {
+        if let Some(output) = &self.output {
+            self.space.map_output(output, self.canvas.viewport_loc().to_i32_round());
+        }
+    }
+
+    /// Platziert ein neues Fenster, sobald seine Größe bekannt ist (beim ersten Inhalt).
+    pub fn place_if_pending(&mut self, surface: &WlSurface) {
+        let Some(idx) = self
+            .unplaced
+            .iter()
+            .position(|w| w.toplevel().unwrap().wl_surface() == surface)
+        else {
+            return;
+        };
+        let size = self.unplaced[idx].geometry().size;
+        if size.w <= 0 || size.h <= 0 {
+            return;
+        }
+        let window = self.unplaced.remove(idx);
+        let loc = self.canvas.centered_in_viewport(size);
+        tracing::info!(
+            "Fenster platziert bei {:?} (Größe {:?}, Viewport {:?})",
+            loc,
+            size,
+            self.canvas.viewport()
+        );
+        self.space.map_element(window, loc, true);
+    }
+
+    pub fn window_for_surface(&self, surface: &WlSurface) -> Option<Window> {
+        self.space
+            .elements()
+            .find(|w| w.toplevel().unwrap().wl_surface() == surface)
+            .cloned()
     }
 
     /// Findet die Oberfläche (Fenster/Popup) unter einem Punkt.
