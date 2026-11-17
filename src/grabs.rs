@@ -57,7 +57,7 @@ fn others<'a>(
 }
 
 /// Holding still this long before dragging pulls the window out of its cluster.
-pub const HOLD_TIME: Duration = Duration::from_millis(300);
+pub const HOLD_TIME: Duration = Duration::from_millis(150);
 /// Pointer movement (in pixels) that still counts as holding still.
 const HOLD_TOLERANCE: f64 = 6.0;
 

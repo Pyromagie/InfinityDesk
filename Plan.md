@@ -51,7 +51,7 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
   1. ❌ **Schütteln**: gefiel nicht
   2. ➖ **Gegen Widerstand ziehen**: ging, aber "geht besser" (Gummiband, ab 120 px Abreißen; Cluster per Alt+Rechtsziehen)
   3. ⏭️ Doppelklick + Ziehen: übersprungen
-  4. 🧪 **Lange drücken** (aktuell): Alt+Klick, 0,3 s stillhalten (blauer Puls-Ring zeigt "entsperrt"), dann ziehen = nur dieses Fenster. Sofort ziehen = ganzes Cluster
+  4. 🧪 **Lange drücken** (aktuell): Alt+Klick, 0,15 s stillhalten (blauer Puls-Ring zeigt "entsperrt"), dann ziehen = nur dieses Fenster. Sofort ziehen = ganzes Cluster
 - ✅ Orangener Punkt in der Skizze: ohne Bedeutung (Artefakt vom Zeichenprogramm).
 
 ## 6. Navigation
