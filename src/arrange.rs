@@ -4,12 +4,12 @@
 use smithay::{
     desktop::Window,
     reexports::wayland_protocols::xdg::shell::server::xdg_toplevel,
-    utils::{IsAlive, Logical, Point},
+    utils::{IsAlive, Logical, Point, Size},
 };
 
 use crate::{
     InfinityDesk,
-    cluster::{Rect, TOUCH_TOLERANCE, touching},
+    cluster::{Rect, TOUCH_TOLERANCE, dock_spot, touching},
     layout,
     render::OUTLINE_COLOR,
     state::Resizing,
@@ -102,7 +102,7 @@ impl InfinityDesk {
     }
 
     /// Asks a window for a new size and puts it at `rect` (see `place_resized`).
-    fn resize_to(&mut self, window: &Window, rect: Rect, fullscreen: Option<bool>) {
+    pub fn resize_to(&mut self, window: &Window, rect: Rect, fullscreen: Option<bool>) {
         let anchor_end = [false; 2];
         self.resizing
             .insert(window.clone(), Resizing { rect, anchor_end });
@@ -228,7 +228,29 @@ impl InfinityDesk {
         }
     }
 
-    /// A new window that got a template slot: docks to the windows around the slot.
+    /// Where a new window docks next to the active window (see `cluster::dock_spot`). Dialogs
+    /// stay free, in the middle of the screen.
+    pub fn spot_next_to_active(&self, window: &Window, size: Size<i32, Logical>) -> Option<Rect> {
+        if window.toplevel().unwrap().parent().is_some() {
+            return None;
+        }
+        let active = self.target_rect(self.active.as_ref()?)?;
+        let others: Vec<Rect> = (self.space.elements())
+            .filter_map(|w| self.target_rect(w))
+            .collect();
+        let canvas = Rect::from_size(self.canvas.size());
+        let visible = self.canvas.viewport().to_i32_round();
+        let match_size = self.config.match_size;
+        dock_spot(&active, size, &others, &visible, &canvas, match_size)
+    }
+
+    /// Where a window is, or is about to be while it changes its size.
+    fn target_rect(&self, window: &Window) -> Option<Rect> {
+        (self.resizing.get(window).map(|r| r.rect)).or_else(|| self.space.element_geometry(window))
+    }
+
+    /// A new window that got a template slot or a spot next to the active window: docks to
+    /// the windows around it.
     pub fn dock_into_slot(&mut self, window: &Window, slot: Rect) {
         let neighbors: Vec<Window> = (self.space.elements())
             .filter(|w| *w != window)

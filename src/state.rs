@@ -24,6 +24,7 @@ use crate::{
     resize::{self, Edge, Follow},
 };
 use smithay::{
+    backend::input::InputTime,
     desktop::{PopupManager, Space, Window, WindowSurfaceType, layer_map_for_output},
     input::{Seat, SeatState, pointer::CursorIcon},
     output::Output,
@@ -85,6 +86,9 @@ pub struct InfinityDesk {
     pub layout_menu: Option<LayoutMenu>,
     /// Slots of the last applied template that new windows fill.
     pub free_slots: Option<FreeSlots>,
+    /// The window being worked in (it keeps this while a launcher has the keyboard). New windows
+    /// dock next to it; clicking empty space clears it.
+    pub active: Option<Window>,
 
     // Smithay protocol state
     pub compositor_state: CompositorState,
@@ -135,6 +139,7 @@ impl InfinityDesk {
             fullscreen: None,
             layout_menu: None,
             free_slots: None,
+            active: None,
             resizing: HashMap::new(),
             compositor_state,
             xdg_shell_state,
@@ -200,12 +205,23 @@ impl InfinityDesk {
             return;
         }
         let window = self.unplaced.remove(idx);
-        // A free template slot was reserved for it when it was configured the first time.
-        match self.resizing.get(&window).map(|r| r.rect) {
-            Some(slot) => {
-                self.space.map_element(window.clone(), slot.loc, false);
-                self.dock_into_slot(&window, slot);
+        // A free template slot was reserved for it when it was configured the first time,
+        // otherwise it docks next to the active window, or (with no room there) stands alone.
+        let slot = self.resizing.get(&window).map(|r| r.rect);
+        match slot.or_else(|| self.spot_next_to_active(&window, size)) {
+            Some(rect) => {
+                self.space.map_element(window.clone(), rect.loc, false);
+                if rect.size != size {
+                    self.resize_to(&window, rect, None);
+                }
+                self.dock_into_slot(&window, rect);
                 self.place_resized(&window);
+                // Docked off the screen: the view follows. The pointer stays put on the screen.
+                let pointer = self.seat.get_pointer().unwrap();
+                let screen = self.canvas.canvas_to_screen(pointer.current_location());
+                self.canvas.reveal(rect);
+                self.apply_viewport();
+                self.pointer_moved(self.canvas.screen_to_canvas(screen), InputTime::now());
             }
             None => {
                 let loc = self.canvas.centered_in_viewport(size);
@@ -217,6 +233,7 @@ impl InfinityDesk {
 
     /// Raises the window with its cluster and gives it keyboard focus.
     pub fn focus_window(&mut self, window: &Window) {
+        self.active = Some(window.clone());
         self.raise_cluster(window);
         let surface = window.toplevel().unwrap().wl_surface().clone();
         let keyboard = self.seat.get_keyboard().unwrap();

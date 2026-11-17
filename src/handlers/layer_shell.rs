@@ -47,8 +47,8 @@ impl WlrLayerShellHandler for InfinityDesk {
         }
         drop(map);
 
-        // Give the keyboard back to the topmost window (e.g. after the launcher closed).
-        match self.space.elements().last().cloned() {
+        // Give the keyboard back to the window that was active (e.g. after the launcher closed).
+        match self.active.clone() {
             Some(window) => self.focus_window(&window),
             None => {
                 let keyboard = self.seat.get_keyboard().unwrap();

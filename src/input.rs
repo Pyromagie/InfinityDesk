@@ -195,6 +195,7 @@ impl InfinityDesk {
                             w.toplevel().unwrap().send_pending_configure();
                         });
                         keyboard.set_focus(self, Option::<WlSurface>::None, serial);
+                        self.active = None;
                         if select {
                             let grab = DragGrab::select(self, start_data);
                             pointer.set_grab(self, grab, serial, Focus::Clear);
@@ -267,7 +268,7 @@ impl InfinityDesk {
     }
 
     /// Moves the pointer to a canvas position and updates what is under it.
-    fn pointer_moved(&mut self, pos: Point<f64, Logical>, time: InputTime) {
+    pub fn pointer_moved(&mut self, pos: Point<f64, Logical>, time: InputTime) {
         let pointer = self.seat.get_pointer().unwrap();
         let under = self.surface_under(pos);
         let serial = SERIAL_COUNTER.next_serial();

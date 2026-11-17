@@ -94,6 +94,27 @@ impl Canvas {
         self.set_viewport_loc(anchor - screen.downscale(self.zoom));
     }
 
+    /// Pans the viewport just far enough that `rect` is completely on the screen (if it is larger
+    /// than the screen, its top-left corner).
+    pub fn reveal(&mut self, rect: Rectangle<i32, Logical>) {
+        let vp = self.viewport();
+        let axis = |start: f64, len: f64, r_start: i32, r_len: i32| {
+            let (r_start, r_len) = (r_start as f64, r_len as f64);
+            if r_start < start || r_len > len {
+                r_start
+            } else {
+                start.max(r_start + r_len - len)
+            }
+        };
+        self.set_viewport_loc(
+            (
+                axis(vp.loc.x, vp.size.w, rect.loc.x, rect.size.w),
+                axis(vp.loc.y, vp.size.h, rect.loc.y, rect.size.h),
+            )
+                .into(),
+        );
+    }
+
     /// Goes back to a view saved earlier (`viewport_loc` and `zoom`).
     pub fn set_view(&mut self, loc: Point<f64, Logical>, zoom: f64) {
         self.zoom = zoom.clamp(self.min_zoom(), 1.0);
@@ -251,6 +272,21 @@ mod tests {
         // Too tall instead: limited by the height.
         c.focus_on(Rectangle::new((3_000, 2_000).into(), (1_000, 2_160).into()));
         assert_eq!(c.zoom(), 0.5);
+    }
+
+    #[test]
+    fn reveal_pans_just_enough() {
+        let mut c = canvas();
+        c.set_viewport_loc((1_000.0, 1_000.0).into());
+        // Already visible: nothing moves.
+        c.reveal(Rectangle::new((1_100, 1_100).into(), (500, 400).into()));
+        assert_eq!(c.viewport_loc(), (1_000.0, 1_000.0).into());
+        // Sticking out on the right: the right edge lands on the screen edge.
+        c.reveal(Rectangle::new((2_700, 1_100).into(), (500, 400).into()));
+        assert_eq!(c.viewport_loc(), (3_200.0 - 1_920.0, 1_000.0).into());
+        // Above the screen: its top edge lands on the screen's top edge.
+        c.reveal(Rectangle::new((1_500, 600).into(), (500, 400).into()));
+        assert_eq!(c.viewport_loc(), (3_200.0 - 1_920.0, 600.0).into());
     }
 
     #[test]

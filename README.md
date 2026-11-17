@@ -50,6 +50,8 @@ step further into two dimensions. Built in Rust on [Smithay](https://github.com/
   cluster so it fills exactly one screen, shown at 1:1. Click the slot the active window should
   go to (the other windows take the slots closest to where they are), or press the template's
   number. Slots left over are filled by the next windows you open.
+- **New windows dock to the active window** (right of it, else below, left, above; the view
+  follows if there is no room on the screen). Click empty space first for a free window.
 - **Fullscreen:** Alt + F (or the app itself, e.g. F11 in a browser) lets a window cover the
   screen; its place in the cluster and the view are restored afterwards
 - wlr-layer-shell, so launchers like fuzzel (and bars or wallpaper tools) work
@@ -57,8 +59,6 @@ step further into two dimensions. Built in Rust on [Smithay](https://github.com/
 
 ## Roadmap
 
-- **New windows dock to the focused cluster** (right of the last used window, or the next
-  free side) instead of opening in the middle of the screen
 - **Lua configuration** in `~/.config/infinitydesk/init.lua`, designed to feel familiar when
   coming from niri or Hyprland: settings first, then keybindings, window rules and events.
   Maybe a converter for niri configs later.

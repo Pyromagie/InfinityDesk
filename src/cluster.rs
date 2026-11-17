@@ -12,7 +12,7 @@ use std::{
     hash::Hash,
 };
 
-use smithay::utils::{Logical, Point, Rectangle};
+use smithay::utils::{Logical, Point, Rectangle, Size};
 
 pub type Rect = Rectangle<i32, Logical>;
 
@@ -183,6 +183,29 @@ pub fn grid_rect(m: &Rect, o: &Rect) -> Rect {
     }
 }
 
+/// Where a new window of `size` docks to the active window `a`: right of it (tops flush), else
+/// below (left edges flush), left of it, above. The spot must lie within the canvas and not on
+/// another window; spots that are `visible` on the screen come first. With `match_size` it takes
+/// `a`'s height or width.
+pub fn dock_spot(
+    a: &Rect,
+    size: Size<i32, Logical>,
+    others: &[Rect],
+    visible: &Rect,
+    canvas: &Rect,
+    match_size: bool,
+) -> Option<Rect> {
+    let (al, ar, at, ab) = edges(a);
+    let spots = [(ar, at), (al, ab), (al - size.w, at), (al, at - size.h)]
+        .map(|loc| Rect::new(loc.into(), size))
+        .map(|r| if match_size { grid_rect(&r, a) } else { r });
+    let free = |r: &&Rect| canvas.contains_rect(**r) && others.iter().all(|o| !r.overlaps(*o));
+    (spots.iter().filter(free))
+        .find(|r| visible.contains_rect(**r))
+        .or_else(|| spots.iter().find(free))
+        .copied()
+}
+
 /// (left, right, top, bottom)
 fn edges(r: &Rect) -> (i32, i32, i32, i32) {
     (r.loc.x, r.loc.x + r.size.w, r.loc.y, r.loc.y + r.size.h)
@@ -308,6 +331,39 @@ mod tests {
             snap_delta(&[rect(670, 0, 400, 300)], &[other], 15),
             (0, 0).into()
         );
+    }
+
+    #[test]
+    fn new_window_docks_right_of_the_active_one() {
+        let a = rect(1000, 1000, 400, 300);
+        let area = rect(0, 0, 3000, 2000);
+        let size = (500, 200).into();
+        let spot = dock_spot(&a, size, &[a], &area, &area, false);
+        assert_eq!(spot, Some(rect(1400, 1000, 500, 200)));
+        // With match_size it takes the height of the active window.
+        let spot = dock_spot(&a, size, &[a], &area, &area, true);
+        assert_eq!(spot, Some(rect(1400, 1000, 500, 300)));
+    }
+
+    #[test]
+    fn new_window_takes_the_next_free_side() {
+        let a = rect(1000, 1000, 400, 300);
+        let size = (500, 200).into();
+        // Something on the right: below.
+        let right = rect(1500, 900, 300, 300);
+        let canvas = rect(0, 0, 3000, 2000);
+        let spot = dock_spot(&a, size, &[a, right], &canvas, &canvas, false);
+        assert_eq!(spot, Some(rect(1000, 1300, 500, 200)));
+        // Right and below off the screen: left.
+        let screen = rect(400, 700, 1000, 600);
+        let spot = dock_spot(&a, size, &[a], &screen, &canvas, false);
+        assert_eq!(spot, Some(rect(500, 1000, 500, 200)));
+        // No room on the screen: right of it anyway (the view then moves there).
+        let screen = rect(1000, 1000, 400, 300);
+        let spot = dock_spot(&a, size, &[a], &screen, &canvas, false);
+        assert_eq!(spot, Some(rect(1400, 1000, 500, 200)));
+        // No room on the canvas either.
+        assert_eq!(dock_spot(&a, size, &[a], &screen, &a, false), None);
     }
 
     #[test]

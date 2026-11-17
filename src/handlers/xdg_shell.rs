@@ -55,7 +55,7 @@ impl XdgShellHandler for InfinityDesk {
         // A new window (also a dialog) should be seen, so fullscreen ends.
         self.end_fullscreen();
         // The size is only known after the first commit; `place_if_pending` maps it then.
-        // TODO: when a cluster is focused, dock the new window to that cluster instead (Plan.md).
+        // It goes into a free template slot or docks next to the active window, if there is one.
         self.unplaced.push(Window::new_wayland_window(surface));
     }
 
@@ -77,6 +77,9 @@ impl XdgShellHandler for InfinityDesk {
                 self.layout_menu = None;
             }
             self.forget_slot_anchor(&window);
+            if self.active.as_ref() == Some(&window) {
+                self.active = None;
+            }
         }
         self.unplaced.retain(|w| w.toplevel().unwrap() != &surface);
     }
@@ -219,7 +222,8 @@ impl InfinityDesk {
             if !initial_configure_sent {
                 // A free slot of the last template: the window gets its size right away and is
                 // placed there (`place_if_pending`).
-                if let Some(rect) = self.take_free_slot() {
+                let dialog = window.toplevel().unwrap().parent().is_some();
+                if let Some(rect) = (!dialog).then(|| self.take_free_slot()).flatten() {
                     let anchor_end = [false; 2];
                     let toplevel = window.toplevel().unwrap();
                     toplevel.with_pending_state(|s| s.size = Some(rect.size));
