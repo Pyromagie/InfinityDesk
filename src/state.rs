@@ -1,9 +1,8 @@
 use std::{ffi::OsString, sync::Arc};
 
 use crate::{
-    cluster::Clusters,
     canvas::{Canvas, DEFAULT_CANVAS_HEIGHT, DEFAULT_CANVAS_WIDTH},
-    render::Grid,
+    cluster::Clusters,
 };
 use smithay::{
     desktop::{PopupManager, Space, Window, WindowSurfaceType},
@@ -46,7 +45,6 @@ pub struct InfinityDesk {
     pub unplaced: Vec<Window>,
     /// Which windows belong to which cluster.
     pub clusters: Clusters<Window>,
-    pub grid: Grid,
 
     // Smithay protocol state
     pub compositor_state: CompositorState,
@@ -86,7 +84,6 @@ impl InfinityDesk {
             output: None,
             unplaced: Vec::new(),
             clusters: Clusters::default(),
-            grid: Grid::default(),
             compositor_state,
             xdg_shell_state,
             shm_state,
@@ -150,12 +147,6 @@ impl InfinityDesk {
         }
         let window = self.unplaced.remove(idx);
         let loc = self.canvas.centered_in_viewport(size);
-        tracing::info!(
-            "Placed window at {:?} (size {:?}, viewport {:?})",
-            loc,
-            size,
-            self.canvas.viewport()
-        );
         self.space.map_element(window, loc, true);
     }
 

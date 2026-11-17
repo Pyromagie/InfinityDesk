@@ -50,29 +50,19 @@ impl<K: Eq + Hash + Clone> Clusters<K> {
 
     /// Merges the clusters of `a` and `b` into one.
     pub fn join(&mut self, a: &K, b: &K) {
-        let ca = self.cluster_of.get(a).copied();
-        let cb = self.cluster_of.get(b).copied();
-        match (ca, cb) {
-            (Some(x), Some(y)) if x == y => {}
-            (Some(x), Some(y)) => {
-                for c in self.cluster_of.values_mut() {
-                    if *c == y {
-                        *c = x;
-                    }
-                }
-            }
-            (Some(x), None) => {
-                self.cluster_of.insert(b.clone(), x);
-            }
-            (None, Some(y)) => {
-                self.cluster_of.insert(a.clone(), y);
-            }
-            (None, None) => {
-                let id = self.next_id;
+        let x = match self.cluster_of.get(a) {
+            Some(&x) => x,
+            None => {
                 self.next_id += 1;
-                self.cluster_of.insert(a.clone(), id);
-                self.cluster_of.insert(b.clone(), id);
+                self.cluster_of.insert(a.clone(), self.next_id);
+                self.next_id
             }
+        };
+        // If `b` was in another cluster, move that whole cluster over to `x`.
+        if let Some(y) = self.cluster_of.insert(b.clone(), x)
+            && y != x
+        {
+            self.cluster_of.values_mut().filter(|c| **c == y).for_each(|c| *c = x);
         }
     }
 
@@ -162,11 +152,6 @@ pub fn snap_delta(moving: &[Rect], others: &[Rect], threshold: i32) -> Point<i32
     }
 
     (best_x.unwrap_or(0), best_y.unwrap_or(0)).into()
-}
-
-/// Bounding box of several rectangles.
-pub fn bounding_box(rects: &[Rect]) -> Option<Rect> {
-    rects.iter().copied().reduce(|a, b| a.merge(b))
 }
 
 /// (left, right, top, bottom)

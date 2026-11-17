@@ -65,7 +65,7 @@ pub fn init_winit(
 
             {
                 let (renderer, mut framebuffer) = backend.bind().unwrap();
-                let elements = desk_elements(renderer, &output, &state.space, &state.canvas, &mut state.grid);
+                let elements = desk_elements(renderer, &output, &state.space, &state.canvas);
                 if let Err(err) = damage_tracker.render_output(renderer, &mut framebuffer, 0, &elements, BACKGROUND) {
                     tracing::error!("rendering failed: {err:?}");
                 }

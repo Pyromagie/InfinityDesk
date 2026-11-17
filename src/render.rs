@@ -29,46 +29,27 @@ render_elements! {
 }
 
 /// Dot grid on the canvas, so panning is visible even on empty space.
-#[derive(Default)]
-pub struct Grid {
-    /// Reused ids so damage tracking stays stable.
-    ids: Vec<Id>,
-}
-
-impl Grid {
-    fn elements(&mut self, canvas: &Canvas) -> Vec<SolidColorRenderElement> {
-        let vp = canvas.viewport();
-        let first_x = (vp.loc.x / GRID_SPACING).ceil() * GRID_SPACING;
-        let first_y = (vp.loc.y / GRID_SPACING).ceil() * GRID_SPACING;
-
-        let mut out = Vec::new();
-        let mut y = first_y;
-        while y < vp.loc.y + vp.size.h {
-            let mut x = first_x;
-            while x < vp.loc.x + vp.size.w {
-                let i = out.len();
-                if i >= self.ids.len() {
-                    self.ids.push(Id::new());
-                }
-                let screen = canvas.canvas_to_screen((x, y).into());
-                let loc: Point<i32, Physical> = (
-                    screen.x.round() as i32 - GRID_DOT_SIZE / 2,
-                    screen.y.round() as i32 - GRID_DOT_SIZE / 2,
-                )
-                    .into();
-                out.push(SolidColorRenderElement::new(
-                    self.ids[i].clone(),
-                    Rectangle::new(loc, (GRID_DOT_SIZE, GRID_DOT_SIZE).into()),
-                    CommitCounter::default(),
-                    GRID_DOT_COLOR,
-                    Kind::Unspecified,
-                ));
-                x += GRID_SPACING;
-            }
-            y += GRID_SPACING;
+fn grid_elements(canvas: &Canvas) -> Vec<SolidColorRenderElement> {
+    let vp = canvas.viewport();
+    let mut out = Vec::new();
+    let mut y = (vp.loc.y / GRID_SPACING).ceil() * GRID_SPACING;
+    while y < vp.loc.y + vp.size.h {
+        let mut x = (vp.loc.x / GRID_SPACING).ceil() * GRID_SPACING;
+        while x < vp.loc.x + vp.size.w {
+            let screen = canvas.canvas_to_screen((x, y).into()).to_i32_round::<i32>();
+            let loc: Point<i32, Physical> = (screen.x - GRID_DOT_SIZE / 2, screen.y - GRID_DOT_SIZE / 2).into();
+            out.push(SolidColorRenderElement::new(
+                Id::new(),
+                Rectangle::new(loc, (GRID_DOT_SIZE, GRID_DOT_SIZE).into()),
+                CommitCounter::default(),
+                GRID_DOT_COLOR,
+                Kind::Unspecified,
+            ));
+            x += GRID_SPACING;
         }
-        out
+        y += GRID_SPACING;
     }
+    out
 }
 
 /// All elements of a frame, front to back: windows, then the grid.
@@ -77,13 +58,12 @@ pub fn desk_elements(
     output: &Output,
     space: &Space<Window>,
     canvas: &Canvas,
-    grid: &mut Grid,
 ) -> Vec<DeskElement> {
     let mut elements: Vec<DeskElement> = space_render_elements(renderer, [space], output, 1.0)
         .unwrap_or_default()
         .into_iter()
         .map(DeskElement::Space)
         .collect();
-    elements.extend(grid.elements(canvas).into_iter().map(DeskElement::Solid));
+    elements.extend(grid_elements(canvas).into_iter().map(DeskElement::Solid));
     elements
 }

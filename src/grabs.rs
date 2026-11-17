@@ -15,13 +15,13 @@ use std::time::{Duration, Instant};
 
 use crate::{
     InfinityDesk,
-    cluster::{Rect, SNAP_THRESHOLD, bounding_box, snap_delta, touching},
+    cluster::{Rect, SNAP_THRESHOLD, snap_delta, touching},
 };
 
 /// How far the cluster moves: pointer movement, kept inside the canvas, plus snapping.
 fn cluster_delta(data: &InfinityDesk, members: &[DraggedWindow], pointer_delta: Point<i32, Logical>) -> Point<i32, Logical> {
     let initial: Vec<Rect> = members.iter().map(|m| m.initial_geo).collect();
-    let Some(bbox) = bounding_box(&initial) else {
+    let Some(bbox) = initial.iter().copied().reduce(|a, b| a.merge(b)) else {
         return pointer_delta;
     };
 
