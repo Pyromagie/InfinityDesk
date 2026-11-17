@@ -19,11 +19,12 @@ use crate::{
     cluster::{Rect, SNAP_THRESHOLD, grid_size, snap_delta, touching},
 };
 
-/// How far the cluster moves: pointer movement, kept inside the canvas, plus snapping.
+/// How far the cluster moves: pointer movement, kept inside the canvas, plus snapping (if `snap`).
 fn cluster_delta(
     data: &InfinityDesk,
     members: &[DraggedWindow],
     pointer_delta: Point<i32, Logical>,
+    snap: bool,
 ) -> Point<i32, Logical> {
     let initial: Vec<Rect> = members.iter().map(|m| m.initial_geo).collect();
     let Some(bbox) = initial.iter().copied().reduce(|a, b| a.merge(b)) else {
@@ -34,6 +35,9 @@ fn cluster_delta(
     let target = bbox.loc + pointer_delta;
     let clamped = data.canvas.clamp_window_loc(target, bbox.size);
     let mut delta = pointer_delta + (clamped - target);
+    if !snap {
+        return delta;
+    }
 
     // Snap to windows outside the cluster.
     let moved: Vec<Rect> = initial
@@ -59,6 +63,8 @@ fn others<'a>(
 
 /// Holding still this long before dragging pulls the window out of its cluster.
 pub const HOLD_TIME: Duration = Duration::from_millis(150);
+/// Windows dragged faster than this (screen pixels per second) pass other windows without snapping.
+const SNAP_MAX_SPEED: f64 = 1000.0;
 /// Pointer movement (in screen pixels) that still counts as holding still.
 const HOLD_TOLERANCE: f64 = 6.0;
 
@@ -77,6 +83,9 @@ enum DragKind {
         /// Press time, while it is still undecided whether the whole cluster or just
         /// the grabbed window moves.
         pressed: Option<Instant>,
+        /// Last pointer position and time, and the pointer speed (screen pixels per second).
+        last: (Point<f64, Logical>, Instant),
+        speed: f64,
     },
     /// The canvas is moved underneath the screen.
     Pan {
@@ -112,12 +121,15 @@ impl DragGrab {
                 })
             })
             .collect();
+        let last = (start_data.location, Instant::now());
         Self {
             start_data,
             kind: DragKind::MoveWindows {
+                last,
                 grabbed: window,
                 members,
                 pressed,
+                speed: 0.0,
             },
         }
     }
@@ -151,7 +163,16 @@ impl PointerGrab<InfinityDesk> for DragGrab {
                 grabbed,
                 members,
                 pressed,
+                last,
+                speed,
             } => {
+                // Smoothed pointer speed: windows passing by quickly do not snap.
+                let (last_pos, last_time) = *last;
+                let distance = (event.location - last_pos).upscale(data.canvas.zoom());
+                let dt = last_time.elapsed().as_secs_f64().max(0.001);
+                *speed = (*speed + distance.x.hypot(distance.y) / dt) / 2.0;
+                *last = (event.location, Instant::now());
+
                 // Decide on the first real movement: held still long enough -> just this window.
                 if let Some(time) = *pressed {
                     let moved = pointer_delta.x.hypot(pointer_delta.y) * data.canvas.zoom();
@@ -169,7 +190,8 @@ impl PointerGrab<InfinityDesk> for DragGrab {
                     }
                 }
 
-                let delta = cluster_delta(data, members, pointer_delta.to_i32_round());
+                let snap = *speed < SNAP_MAX_SPEED;
+                let delta = cluster_delta(data, members, pointer_delta.to_i32_round(), snap);
                 for m in members.iter() {
                     data.space
                         .map_element(m.window.clone(), m.initial_loc + delta, false);
@@ -314,6 +336,17 @@ impl PointerGrab<InfinityDesk> for DragGrab {
         // Released without moving: no pulse anymore.
         if pressed.is_some() {
             data.pulse = None;
+        } else if let Some(m) = members.first() {
+            // Released while moving fast: snap now.
+            let current = data
+                .space
+                .element_location(&m.window)
+                .unwrap_or(m.initial_loc);
+            let delta = cluster_delta(data, members, current - m.initial_loc, true);
+            for m in members {
+                data.space
+                    .map_element(m.window.clone(), m.initial_loc + delta, false);
+            }
         }
         let moved: Vec<(Window, Rect)> = members
             .iter()
