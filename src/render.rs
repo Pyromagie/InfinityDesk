@@ -7,12 +7,15 @@ use smithay::{
             AsRenderElements, Id, Kind, render_elements, solid::SolidColorRenderElement,
             surface::WaylandSurfaceRenderElement, utils::RescaleRenderElement,
         },
-        gles::GlesRenderer,
+        gles::{
+            GlesPixelProgram, GlesRenderer, Uniform, UniformName, UniformType,
+            element::PixelShaderElement,
+        },
         utils::CommitCounter,
     },
     desktop::{Space, Window, layer_map_for_output},
     output::Output,
-    utils::{Logical, Physical, Point, Rectangle, Scale},
+    utils::{Logical, Physical, Rectangle, Scale},
     wayland::shell::wlr_layer::Layer,
 };
 
@@ -23,7 +26,7 @@ const GRID_SPACING: f64 = 100.0;
 /// ... doubled while zoomed out so far that dots would be closer than this on screen.
 const GRID_MIN_SCREEN_SPACING: f64 = 40.0;
 /// Size of a grid dot in pixels.
-const GRID_DOT_SIZE: i32 = 2;
+const GRID_DOT_SIZE: f32 = 2.0;
 const GRID_DOT_COLOR: [f32; 4] = [0.28, 0.28, 0.32, 1.0];
 
 const PULSE_COLOR: [f32; 4] = [0.35, 0.65, 1.0, 1.0];
@@ -35,42 +38,71 @@ render_elements! {
     pub DeskElement<=GlesRenderer>;
     Surface = WaylandSurfaceRenderElement<GlesRenderer>,
     Zoomed = RescaleRenderElement<WaylandSurfaceRenderElement<GlesRenderer>>,
+    Grid = PixelShaderElement,
     Solid = SolidColorRenderElement,
 }
 
+/// Draws the dot grid on the GPU in one pass, instead of one element per dot.
+const GRID_SHADER: &str = r#"
+precision highp float;
+varying vec2 v_coords;
+uniform vec2 size;
+uniform float alpha;
+#if defined(DEBUG_FLAGS)
+uniform float tint;
+#endif
+uniform float spacing;
+uniform float dot_size;
+uniform vec2 offset;
+uniform vec4 color;
+
+void main() {
+    // Distance (in screen pixels) past the last grid point, shifted so dots are centered on it.
+    vec2 d = mod(v_coords * size + offset + dot_size / 2.0, spacing);
+    gl_FragColor = (d.x < dot_size && d.y < dot_size) ? color * alpha : vec4(0.0);
+}
+"#;
+
+pub fn compile_grid_shader(renderer: &mut GlesRenderer) -> GlesPixelProgram {
+    let uniforms = [
+        UniformName::new("spacing", UniformType::_1f),
+        UniformName::new("dot_size", UniformType::_1f),
+        UniformName::new("offset", UniformType::_2f),
+        UniformName::new("color", UniformType::_4f),
+    ];
+    renderer
+        .compile_custom_pixel_shader(GRID_SHADER, &uniforms)
+        .expect("grid shader must compile")
+}
+
 /// Dot grid on the canvas, so panning is visible even on empty space.
-fn grid_elements(canvas: &Canvas) -> Vec<SolidColorRenderElement> {
+fn grid_element(shader: &GlesPixelProgram, canvas: &Canvas) -> Option<PixelShaderElement> {
     let mut spacing = GRID_SPACING;
     while spacing * canvas.zoom() < GRID_MIN_SCREEN_SPACING {
         spacing *= 2.0;
     }
-    // Only the part of the viewport that shows canvas (zoomed far out, it is surrounded by nothing).
-    let size = canvas.size().to_f64();
-    let vp = canvas.viewport();
-    let (right, bottom) = (
-        (vp.loc.x + vp.size.w).min(size.w),
-        (vp.loc.y + vp.size.h).min(size.h),
-    );
-    let mut out = Vec::new();
-    let mut y = (vp.loc.y.max(0.0) / spacing).ceil() * spacing;
-    while y <= bottom {
-        let mut x = (vp.loc.x.max(0.0) / spacing).ceil() * spacing;
-        while x <= right {
-            let screen = canvas.canvas_to_screen((x, y).into()).to_i32_round::<i32>();
-            let loc: Point<i32, Physical> =
-                (screen.x - GRID_DOT_SIZE / 2, screen.y - GRID_DOT_SIZE / 2).into();
-            out.push(SolidColorRenderElement::new(
-                Id::new(),
-                Rectangle::new(loc, (GRID_DOT_SIZE, GRID_DOT_SIZE).into()),
-                CommitCounter::default(),
-                GRID_DOT_COLOR,
-                Kind::Unspecified,
-            ));
-            x += spacing;
-        }
-        y += spacing;
-    }
-    out
+    let spacing = spacing * canvas.zoom();
+    // Only the part of the screen that shows canvas (zoomed far out, it is surrounded by nothing).
+    let origin = canvas.canvas_to_screen((0.0, 0.0).into());
+    let canvas_rect = Rectangle::new(origin, canvas.size().to_f64().upscale(canvas.zoom()));
+    let screen = Rectangle::from_size(canvas.viewport().size.upscale(canvas.zoom()));
+    let area = canvas_rect.intersection(screen)?.to_i32_round();
+    let offset = area.loc.to_f64() - origin;
+    let [r, g, b, a] = GRID_DOT_COLOR;
+    let uniforms = vec![
+        Uniform::new("spacing", spacing as f32),
+        Uniform::new("dot_size", GRID_DOT_SIZE),
+        Uniform::new("offset", (offset.x as f32, offset.y as f32)),
+        Uniform::new("color", (r, g, b, a)),
+    ];
+    Some(PixelShaderElement::new(
+        shader.clone(),
+        area,
+        None,
+        1.0,
+        uniforms,
+        Kind::Unspecified,
+    ))
 }
 
 /// A ring around a window that grows outward and fades: the window was unlocked from its cluster.
@@ -125,6 +157,7 @@ pub fn desk_elements(
     output: &Output,
     space: &Space<Window>,
     canvas: &Canvas,
+    grid_shader: &GlesPixelProgram,
     pulse: Option<(Rectangle<i32, Logical>, f64)>,
 ) -> Vec<DeskElement> {
     let mut elements: Vec<DeskElement> = pulse
@@ -145,7 +178,7 @@ pub fn desk_elements(
             canvas.zoom(),
         ))
     }));
-    elements.extend(grid_elements(canvas).into_iter().map(DeskElement::Solid));
+    elements.extend(grid_element(grid_shader, canvas).map(DeskElement::Grid));
     let lower = layer_elements(renderer, output, &[Layer::Bottom, Layer::Background]);
     elements.extend(lower.into_iter().map(DeskElement::Surface));
     elements

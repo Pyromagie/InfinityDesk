@@ -12,7 +12,10 @@ use smithay::{
     utils::{Rectangle, Transform},
 };
 
-use crate::{InfinityDesk, render::desk_elements};
+use crate::{
+    InfinityDesk,
+    render::{compile_grid_shader, desk_elements},
+};
 use smithay::desktop::layer_map_for_output;
 
 /// Canvas background color (RGBA).
@@ -57,6 +60,7 @@ pub fn init_winit(
     state.apply_viewport();
 
     let mut damage_tracker = OutputDamageTracker::from_output(&output);
+    let grid_shader = compile_grid_shader(backend.renderer());
 
     event_loop
         .handle()
@@ -83,8 +87,14 @@ pub fn init_winit(
                 {
                     let pulse = state.pulse();
                     let (renderer, mut framebuffer) = backend.bind().unwrap();
-                    let elements =
-                        desk_elements(renderer, &output, &state.space, &state.canvas, pulse);
+                    let elements = desk_elements(
+                        renderer,
+                        &output,
+                        &state.space,
+                        &state.canvas,
+                        &grid_shader,
+                        pulse,
+                    );
                     if let Err(err) = damage_tracker.render_output(
                         renderer,
                         &mut framebuffer,
