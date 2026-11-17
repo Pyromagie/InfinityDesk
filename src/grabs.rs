@@ -16,7 +16,7 @@ use smithay::{
 
 use crate::{
     InfinityDesk,
-    cluster::{Rect, snap_delta, touching},
+    cluster::{Rect, SNAP_THRESHOLD, snap_delta, touching},
 };
 
 /// How far the cluster moves: pointer movement, kept inside the canvas, plus snapping.
@@ -41,7 +41,8 @@ fn cluster_delta(
         .map(|r| Rect::new(r.loc + delta, r.size))
         .collect();
     let others: Vec<Rect> = others(data, members).map(|(_, r)| r).collect();
-    delta += snap_delta(&moved, &others);
+    let threshold = (SNAP_THRESHOLD / data.canvas.zoom()).round() as i32;
+    delta += snap_delta(&moved, &others, threshold);
     delta
 }
 
@@ -58,7 +59,7 @@ fn others<'a>(
 
 /// Holding still this long before dragging pulls the window out of its cluster.
 pub const HOLD_TIME: Duration = Duration::from_millis(150);
-/// Pointer movement (in pixels) that still counts as holding still.
+/// Pointer movement (in screen pixels) that still counts as holding still.
 const HOLD_TOLERANCE: f64 = 6.0;
 
 /// A window being dragged along, with its starting position.
@@ -153,7 +154,8 @@ impl PointerGrab<InfinityDesk> for DragGrab {
             } => {
                 // Decide on the first real movement: held still long enough -> just this window.
                 if let Some(time) = *pressed {
-                    if pointer_delta.x.hypot(pointer_delta.y) < HOLD_TOLERANCE {
+                    let moved = pointer_delta.x.hypot(pointer_delta.y) * data.canvas.zoom();
+                    if moved < HOLD_TOLERANCE {
                         return;
                     }
                     *pressed = None;
