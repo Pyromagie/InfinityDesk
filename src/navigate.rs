@@ -269,6 +269,38 @@ impl InfinityDesk {
         self.apply_viewport();
     }
 
+    /// Alt+Tab: goes one window further back in the order they were used; the view follows.
+    /// The choice is made when the modifiers are released (see `end_switching`).
+    pub fn switch_recent(&mut self) {
+        if self.recent.len() < 2 {
+            return;
+        }
+        let next = self.switching.map_or(1, |i| (i + 1) % self.recent.len());
+        self.switching = Some(next);
+        let window = self.recent[next].clone();
+        self.focus_window(&window);
+        if let Some(rect) = self.target_rect(&window) {
+            self.canvas.reveal(rect);
+            self.apply_viewport();
+        }
+    }
+
+    /// The modifiers of Alt+Tab were released: the window shown now becomes the most recent.
+    pub fn end_switching(&mut self) {
+        if let Some(i) = self.switching.take() {
+            let window = self.recent.remove(i);
+            self.recent.insert(0, window);
+        }
+    }
+
+    /// A window is gone: out of the Alt+Tab order (a running switch starts over).
+    pub fn forget_recent(&mut self, window: &Window) {
+        if self.recent.contains(window) {
+            self.recent.retain(|w| w != window);
+            self.switching = None;
+        }
+    }
+
     /// A window was clicked in the overview: it gets focused and the overview closes there.
     pub fn choose_in_overview(&mut self, window: &Window) {
         self.overview = None;

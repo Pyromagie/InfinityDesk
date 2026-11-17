@@ -107,6 +107,9 @@ impl Default for Config {
                 // Mod+O too: while nested, Alt+Tab usually belongs to the host compositor.
                 ("Mod+Tab".to_string(), Action::Overview),
                 ("Mod+O".to_string(), Action::Overview),
+                // Alt, not Mod: like everywhere else. (While nested, Mod+Tab is the same keys
+                // and comes first; standalone, Mod is Super.)
+                ("Alt+Tab".to_string(), Action::RecentWindows),
                 ("Mod+Minus".to_string(), Action::ZoomOut),
                 // "+" is its own key on some layouts (e.g. German), shares "=" on others.
                 ("Mod+Plus".to_string(), Action::ZoomIn),
@@ -179,12 +182,14 @@ pub enum Action {
     Center,
     /// Zooms out until all windows fit on the screen, or back.
     Overview,
+    /// Goes back through the windows in the order they were used, while the modifiers are held.
+    RecentWindows,
 }
 
 impl UserData for Action {}
 
 /// The actions that need no argument, by their Lua name.
-const SIMPLE_ACTIONS: [(&str, Action); 7] = [
+const SIMPLE_ACTIONS: [(&str, Action); 8] = [
     ("close_window", Action::CloseWindow),
     ("fullscreen", Action::Fullscreen),
     ("layout_menu", Action::LayoutMenu),
@@ -192,6 +197,7 @@ const SIMPLE_ACTIONS: [(&str, Action); 7] = [
     ("zoom_out", Action::ZoomOut),
     ("center", Action::Center),
     ("overview", Action::Overview),
+    ("recent_windows", Action::RecentWindows),
 ];
 /// The actions that take a direction ("left", "right", "up", "down").
 type DirAction = fn(Dir) -> Action;

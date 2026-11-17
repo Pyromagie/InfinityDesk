@@ -56,8 +56,8 @@ step further into two dimensions. Built in Rust on [Smithay](https://github.com/
   screen; its place in the cluster and the view are restored afterwards
 - **Keyboard navigation:** move the focus to the next window in a direction (also into the
   next cluster, the view follows), swap a window with its neighbor, resize in steps (the
-  cluster stays closed), pan and zoom the view, center the active cluster, and an overview
-  that zooms out until all windows fit
+  cluster stays closed), pan and zoom the view, center the active cluster, an overview
+  that zooms out until all windows fit, and Alt + Tab through the recently used windows
 - wlr-layer-shell, so launchers like fuzzel, bars and wallpaper tools (e.g. awww, swaybg) work;
   the wallpaper stays fixed behind the moving canvas
 - Optional setting: docked windows take their neighbor's height or width (clean grid)
@@ -108,6 +108,8 @@ Keyboard shortcuts can be changed in the config (see Settings); mouse controls w
 | Center the active cluster       | Alt + C                                            |
 | Overview (all windows)          | Alt + O or Alt + Tab; again to go back, or to the  |
 |                                 | window chosen meanwhile (click or Alt + arrow)     |
+| Recently used windows           | Alt + Tab (hold Alt; each Tab goes one further     |
+|                                 | back, the view follows; release to choose)         |
 | Open a terminal (alacritty)     | Alt + T                                            |
 | App launcher (fuzzel)           | Alt + Space                                        |
 | Close the focused window        | Alt + Q                                            |
@@ -115,7 +117,8 @@ Keyboard shortcuts can be changed in the config (see Settings); mouse controls w
 | Fullscreen on / off             | Alt + F                                            |
 
 While nested, the host compositor may keep some shortcuts for itself (niri: Alt + Tab), which
-is why the overview is on Alt + O too. Keyboard resizing moves the window's right (bottom)
+is why the overview is on Alt + O too (and Alt + Tab only switches windows standalone, where
+Mod is Super). Keyboard resizing moves the window's right (bottom)
 edge, or its left (top) edge if only that one has a neighbor, so a row that fills the screen
 keeps filling it.
 
@@ -153,7 +156,7 @@ desk.colors { background = "#1a1a1f", grid = "#474752", accent = "#59a6ff" }
 -- in any case ("T", "Return", "F11", "space", "Print", ...). Shift+Q means the Q key.
 -- Actions: desk.spawn("command line"), desk.close_window, desk.fullscreen, desk.layout_menu,
 -- desk.focus(dir), desk.swap(dir), desk.resize(dir), desk.pan(dir) with dir "left", "right",
--- "up" or "down", desk.zoom_in, desk.zoom_out, desk.center, desk.overview
+-- "up" or "down", desk.zoom_in, desk.zoom_out, desk.center, desk.overview, desk.recent_windows
 desk.bind("Mod+Return", desk.spawn("alacritty -e btop"))
 desk.bind("Mod+L", desk.focus("right"))
 desk.unbind("Mod+Tab")

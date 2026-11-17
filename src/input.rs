@@ -46,6 +46,10 @@ impl InfinityDesk {
                     // Shortcuts from the config (see `config::Bind`), matched by the key without
                     // Shift, so "Mod+Shift+Q" is the Q key.
                     |state, mods, keysym| {
+                        // Alt+Tab ends when its modifiers are let go.
+                        if state.switching.is_some() && !(mods.alt || mods.ctrl || mods.logo) {
+                            state.end_switching();
+                        }
                         if !pressed {
                             return FilterResult::Forward;
                         }
@@ -299,6 +303,7 @@ impl InfinityDesk {
                     Action::ZoomOut => self.zoom_by(false),
                     Action::Center => self.center_cluster(),
                     Action::Overview => self.toggle_overview(),
+                    Action::RecentWindows => self.switch_recent(),
                     _ => {}
                 }
             }

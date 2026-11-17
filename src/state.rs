@@ -98,6 +98,10 @@ pub struct InfinityDesk {
     /// The window being worked in (it keeps this while a launcher has the keyboard). New windows
     /// dock next to it; clicking empty space clears it.
     pub active: Option<Window>,
+    /// Windows in the order they were last active, the most recent first (Alt+Tab).
+    pub recent: Vec<Window>,
+    /// While Alt+Tab is held: the position in `recent` of the window shown now.
+    pub switching: Option<usize>,
 
     // Smithay protocol state
     pub compositor_state: CompositorState,
@@ -174,6 +178,8 @@ impl InfinityDesk {
             overview: None,
             free_slots: None,
             active: None,
+            recent: Vec::new(),
+            switching: None,
             resizing: HashMap::new(),
             compositor_state,
             xdg_shell_state,
@@ -327,6 +333,11 @@ impl InfinityDesk {
     /// Raises the window with its cluster and gives it keyboard focus.
     pub fn focus_window(&mut self, window: &Window) {
         self.active = Some(window.clone());
+        // While switching with Alt+Tab, the order is kept until the choice is made.
+        if self.switching.is_none() {
+            self.recent.retain(|w| w != window);
+            self.recent.insert(0, window.clone());
+        }
         self.raise_cluster(window);
         let surface = window.toplevel().unwrap().wl_surface().clone();
         let keyboard = self.seat.get_keyboard().unwrap();

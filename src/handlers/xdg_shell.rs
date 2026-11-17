@@ -77,6 +77,7 @@ impl XdgShellHandler for InfinityDesk {
                 self.layout_menu = None;
             }
             self.forget_slot_anchor(&window);
+            self.forget_recent(&window);
             if self.active.as_ref() == Some(&window) {
                 self.active = None;
             }
