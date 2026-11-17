@@ -107,6 +107,7 @@ pub fn touching(a: &Rect, b: &Rect) -> bool {
 /// window. An edge within `threshold` (canvas pixels) of a neighbor docks to it, and the other
 /// axis always lines up with that neighbor (top edges or left edges flush), so clusters form a
 /// clean grid. The closest dock wins; ties go to the smallest alignment jump.
+/// A spot that is already taken by another window is skipped.
 pub fn snap_delta(moving: &[Rect], others: &[Rect], threshold: i32) -> Point<i32, Logical> {
     // (dock distance, alignment distance, delta)
     let mut best: Option<(i32, i32, Point<i32, Logical>)> = None;
@@ -126,18 +127,32 @@ pub fn snap_delta(moving: &[Rect], others: &[Rect], threshold: i32) -> Point<i32
             ];
             for (faces, dock, align, side_by_side) in candidates {
                 let score = (dock.abs(), align.abs());
-                if faces && dock.abs() <= threshold && best.is_none_or(|(d, a, _)| score < (d, a)) {
-                    let delta = if side_by_side {
-                        (dock, align)
-                    } else {
-                        (align, dock)
-                    };
-                    best = Some((score.0, score.1, delta.into()));
+                let delta = if side_by_side {
+                    (dock, align)
+                } else {
+                    (align, dock)
+                }
+                .into();
+                if faces
+                    && dock.abs() <= threshold
+                    && best.is_none_or(|(d, a, _)| score < (d, a))
+                    && is_free(moving, others, delta)
+                {
+                    best = Some((score.0, score.1, delta));
                 }
             }
         }
     }
     best.map_or((0, 0).into(), |(_, _, delta)| delta)
+}
+
+/// Would the moving windows, shifted by `delta`, lie on top of another window?
+fn is_free(moving: &[Rect], others: &[Rect], delta: Point<i32, Logical>) -> bool {
+    moving.iter().all(|m| {
+        others
+            .iter()
+            .all(|o| !Rect::new(m.loc + delta, m.size).overlaps(*o))
+    })
 }
 
 /// The size a window docked to `o` gets, so the cluster stays a clean grid:
@@ -212,6 +227,19 @@ mod tests {
         let bottom = rect(0, 300, 400, 300);
         let moving = rect(420, 5, 400, 300);
         assert_eq!(snap_delta(&[moving], &[top, bottom], 27), (-20, -5).into());
+    }
+
+    #[test]
+    fn does_not_dock_onto_an_occupied_spot() {
+        // 2×2 grid; a window dragged into the bottom-right one must not snap onto it.
+        let grid = [
+            rect(0, 0, 400, 300),
+            rect(400, 0, 400, 300),
+            rect(0, 300, 400, 300),
+            rect(400, 300, 400, 300),
+        ];
+        let moving = rect(410, 310, 400, 300);
+        assert_eq!(snap_delta(&[moving], &grid, 15), (0, 0).into());
     }
 
     #[test]
