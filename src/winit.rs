@@ -16,7 +16,7 @@ use crate::{
     InfinityDesk,
     render::{compile_grid_shader, desk_elements},
 };
-use smithay::desktop::layer_map_for_output;
+use smithay::{desktop::layer_map_for_output, input::pointer::CursorIcon};
 
 /// Canvas background color (RGBA).
 const BACKGROUND: [f32; 4] = [0.1, 0.1, 0.12, 1.0];
@@ -63,6 +63,8 @@ pub fn init_winit(
     let grid_shader = compile_grid_shader(backend.renderer());
     // The back buffer has no age before the first frame (asking EGL then logs an error).
     let mut first_frame = true;
+    // Pointer image currently shown by the host.
+    let mut cursor = CursorIcon::Default;
 
     event_loop
         .handle()
@@ -90,6 +92,11 @@ pub fn init_winit(
                 };
                 first_frame = false;
                 let outlines = state.outlines();
+                let edges = state.edge_highlights();
+                if state.cursor != cursor {
+                    cursor = state.cursor;
+                    backend.window().set_cursor(cursor.into());
+                }
                 let damage = match backend.bind() {
                     Ok((renderer, mut framebuffer)) => {
                         let elements = desk_elements(
@@ -99,6 +106,7 @@ pub fn init_winit(
                             &state.canvas,
                             &grid_shader,
                             &outlines,
+                            &edges,
                         );
                         damage_tracker
                             .render_output(renderer, &mut framebuffer, age, &elements, BACKGROUND)

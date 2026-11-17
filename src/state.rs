@@ -9,6 +9,10 @@ use std::{
 const PULSE_TIME: Duration = Duration::from_millis(350);
 /// How far the pulse grows outward (in pixels).
 const PULSE_GROW: f64 = 16.0;
+/// Window borders can be grabbed this far outside a window (screen pixels) ...
+const BORDER_OUTSIDE: f64 = 10.0;
+/// ... and this far inside it.
+const BORDER_INSIDE: f64 = 5.0;
 
 use crate::{
     canvas::{Canvas, DEFAULT_CANVAS_HEIGHT, DEFAULT_CANVAS_WIDTH},
@@ -16,10 +20,11 @@ use crate::{
     config::Config,
     grabs::HOLD_TIME,
     render::{OUTLINE_WIDTH, Outline},
+    resize::{self, Edge, Follow},
 };
 use smithay::{
     desktop::{PopupManager, Space, Window, WindowSurfaceType, layer_map_for_output},
-    input::{Seat, SeatState},
+    input::{Seat, SeatState, pointer::CursorIcon},
     output::Output,
     reexports::{
         calloop::{EventLoop, Interest, LoopSignal, Mode, PostAction, generic::Generic},
@@ -68,6 +73,11 @@ pub struct InfinityDesk {
     pub resizing: HashMap<Window, Resizing>,
     /// The selection box being dragged open, in canvas coordinates.
     pub selection_box: Option<Rectangle<i32, Logical>>,
+    /// Window edges that move when resizing at the border under the pointer (or while resizing);
+    /// they light up.
+    pub resize_hint: Vec<(Window, [Follow; 2])>,
+    /// Pointer image shown by the host (resize arrows at window borders).
+    pub cursor: CursorIcon,
 
     // Smithay protocol state
     pub compositor_state: CompositorState,
@@ -113,6 +123,8 @@ impl InfinityDesk {
             pulse: None,
             selected: Vec::new(),
             selection_box: None,
+            resize_hint: Vec::new(),
+            cursor: CursorIcon::Default,
             resizing: HashMap::new(),
             compositor_state,
             xdg_shell_state,
@@ -271,6 +283,89 @@ impl InfinityDesk {
             self.resizing.remove(window);
         }
         self.space.map_element(window.clone(), (x, y), false);
+    }
+
+    /// The window whose border is under a canvas point, and which of its edges are grabbed there.
+    /// The topmost window wins; a point deeper inside a window belongs to its content.
+    pub fn border_under(&self, pos: Point<f64, Logical>) -> Option<(Window, [Edge; 2])> {
+        let zoom = self.canvas.zoom();
+        for window in self.space.elements().rev() {
+            let Some(geo) = self.space.element_geometry(window) else {
+                continue;
+            };
+            let edges =
+                resize::border_edges(&geo, pos, BORDER_INSIDE / zoom, BORDER_OUTSIDE / zoom);
+            if let Some(edges) = edges {
+                return Some((window.clone(), edges));
+            }
+            if geo.to_f64().contains(pos) {
+                return None;
+            }
+        }
+        None
+    }
+
+    /// Lights up the edges that move when `window` is resized at `edges` (`None`: nothing),
+    /// and shows matching resize arrows.
+    pub fn set_resize_hint(&mut self, hint: Option<(Window, [Edge; 2])>, shift: bool) {
+        let Some((window, edges)) = hint else {
+            self.resize_hint.clear();
+            self.cursor = CursorIcon::Default;
+            return;
+        };
+        let (windows, rects): (Vec<Window>, Vec<_>) = (self.clusters.members(&window))
+            .into_iter()
+            .filter_map(|w| Some((w.clone(), self.space.element_geometry(&w)?)))
+            .unzip();
+        let dragged = windows.iter().position(|w| w == &window).unwrap_or(0);
+        let follow = resize::plan(&rects, dragged, edges, shift);
+        self.resize_hint = windows.into_iter().zip(follow).collect();
+        self.set_cursor_for(edges);
+    }
+
+    /// Resize arrows matching the grabbed edges.
+    pub fn set_cursor_for(&mut self, edges: [Edge; 2]) {
+        self.cursor = match edges {
+            [Edge::None, Edge::None] => CursorIcon::Default,
+            [Edge::None, _] => CursorIcon::NsResize,
+            [_, Edge::None] => CursorIcon::EwResize,
+            [x, y] if x == y => CursorIcon::NwseResize,
+            _ => CursorIcon::NeswResize,
+        };
+    }
+
+    /// Screen rectangles of the edges in `resize_hint`.
+    pub fn edge_highlights(&self) -> Vec<Rectangle<i32, Logical>> {
+        let half = OUTLINE_WIDTH / 2;
+        let mut bars = Vec::new();
+        for (window, follow) in &self.resize_hint {
+            let Some(geo) = self.space.element_geometry(window) else {
+                continue;
+            };
+            let r = self.screen_rect(geo);
+            let (left, top) = (r.loc.x, r.loc.y);
+            let (right, bottom) = (left + r.size.w, top + r.size.h);
+            let [x, y] = follow.map(|f| match f {
+                Follow::Start => Some(false),
+                Follow::End => Some(true),
+                _ => None,
+            });
+            if let Some(end) = x {
+                let at = if end { right } else { left };
+                bars.push(Rectangle::new(
+                    (at - half, top).into(),
+                    (OUTLINE_WIDTH, r.size.h).into(),
+                ));
+            }
+            if let Some(end) = y {
+                let at = if end { bottom } else { top };
+                bars.push(Rectangle::new(
+                    (left, at - half).into(),
+                    (r.size.w, OUTLINE_WIDTH).into(),
+                ));
+            }
+        }
+        bars
     }
 
     /// Converts a rectangle on the canvas into one on the screen.

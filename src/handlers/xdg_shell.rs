@@ -63,6 +63,7 @@ impl XdgShellHandler for InfinityDesk {
         if let Some(window) = self.window_for_surface(surface.wl_surface()) {
             self.selected.retain(|w| w != &window);
             self.resizing.remove(&window);
+            self.resize_hint.retain(|(w, _)| w != &window);
             self.clusters.remove(&window);
         }
     }

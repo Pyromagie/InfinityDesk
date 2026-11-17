@@ -108,6 +108,32 @@ pub fn apply(
         .collect()
 }
 
+/// The edges of `r` grabbed at `pos`: up to `outer` outside the window or `inner` inside it.
+/// `None` deeper inside the window or further away. Beyond a corner both edges are grabbed.
+pub fn border_edges(
+    r: &Rect,
+    pos: Point<f64, Logical>,
+    inner: f64,
+    outer: f64,
+) -> Option<[Edge; 2]> {
+    let p = [pos.x, pos.y];
+    let edges = [0, 1].map(|axis| {
+        let (start, end) = span(r, axis);
+        let (start, end) = (start as f64, end as f64);
+        match p[axis] {
+            v if v < start - outer || v > end + outer => None,
+            v if v < start + inner => Some(Edge::Start),
+            v if v > end - inner => Some(Edge::End),
+            _ => Some(Edge::None),
+        }
+    });
+    match edges {
+        [Some(Edge::None), Some(Edge::None)] => None,
+        [Some(x), Some(y)] => Some([x, y]),
+        _ => None,
+    }
+}
+
 /// (start, end) of a rectangle along an axis (0 = x, 1 = y).
 fn span(r: &Rect, axis: usize) -> (i32, i32) {
     match axis {
@@ -195,6 +221,22 @@ mod tests {
         assert_eq!(new[0], rect(-30, 0, 100, 100));
         assert_eq!(new[1], rect(70, 0, 100, 100));
         assert_eq!(new[2], rect(170, 0, 130, 100));
+    }
+
+    #[test]
+    fn border_zone_around_the_edges() {
+        let r = rect(100, 100, 200, 200);
+        let at = |x: f64, y: f64| border_edges(&r, (x, y).into(), 5.0, 10.0);
+        // Outside the left edge, just inside the right edge, below the bottom edge.
+        assert_eq!(at(92.0, 200.0), Some([Edge::Start, Edge::None]));
+        assert_eq!(at(297.0, 200.0), Some([Edge::End, Edge::None]));
+        assert_eq!(at(200.0, 308.0), Some([Edge::None, Edge::End]));
+        // Beyond the top-right corner: both edges.
+        assert_eq!(at(305.0, 95.0), Some([Edge::End, Edge::Start]));
+        // Inside the window, or too far away: nothing.
+        assert_eq!(at(200.0, 200.0), None);
+        assert_eq!(at(80.0, 200.0), None);
+        assert_eq!(at(200.0, 50.0), None);
     }
 
     #[test]

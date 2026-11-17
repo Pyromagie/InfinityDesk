@@ -144,6 +144,21 @@ fn outline_elements(outline: &Outline) -> Vec<SolidColorRenderElement> {
         .collect()
 }
 
+/// A solid blue bar on the screen (a window edge that lights up).
+fn bar_element(rect: &Rectangle<i32, Logical>) -> SolidColorRenderElement {
+    let geo = Rectangle::<i32, Physical>::new(
+        (rect.loc.x, rect.loc.y).into(),
+        (rect.size.w, rect.size.h).into(),
+    );
+    SolidColorRenderElement::new(
+        Id::new(),
+        geo,
+        CommitCounter::default(),
+        OUTLINE_COLOR,
+        Kind::Unspecified,
+    )
+}
+
 /// Layer surfaces (launchers, bars, wallpapers) sit on the screen and are never zoomed.
 fn layer_elements(
     renderer: &mut GlesRenderer,
@@ -159,7 +174,8 @@ fn layer_elements(
         .collect()
 }
 
-/// All elements of a frame, front to back: outlines, top layers, windows, grid, bottom layers.
+/// All elements of a frame, front to back: outlines and lit edges, top layers, windows, grid,
+/// bottom layers.
 pub fn desk_elements(
     renderer: &mut GlesRenderer,
     output: &Output,
@@ -167,10 +183,10 @@ pub fn desk_elements(
     canvas: &Canvas,
     grid_shader: &GlesPixelProgram,
     outlines: &[Outline],
+    edges: &[Rectangle<i32, Logical>],
 ) -> Vec<DeskElement> {
-    let mut elements: Vec<DeskElement> = outlines
-        .iter()
-        .flat_map(outline_elements)
+    let mut elements: Vec<DeskElement> = (outlines.iter().flat_map(outline_elements))
+        .chain(edges.iter().map(bar_element))
         .map(DeskElement::Solid)
         .collect();
     let upper = layer_elements(renderer, output, &[Layer::Overlay, Layer::Top]);

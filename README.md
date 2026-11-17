@@ -41,8 +41,8 @@ step further into two dimensions. Built in Rust on [Smithay](https://github.com/
 - **Marking:** mark several windows (single clicks or a selection box) and pull them out of
   their cluster together; they stay connected among themselves
 - **Cluster resize:** resizing a window takes its neighbors along, so the cluster stays closed.
-  With Shift, the rest of the cluster moves instead. Works with the keyboard shortcut and with
-  apps that let you drag their own borders.
+  With Shift, the rest of the cluster moves instead. Grab any window border (a generous zone
+  around it shows resize arrows and lights up the edges that will move), or use Alt + right-drag.
 - wlr-layer-shell, so launchers like fuzzel (and bars or wallpaper tools) work
 - Optional setting: docked windows take their neighbor's height or width (clean grid)
 
@@ -88,8 +88,9 @@ All controls will become configurable.
 | Mark windows with a box         | Alt + Shift + drag on empty space                  |
 | Detach marked windows together  | Hold and drag one of them (as above)               |
 | Clear marks                     | Click on empty space                               |
-| Resize (neighbors follow)       | Alt + right-drag on a window (nearest edges move)  |
-| Resize, rest of cluster moves   | Alt + Shift + right-drag                           |
+| Resize (neighbors follow)       | Left-drag on a window border (the edges light up)  |
+|                                 | or Alt + right-drag on a window (nearest edges)    |
+| Resize, rest of cluster moves   | The same with Shift                                |
 | Open a terminal (alacritty)     | Alt + T                                            |
 | App launcher (fuzzel)           | Alt + D                                            |
 | Close the focused window        | Alt + Q                                            |

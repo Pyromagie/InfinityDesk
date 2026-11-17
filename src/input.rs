@@ -85,6 +85,7 @@ impl InfinityDesk {
                 //                                         in the cluster follow (Shift: they move)
                 //   Alt + Shift + click on a window      -> mark / unmark it
                 //   Alt + Shift + drag on empty canvas   -> mark windows with a selection box
+                //   left-drag on a window border         -> resize it (Shift: the cluster moves)
                 //   left-drag on empty canvas   -> pan the viewport
                 let location = pointer.current_location();
                 // Launchers and bars on top of everything just get the click.
@@ -101,7 +102,15 @@ impl InfinityDesk {
                         location,
                     };
 
-                    if let Some(window) = clicked {
+                    // A window border (also a bit outside the window) is grabbed to resize it.
+                    let border = (!alt && button == BTN_LEFT)
+                        .then(|| self.border_under(location))
+                        .flatten();
+                    if let Some((window, edges)) = border {
+                        self.focus_window(&window);
+                        let grab = DragGrab::resize(self, start_data, window, edges, mods.shift);
+                        pointer.set_grab(self, grab, serial, Focus::Clear);
+                    } else if let Some(window) = clicked {
                         self.focus_window(&window);
                         if select {
                             self.toggle_selected(window);
@@ -214,5 +223,15 @@ impl InfinityDesk {
         };
         pointer.motion(self, under, &motion);
         pointer.frame(self);
+
+        // Show which edges a click would grab (a running drag keeps its own).
+        if !pointer.is_grabbed() {
+            let mods = self.seat.get_keyboard().unwrap().modifier_state();
+            let on_layer = (self.layer_surface_under(pos, &[Layer::Overlay, Layer::Top])).is_some();
+            let hint = (!mods.alt && !on_layer)
+                .then(|| self.border_under(pos))
+                .flatten();
+            self.set_resize_hint(hint, mods.shift);
+        }
     }
 }

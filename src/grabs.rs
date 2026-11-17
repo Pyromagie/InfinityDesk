@@ -213,6 +213,12 @@ impl DragGrab {
         let dragged = windows.iter().position(|w| w == &window).unwrap_or(0);
         let follow = resize::plan(&initial, dragged, edges, shift);
         set_resizing(&windows, &follow, true);
+        state.resize_hint = windows
+            .iter()
+            .cloned()
+            .zip(follow.iter().copied())
+            .collect();
+        state.set_cursor_for(edges);
         let min = windows.iter().map(min_size).collect();
         Self {
             start_data,
@@ -466,6 +472,7 @@ impl PointerGrab<InfinityDesk> for DragGrab {
         } = &self.kind
         {
             set_resizing(windows, follow, false);
+            data.set_resize_hint(None, false);
         }
         let DragKind::MoveWindows {
             members, pressed, ..
