@@ -67,11 +67,6 @@ impl Canvas {
         self.set_viewport_loc(point - Point::from((s.w / 2.0, s.h / 2.0)));
     }
 
-    /// Converts a screen position into a canvas position.
-    pub fn screen_to_canvas(&self, screen: Point<f64, Logical>) -> Point<f64, Logical> {
-        screen + self.viewport_loc
-    }
-
     /// Converts a canvas position into a screen position.
     pub fn canvas_to_screen(&self, canvas: Point<f64, Logical>) -> Point<f64, Logical> {
         canvas - self.viewport_loc
@@ -131,9 +126,7 @@ mod tests {
     fn screen_canvas_conversion() {
         let mut c = canvas();
         c.set_viewport_loc((1_000.0, 2_000.0).into());
-        let p = c.screen_to_canvas((10.0, 20.0).into());
-        assert_eq!(p, (1_010.0, 2_020.0).into());
-        assert_eq!(c.canvas_to_screen(p), (10.0, 20.0).into());
+        assert_eq!(c.canvas_to_screen((1_010.0, 2_020.0).into()), (10.0, 20.0).into());
     }
 
     #[test]
