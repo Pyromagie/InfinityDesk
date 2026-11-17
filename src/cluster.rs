@@ -17,6 +17,9 @@ pub type Rect = Rectangle<i32, Logical>;
 pub const SNAP_THRESHOLD: f64 = 15.0;
 /// Edges at most this far apart count as "touching" (connected).
 pub const TOUCH_TOLERANCE: i32 = 2;
+/// Docking also lines up the other edge (tops or left edges), but only if that edge is at most
+/// this many times the snap distance away. Otherwise a window would jump far to line up.
+const ALIGN_FACTOR: i32 = 4;
 
 /// Which windows belong to which cluster. Windows without an entry stand alone.
 #[derive(Debug)]
@@ -148,6 +151,7 @@ pub fn snap_delta(moving: &[Rect], others: &[Rect], threshold: i32) -> Point<i32
                 .into();
                 if faces
                     && dock.abs() <= threshold
+                    && align.abs() <= threshold * ALIGN_FACTOR
                     && best.is_none_or(|(d, a, _)| score < (d, a))
                     && is_free(moving, others, delta)
                 {
@@ -212,11 +216,21 @@ mod tests {
     }
 
     #[test]
-    fn docking_always_aligns() {
-        // Docks to the right of `other` although 200 px lower: tops are lined up anyway.
+    fn docking_aligns_nearby_edges() {
+        // Docks to the right of `other`, 40 px lower: tops are lined up.
         let other = rect(0, 0, 400, 300);
-        let moving = rect(405, 200, 400, 500);
-        assert_eq!(snap_delta(&[moving], &[other], 15), (-5, -200).into());
+        let moving = rect(405, 40, 400, 500);
+        assert_eq!(snap_delta(&[moving], &[other], 15), (-5, -40).into());
+    }
+
+    #[test]
+    fn taller_window_far_below_does_not_jump_up() {
+        // A tall window in the gap between two windows, 200 px lower than them: it must not
+        // jump up to line up its top, it simply does not dock.
+        let left = rect(0, 0, 400, 300);
+        let right = rect(810, 0, 400, 300);
+        let moving = rect(405, 200, 400, 600);
+        assert_eq!(snap_delta(&[moving], &[left, right], 15), (0, 0).into());
     }
 
     #[test]
