@@ -24,7 +24,7 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
 - ✅ **Cluster**: Gruppe aneinander angedockter Fenster, als Ganzes verschiebbar.
 - ✅ **Freie Ansicht**: normalerweise betrachtet man die Fläche frei aus jeder Position, nichts rastet ein.
 - ✅ **Cluster-Fokus (Viewport andocken)**: will man ein Cluster richtig benutzen, wird der Viewport so daran angedockt, dass die linke obere Ecke des obersten linken Fensters an der linken oberen Ecke des Bildschirms sitzt. 💬 Soll dabei auch gezoomt werden, damit das ganze Cluster auf den Bildschirm passt?
-- 💡 **Culling**: nur sichtbare Fenster rendern, dann kostet die Canvas-Größe praktisch keine Performance.
+- ✅ **Culling**: nur sichtbare Fenster werden gerendert (eingebaut mit dem Zoom).
 
 ## 3. Technik
 
@@ -41,8 +41,8 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
 ## 5. Andocken / Snapping
 
 - ✅ Einrasten an Kanten innerhalb von 15 px **auf dem Bildschirm** (gilt bei jedem Zoom gleich): **Andocken** (Kante an Kante) und **Ausrichten** (bündige Ober-/Seitenkanten, ergibt saubere Ecken).
-- ✅ **Cluster sind ein sauberes Raster** (keine versetzten Verbindungen): Beim Andocken richtet sich das Fenster immer bündig am Nachbarn aus (nebeneinander: Oberkanten, untereinander: linke Kanten). Ein einzeln angedocktes Fenster übernimmt die Höhe (nebeneinander) bzw. Breite (untereinander) des Nachbarn.
-  - 💬 Dockt ein ganzes Cluster an, wird nur ausgerichtet, nicht in der Größe angepasst.
+- ✅ **Keine versetzten Verbindungen:** Beim Andocken richtet sich das Fenster immer bündig am Nachbarn aus (nebeneinander: Oberkanten, untereinander: linke Kanten).
+- ✅ Fenster behalten beim Andocken ihre Größe (unterschiedlich große Fenster dürfen aneinander docken). Eine automatische Größenanpassung wurde ausprobiert und verworfen.
   - ✅ Ein Platz, an dem schon ein Fenster liegt, wird nicht angedockt (keine überlappenden Fenster).
   - ✅ Schnell vorbeiziehen (über 1000 px/s) rastet nicht ein, damit nichts kurz hin- und herspringt. Beim Loslassen wird immer eingerastet.
 - ✅ Zieht man ein Fenster, bewegt sich sein **ganzes Cluster**. Lässt man los und das Cluster berührt andere Fenster, werden sie zu einem Cluster verbunden.

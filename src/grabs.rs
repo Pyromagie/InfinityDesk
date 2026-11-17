@@ -16,7 +16,7 @@ use smithay::{
 
 use crate::{
     InfinityDesk,
-    cluster::{Rect, SNAP_THRESHOLD, grid_size, snap_delta, touching},
+    cluster::{Rect, SNAP_THRESHOLD, snap_delta, touching},
 };
 
 /// How far the cluster moves: pointer movement, kept inside the canvas, plus snapping (if `snap`).
@@ -391,19 +391,11 @@ impl PointerGrab<InfinityDesk> for DragGrab {
         let others: Vec<(Window, Rect)> = others(data, members).collect();
 
         for (mw, mr) in &moved {
-            let mut size = mr.size;
             for (ow, or) in &others {
                 if touching(mr, or) {
                     tracing::info!("Docked");
                     data.clusters.join(mw, ow);
-                    size = grid_size(&Rect::new(mr.loc, size), or);
                 }
-            }
-            // A single docked window takes its neighbors' height/width, so the cluster is a grid.
-            if moved.len() == 1 && size != mr.size {
-                let toplevel = mw.toplevel().unwrap();
-                toplevel.with_pending_state(|s| s.size = Some(size));
-                toplevel.send_pending_configure();
             }
         }
     }
