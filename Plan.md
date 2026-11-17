@@ -51,7 +51,7 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
   - **Standard:** Nachbarn im Cluster wachsen/schrumpfen mit (der Viewport ist nur ein Bildschirm, daher nicht einfach wegschieben).
   - **Mit Shift (o. ä.) gehalten:** nur das gezogene Fenster ändert seine Größe, das Nachbarfenster (und alles dahinter) wird verschoben.
   - ✅ "Verschoben" gilt für alles, was auf der anderen Seite der Kante im Cluster hängt. Das Cluster bleibt zusammen, wird nur größer/kleiner.
-- ✅ Fenster aus dem Cluster lösen: **Alt+Klick, 0,15 s stillhalten (blauer Puls-Ring), dann ziehen** = nur dieses Fenster. Sofort ziehen = ganzes Cluster.
+- ✅ Fenster aus dem Cluster lösen: **Alt+Klick, 0,3 s stillhalten (blauer Puls-Ring), dann ziehen** = nur dieses Fenster. Sofort ziehen = ganzes Cluster.
   - Ausprobiert und verworfen: Ruck (zu empfindlich), Schütteln, gegen Widerstand ziehen (ging, aber schlechter). Doppelklick + Ziehen übersprungen.
 - ✅ Orangener Punkt in der Skizze: ohne Bedeutung (Artefakt vom Zeichenprogramm).
 

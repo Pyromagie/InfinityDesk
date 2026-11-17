@@ -62,7 +62,7 @@ fn others<'a>(
 }
 
 /// Holding still this long before dragging pulls the window out of its cluster.
-pub const HOLD_TIME: Duration = Duration::from_millis(150);
+pub const HOLD_TIME: Duration = Duration::from_millis(300);
 /// Windows dragged faster than this (screen pixels per second) pass other windows without snapping.
 const SNAP_MAX_SPEED: f64 = 1000.0;
 /// Pointer movement (in screen pixels) that still counts as holding still.
