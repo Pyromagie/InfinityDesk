@@ -50,6 +50,7 @@ use smithay::{
         },
         shm::ShmState,
         socket::ListeningSocketSource,
+        viewporter::ViewporterState,
     },
 };
 
@@ -103,6 +104,8 @@ pub struct InfinityDesk {
     pub output_manager_state: OutputManagerState,
     pub seat_state: SeatState<InfinityDesk>,
     pub data_device_state: DataDeviceState,
+    /// Lets clients scale their buffers (wallpaper tools like awww need it, video players use it).
+    pub viewporter_state: ViewporterState,
     pub seat: Seat<Self>,
 }
 
@@ -116,6 +119,7 @@ impl InfinityDesk {
         let shm_state = ShmState::new::<Self>(&dh, vec![]);
         let output_manager_state = OutputManagerState::new_with_xdg_output::<Self>(&dh);
         let data_device_state = DataDeviceState::new::<Self>(&dh);
+        let viewporter_state = ViewporterState::new::<Self>(&dh);
 
         let config = Config::load();
         let mut seat_state = SeatState::new();
@@ -174,6 +178,7 @@ impl InfinityDesk {
             output_manager_state,
             seat_state,
             data_device_state,
+            viewporter_state,
             seat,
         }
     }
