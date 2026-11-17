@@ -23,7 +23,7 @@ impl CompositorHandler for InfinityDesk {
         &client.get_data::<ClientState>().unwrap().compositor_state
     }
 
-    /// Ein Programm hat neuen Fensterinhalt abgeschickt.
+    /// A client committed new surface state.
     fn commit(&mut self, surface: &WlSurface) {
         on_commit_buffer_handler::<Self>(surface);
 

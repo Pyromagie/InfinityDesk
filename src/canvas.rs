@@ -1,22 +1,22 @@
-//! Die große, begrenzte Arbeitsfläche und der Viewport (die "Kamera").
+//! The huge, bounded canvas and the viewport (the "camera").
 //!
-//! Koordinaten: (0, 0) ist die linke obere Ecke des Canvas, alles in logischen Pixeln.
-//! Der Viewport ist der Ausschnitt, den der Bildschirm gerade zeigt.
+//! Coordinates: (0, 0) is the top-left corner of the canvas, everything in logical pixels.
+//! The viewport is the part of the canvas currently shown on screen.
 //!
-//! Dieses Modul ist reine Logik ohne Wayland, damit es sich einfach testen lässt.
+//! This module is pure logic without Wayland, so it is easy to test.
 
 use smithay::utils::{Logical, Point, Rectangle, Size};
 
-/// Standardgröße der Arbeitsfläche (später konfigurierbar).
+/// Default canvas size (to become configurable).
 pub const DEFAULT_CANVAS_WIDTH: i32 = 20_000;
 pub const DEFAULT_CANVAS_HEIGHT: i32 = 12_000;
 
 #[derive(Debug, Clone)]
 pub struct Canvas {
     size: Size<i32, Logical>,
-    /// Linke obere Ecke des Viewports in Canvas-Koordinaten.
+    /// Top-left corner of the viewport in canvas coordinates.
     viewport_loc: Point<f64, Logical>,
-    /// Größe des Viewports = Bildschirmgröße (bei Zoom 1:1).
+    /// Viewport size = screen size (at 1:1 zoom).
     viewport_size: Size<i32, Logical>,
 }
 
@@ -46,13 +46,13 @@ impl Canvas {
         self.viewport_loc + Point::from((s.w / 2.0, s.h / 2.0))
     }
 
-    /// Der Bildschirm hat eine neue Größe bekommen.
+    /// The screen was resized.
     pub fn set_viewport_size(&mut self, size: Size<i32, Logical>) {
         self.viewport_size = size;
         self.set_viewport_loc(self.viewport_loc);
     }
 
-    /// Verschiebt den Viewport; er bleibt immer innerhalb des Canvas.
+    /// Moves the viewport; it always stays inside the canvas.
     pub fn set_viewport_loc(&mut self, loc: Point<f64, Logical>) {
         self.viewport_loc = (
             clamp_axis(loc.x, self.viewport_size.w, self.size.w),
@@ -61,23 +61,23 @@ impl Canvas {
             .into();
     }
 
-    /// Zentriert den Viewport auf einen Punkt des Canvas.
+    /// Centers the viewport on a canvas point.
     pub fn center_viewport_on(&mut self, point: Point<f64, Logical>) {
         let s = self.viewport_size.to_f64();
         self.set_viewport_loc(point - Point::from((s.w / 2.0, s.h / 2.0)));
     }
 
-    /// Wandelt eine Bildschirmposition in eine Canvas-Position um.
+    /// Converts a screen position into a canvas position.
     pub fn screen_to_canvas(&self, screen: Point<f64, Logical>) -> Point<f64, Logical> {
         screen + self.viewport_loc
     }
 
-    /// Wandelt eine Canvas-Position in eine Bildschirmposition um.
+    /// Converts a canvas position into a screen position.
     pub fn canvas_to_screen(&self, canvas: Point<f64, Logical>) -> Point<f64, Logical> {
         canvas - self.viewport_loc
     }
 
-    /// Korrigiert die Position eines Fensters so, dass es vollständig im Canvas liegt.
+    /// Adjusts a window position so the window lies completely inside the canvas.
     pub fn clamp_window_loc(&self, loc: Point<i32, Logical>, window_size: Size<i32, Logical>) -> Point<i32, Logical> {
         (
             clamp_axis(loc.x as f64, window_size.w, self.size.w) as i32,
@@ -86,7 +86,7 @@ impl Canvas {
             .into()
     }
 
-    /// Position, an der ein Fenster der gegebenen Größe mittig im Viewport liegt.
+    /// Position at which a window of the given size is centered in the viewport.
     pub fn centered_in_viewport(&self, window_size: Size<i32, Logical>) -> Point<i32, Logical> {
         let c = self.viewport_center();
         let loc = Point::from((c.x - window_size.w as f64 / 2.0, c.y - window_size.h as f64 / 2.0)).to_i32_round();
@@ -94,8 +94,8 @@ impl Canvas {
     }
 }
 
-/// Hält ein Objekt der Länge `len` an Position `pos` innerhalb von `0..max`.
-/// Ist das Objekt größer als die Fläche, wird es an 0 ausgerichtet.
+/// Keeps an object of length `len` at position `pos` within `0..max`.
+/// If the object is larger than the area, it is aligned to 0.
 fn clamp_axis(pos: f64, len: i32, max: i32) -> f64 {
     let upper = (max - len).max(0) as f64;
     pos.clamp(0.0, upper)
@@ -112,7 +112,7 @@ mod tests {
     }
 
     #[test]
-    fn viewport_bleibt_im_canvas() {
+    fn viewport_stays_inside_canvas() {
         let mut c = canvas();
         c.set_viewport_loc((-500.0, -500.0).into());
         assert_eq!(c.viewport_loc(), (0.0, 0.0).into());
@@ -121,14 +121,14 @@ mod tests {
     }
 
     #[test]
-    fn zentrieren() {
+    fn center_viewport() {
         let mut c = canvas();
         c.center_viewport_on((5_000.0, 3_000.0).into());
         assert_eq!(c.viewport_center(), (5_000.0, 3_000.0).into());
     }
 
     #[test]
-    fn umrechnung_bildschirm_canvas() {
+    fn screen_canvas_conversion() {
         let mut c = canvas();
         c.set_viewport_loc((1_000.0, 2_000.0).into());
         let p = c.screen_to_canvas((10.0, 20.0).into());
@@ -137,14 +137,14 @@ mod tests {
     }
 
     #[test]
-    fn fenster_bleibt_im_canvas() {
+    fn window_stays_inside_canvas() {
         let c = canvas();
         let size = (800, 600).into();
         assert_eq!(c.clamp_window_loc((-50, 9_999).into(), size), (0, 6_000 - 600).into());
     }
 
     #[test]
-    fn neues_fenster_mittig() {
+    fn new_window_centered() {
         let mut c = canvas();
         c.set_viewport_loc((1_000.0, 1_000.0).into());
         let loc = c.centered_in_viewport((800, 600).into());
@@ -152,7 +152,7 @@ mod tests {
     }
 
     #[test]
-    fn bildschirm_groesser_als_canvas() {
+    fn screen_larger_than_canvas() {
         let mut c = Canvas::new((1_000, 1_000).into());
         c.set_viewport_size((1920, 1080).into());
         c.set_viewport_loc((300.0, 300.0).into());

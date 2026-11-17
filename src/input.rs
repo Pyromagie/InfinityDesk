@@ -1,4 +1,4 @@
-//! Verarbeitung von Tastatur- und Mauseingaben.
+//! Keyboard and pointer input handling.
 
 use smithay::{
     backend::input::{
@@ -15,7 +15,7 @@ use smithay::{
 
 use crate::{InfinityDesk, grabs::DragGrab};
 
-/// Linke Maustaste (Linux input-event-codes.h).
+/// Left mouse button (linux/input-event-codes.h).
 const BTN_LEFT: u32 = 0x110;
 
 impl InfinityDesk {
@@ -62,10 +62,10 @@ impl InfinityDesk {
 
                 let button = event.button_code();
 
-                // Klick auf ein Fenster: nach vorne holen und fokussieren. Klick daneben: Fokus weg.
-                // Vorläufige Bedienung (Plan.md, Abschnitt 6):
-                //   Alt + Linksziehen auf Fenster  -> Fenster verschieben
-                //   Linksziehen auf leerer Fläche  -> Fläche verschieben (Pan)
+                // Clicking a window raises and focuses it (with its cluster); clicking empty space unfocuses.
+                // Provisional controls until bindings become configurable:
+                //   Alt + left-drag on a window -> move the window's cluster
+                //   left-drag on empty canvas   -> pan the viewport
                 if button_state == ButtonState::Pressed && !pointer.is_grabbed() {
                     let location = pointer.current_location();
                     let clicked = self.space.element_under(location).map(|(w, _)| w.clone());

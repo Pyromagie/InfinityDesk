@@ -1,6 +1,6 @@
-//! InfinityDesk – ein Wayland-Compositor mit einer großen, begrenzten Arbeitsfläche.
+//! InfinityDesk – a Wayland compositor with a huge, bounded canvas to place windows on.
 //!
-//! Aktuell läuft er "genestet": als normales Fenster in der laufenden Session (z. B. niri).
+//! Currently runs "nested": as a regular window inside the running session (e.g. niri).
 
 mod canvas;
 mod cluster;
@@ -23,9 +23,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     winit::init_winit(&mut event_loop, &mut state)?;
 
-    // Programme, die wir starten, sollen sich mit InfinityDesk verbinden statt mit niri.
+    // Programs we spawn should connect to InfinityDesk, not to the host compositor.
     unsafe { std::env::set_var("WAYLAND_DISPLAY", &state.socket_name) };
-    tracing::info!("InfinityDesk läuft auf {:?}", state.socket_name);
+    tracing::info!("InfinityDesk running on {:?}", state.socket_name);
 
     spawn_client();
 
@@ -39,7 +39,7 @@ fn init_logging() {
     tracing_subscriber::fmt().with_env_filter(filter).init();
 }
 
-/// Startet ein Testprogramm im Compositor: `-c <programm>`, sonst ein Terminal.
+/// Spawns a test client inside the compositor: `-c <program>`, otherwise a terminal.
 fn spawn_client() {
     let mut args = std::env::args().skip(1);
     let command = match (args.next().as_deref(), args.next()) {
@@ -47,6 +47,6 @@ fn spawn_client() {
         _ => "alacritty".to_string(),
     };
     if let Err(err) = std::process::Command::new(&command).spawn() {
-        tracing::warn!("Konnte {command} nicht starten: {err}");
+        tracing::warn!("Failed to spawn {command}: {err}");
     }
 }

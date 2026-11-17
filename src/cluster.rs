@@ -1,11 +1,11 @@
-//! Andocken (Snapping) und Cluster.
+//! Snapping and clusters.
 //!
-//! Ein Cluster ist eine Gruppe von Fenstern, die aneinander angedockt wurden und sich gemeinsam bewegen.
-//! Die Zugehörigkeit wird explizit gespeichert (nicht nur aus der Geometrie abgeleitet), damit ein Cluster
-//! nicht zerfällt, nur weil ein Programm seine Größe minimal ändert.
+//! A cluster is a group of windows that were docked to each other and move together.
+//! Membership is stored explicitly (not just derived from geometry), so a cluster does not fall apart
+//! just because a client changes its size by a few pixels.
 //!
-//! Dieses Modul ist reine Logik ohne Wayland: `K` ist der Fenster-Schlüssel (im Compositor `Window`,
-//! in den Tests einfache Zahlen).
+//! This module is pure logic without Wayland: `K` is the window key (`Window` in the compositor,
+//! plain numbers in the tests).
 
 use std::{collections::HashMap, hash::Hash};
 
@@ -13,12 +13,12 @@ use smithay::utils::{Logical, Point, Rectangle};
 
 pub type Rect = Rectangle<i32, Logical>;
 
-/// Ab diesem Abstand (in Pixeln) rastet eine Kante an einer anderen ein.
+/// Edges closer than this (in pixels) snap to each other.
 pub const SNAP_THRESHOLD: i32 = 15;
-/// Kanten mit höchstens diesem Abstand gelten als "berührend" (verbunden).
+/// Edges at most this far apart count as "touching" (connected).
 pub const TOUCH_TOLERANCE: i32 = 2;
 
-/// Welche Fenster zu welchem Cluster gehören. Fenster ohne Eintrag stehen allein.
+/// Which windows belong to which cluster. Windows without an entry stand alone.
 #[derive(Debug)]
 pub struct Clusters<K> {
     cluster_of: HashMap<K, u64>,
@@ -35,7 +35,7 @@ impl<K: Eq + Hash + Clone> Default for Clusters<K> {
 }
 
 impl<K: Eq + Hash + Clone> Clusters<K> {
-    /// Alle Fenster im selben Cluster wie `k` (inklusive `k`). Allein stehend: nur `k`.
+    /// All windows in the same cluster as `k` (including `k`). Standing alone: just `k`.
     pub fn members(&self, k: &K) -> Vec<K> {
         match self.cluster_of.get(k) {
             Some(id) => self
@@ -48,7 +48,7 @@ impl<K: Eq + Hash + Clone> Clusters<K> {
         }
     }
 
-    /// Verbindet die Cluster von `a` und `b` zu einem.
+    /// Merges the clusters of `a` and `b` into one.
     pub fn join(&mut self, a: &K, b: &K) {
         let ca = self.cluster_of.get(a).copied();
         let cb = self.cluster_of.get(b).copied();
@@ -76,8 +76,8 @@ impl<K: Eq + Hash + Clone> Clusters<K> {
         }
     }
 
-    /// Nimmt `k` aus seinem Cluster. Der Rest wird anhand der Geometrie neu aufgeteilt,
-    /// denn ohne `k` kann ein Cluster in mehrere Teile zerfallen.
+    /// Removes `k` from its cluster. The rest is regrouped based on geometry,
+    /// because without `k` a cluster may fall apart into several pieces.
     pub fn remove(&mut self, k: &K, rect_of: impl Fn(&K) -> Option<Rect>) {
         let Some(id) = self.cluster_of.remove(k) else {
             return;
@@ -103,7 +103,7 @@ impl<K: Eq + Hash + Clone> Clusters<K> {
     }
 }
 
-/// Liegen zwei Fenster Kante an Kante (mit echter Überlappung entlang der Kante, nicht nur an einer Ecke)?
+/// Do two windows lie edge to edge (with real overlap along the edge, not just corner to corner)?
 pub fn touching(a: &Rect, b: &Rect) -> bool {
     let (al, ar, at, ab) = edges(a);
     let (bl, br, bt, bb) = edges(b);
@@ -114,13 +114,13 @@ pub fn touching(a: &Rect, b: &Rect) -> bool {
     (side_by_side && v_overlap) || (stacked && h_overlap)
 }
 
-/// Berechnet die Korrektur, um die die bewegten Fenster verschoben werden müssen, damit sie an
-/// nahen Kanten der anderen Fenster einrasten. Pro Achse gewinnt die kleinste Korrektur.
+/// Computes the correction by which the moving windows must be shifted so they snap to nearby
+/// edges of the other windows. Per axis, the smallest correction wins.
 ///
-/// Zwei Arten von Einrasten:
-/// - **Andocken:** rechte Kante an linke Kante (bzw. oben an unten), wenn die Fenster nebeneinander liegen.
-/// - **Ausrichten:** obere Kanten bündig (bzw. linke Kanten), wenn die Fenster gerade aneinander docken.
-///   Dadurch entstehen saubere Ecken wie im 2×2-Cluster.
+/// Two kinds of snapping:
+/// - **Docking:** right edge to left edge (or bottom to top) when the windows are next to each other.
+/// - **Aligning:** top edges flush (or left edges) when the windows are docking to each other.
+///   This produces clean corners, like in a 2×2 cluster.
 pub fn snap_delta(moving: &[Rect], others: &[Rect], threshold: i32) -> Point<i32, Logical> {
     let mut best_x: Option<i32> = None;
     let mut best_y: Option<i32> = None;
@@ -135,28 +135,28 @@ pub fn snap_delta(moving: &[Rect], others: &[Rect], threshold: i32) -> Point<i32
         for o in others {
             let (ol, or, ot, ob) = edges(o);
 
-            // Überlappen sich die Bereiche (mit etwas Toleranz) auf der jeweils anderen Achse?
+            // Do the ranges overlap (with some tolerance) on the other axis?
             let v_near = mt < ob + threshold && ot < mb + threshold;
             let h_near = ml < or + threshold && ol < mr + threshold;
-            // Liegen sie nah Kante an Kante?
+            // Are they close edge to edge?
             let x_adjacent = (mr - ol).abs() <= threshold || (ml - or).abs() <= threshold;
             let y_adjacent = (mb - ot).abs() <= threshold || (mt - ob).abs() <= threshold;
 
             if v_near {
-                consider(&mut best_x, ol - mr); // links von o andocken
-                consider(&mut best_x, or - ml); // rechts von o andocken
+                consider(&mut best_x, ol - mr); // dock left of o
+                consider(&mut best_x, or - ml); // dock right of o
             }
             if h_near {
-                consider(&mut best_y, ot - mb); // über o andocken
-                consider(&mut best_y, ob - mt); // unter o andocken
+                consider(&mut best_y, ot - mb); // dock above o
+                consider(&mut best_y, ob - mt); // dock below o
             }
             if y_adjacent && h_near {
-                consider(&mut best_x, ol - ml); // linke Kanten bündig
-                consider(&mut best_x, or - mr); // rechte Kanten bündig
+                consider(&mut best_x, ol - ml); // left edges flush
+                consider(&mut best_x, or - mr); // right edges flush
             }
             if x_adjacent && v_near {
-                consider(&mut best_y, ot - mt); // obere Kanten bündig
-                consider(&mut best_y, ob - mb); // untere Kanten bündig
+                consider(&mut best_y, ot - mt); // top edges flush
+                consider(&mut best_y, ob - mb); // bottom edges flush
             }
         }
     }
@@ -164,12 +164,12 @@ pub fn snap_delta(moving: &[Rect], others: &[Rect], threshold: i32) -> Point<i32
     (best_x.unwrap_or(0), best_y.unwrap_or(0)).into()
 }
 
-/// Umgebendes Rechteck mehrerer Rechtecke.
+/// Bounding box of several rectangles.
 pub fn bounding_box(rects: &[Rect]) -> Option<Rect> {
     rects.iter().copied().reduce(|a, b| a.merge(b))
 }
 
-/// (links, rechts, oben, unten)
+/// (left, right, top, bottom)
 fn edges(r: &Rect) -> (i32, i32, i32, i32) {
     (r.loc.x, r.loc.x + r.size.w, r.loc.y, r.loc.y + r.size.h)
 }
@@ -183,16 +183,16 @@ mod tests {
     }
 
     #[test]
-    fn rastet_rechts_daneben_ein_und_richtet_oben_aus() {
+    fn snaps_to_the_left_and_aligns_top() {
         let other = rect(1000, 500, 400, 300);
-        // 10 px Lücke zur linken Kante von `other`, 6 px tiefer.
+        // 10 px gap to the left edge of `other`, 6 px lower.
         let moving = rect(590, 506, 400, 300);
         let d = snap_delta(&[moving], &[other], SNAP_THRESHOLD);
         assert_eq!(d, (10, -6).into());
     }
 
     #[test]
-    fn rastet_darunter_ein() {
+    fn snaps_below() {
         let other = rect(0, 0, 400, 300);
         let moving = rect(3, 312, 400, 300);
         let d = snap_delta(&[moving], &[other], SNAP_THRESHOLD);
@@ -200,23 +200,23 @@ mod tests {
     }
 
     #[test]
-    fn weit_weg_kein_einrasten() {
+    fn far_away_does_not_snap() {
         let other = rect(0, 0, 400, 300);
         let moving = rect(2000, 2000, 400, 300);
         assert_eq!(snap_delta(&[moving], &[other], SNAP_THRESHOLD), (0, 0).into());
     }
 
     #[test]
-    fn untereinander_weit_entfernt_wird_nicht_ausgerichtet() {
-        // Gleiche x-Spalte, aber vertikal weit weg: keine Ausrichtung der linken Kanten.
+    fn same_column_far_apart_does_not_align() {
+        // Same x column but vertically far apart: left edges must not align.
         let other = rect(0, 0, 400, 300);
         let moving = rect(5, 1000, 400, 300);
         assert_eq!(snap_delta(&[moving], &[other], SNAP_THRESHOLD), (0, 0).into());
     }
 
     #[test]
-    fn cluster_rastet_als_ganzes_ein() {
-        // Zwei bewegte Fenster; nur das rechte ist nah an `other`.
+    fn cluster_snaps_as_a_whole() {
+        // Two moving windows; only the right one is close to `other`.
         let a = rect(0, 0, 300, 300);
         let b = rect(300, 0, 300, 300);
         let other = rect(608, 0, 300, 300);
@@ -224,18 +224,18 @@ mod tests {
     }
 
     #[test]
-    fn beruehrung() {
+    fn touching_detection() {
         let a = rect(0, 0, 100, 100);
         assert!(touching(&a, &rect(100, 50, 100, 100)));
         assert!(touching(&a, &rect(20, 101, 100, 100)));
-        // Nur Ecke an Ecke: kein Cluster.
+        // Corner to corner only: no cluster.
         assert!(!touching(&a, &rect(100, 100, 100, 100)));
-        // Lücke.
+        // Gap.
         assert!(!touching(&a, &rect(120, 0, 100, 100)));
     }
 
     #[test]
-    fn cluster_verbinden() {
+    fn join_clusters() {
         let mut c = Clusters::default();
         c.join(&1, &2);
         c.join(&3, &4);
@@ -246,8 +246,8 @@ mod tests {
     }
 
     #[test]
-    fn entfernen_teilt_cluster_auf() {
-        // Reihe 1 | 2 | 3. Entfernt man die 2, zerfällt der Cluster in 1 und 3.
+    fn removing_splits_cluster() {
+        // Row 1 | 2 | 3. Removing 2 splits the cluster into 1 and 3.
         let rects = HashMap::from([(1, rect(0, 0, 100, 100)), (2, rect(100, 0, 100, 100)), (3, rect(200, 0, 100, 100))]);
         let mut c = Clusters::default();
         c.join(&1, &2);
@@ -258,8 +258,8 @@ mod tests {
     }
 
     #[test]
-    fn entfernen_laesst_zusammenhaengenden_rest() {
-        // 2×2-Block: 1 2 / 3 4. Entfernt man die 1, hängen 2, 3, 4 über die 4 noch zusammen.
+    fn removing_keeps_connected_rest() {
+        // 2×2 block: 1 2 / 3 4. Removing 1 leaves 2, 3, 4 connected via 4.
         let rects = HashMap::from([
             (1, rect(0, 0, 100, 100)),
             (2, rect(100, 0, 100, 100)),

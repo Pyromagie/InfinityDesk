@@ -1,4 +1,4 @@
-//! Maus-Ziehen: Fenster verschieben oder den Viewport über den Canvas bewegen (Pan).
+//! Pointer drags: moving window clusters or panning the viewport across the canvas.
 
 use smithay::{
     desktop::Window,
@@ -18,19 +18,19 @@ use crate::{
     cluster::{Rect, SNAP_THRESHOLD, bounding_box, snap_delta, touching},
 };
 
-/// Wie weit das Cluster verschoben wird: Mausbewegung, im Canvas gehalten, plus Einrasten.
+/// How far the cluster moves: pointer movement, kept inside the canvas, plus snapping.
 fn cluster_delta(data: &InfinityDesk, members: &[DraggedWindow], pointer_delta: Point<i32, Logical>) -> Point<i32, Logical> {
     let initial: Vec<Rect> = members.iter().map(|m| m.initial_geo).collect();
     let Some(bbox) = bounding_box(&initial) else {
         return pointer_delta;
     };
 
-    // Das ganze Cluster bleibt im Canvas.
+    // The whole cluster stays inside the canvas.
     let target = bbox.loc + pointer_delta;
     let clamped = data.canvas.clamp_window_loc(target, bbox.size);
     let mut delta = pointer_delta + (clamped - target);
 
-    // An Fenstern außerhalb des Clusters einrasten.
+    // Snap to windows outside the cluster.
     let moved: Vec<Rect> = initial
         .iter()
         .map(|r| Rect::new(r.loc + delta, r.size))
@@ -45,12 +45,12 @@ fn cluster_delta(data: &InfinityDesk, members: &[DraggedWindow], pointer_delta: 
     delta
 }
 
-/// Ein "Ruck" löst ein Fenster aus seinem Cluster: so weit (in Pixeln) ...
-const RUCK_DISTANCE: f64 = 120.0;
-/// ... innerhalb dieser Zeit nach Beginn des Ziehens.
-const RUCK_TIME: Duration = Duration::from_millis(150);
+/// A "yank" detaches a window from its cluster: this far (in pixels) ...
+const YANK_DISTANCE: f64 = 120.0;
+/// ... within this time after the drag started.
+const YANK_TIME: Duration = Duration::from_millis(150);
 
-/// Ein Fenster, das gerade mitgezogen wird, mit seiner Ausgangslage.
+/// A window being dragged along, with its starting position.
 pub struct DraggedWindow {
     window: Window,
     initial_loc: Point<i32, Logical>,
@@ -58,18 +58,18 @@ pub struct DraggedWindow {
 }
 
 pub enum DragKind {
-    /// Ein Cluster (oder ein einzelnes Fenster) wird über den Canvas gezogen.
+    /// A cluster (or a single window) is dragged across the canvas.
     MoveCluster {
-        /// Das Fenster, an dem gezogen wird.
+        /// The window the user grabbed.
         grabbed: Window,
         members: Vec<DraggedWindow>,
         started: Instant,
-        /// Wurde das gezogene Fenster per Ruck aus seinem Cluster gelöst?
+        /// Was the grabbed window yanked out of its cluster?
         detached: bool,
     },
-    /// Die Fläche wird unter dem Bildschirm verschoben.
+    /// The canvas is moved underneath the screen.
     Pan {
-        /// Zeigerposition auf dem Bildschirm beim Start.
+        /// Pointer position on screen at the start.
         start_screen: Point<f64, Logical>,
         initial_viewport: Point<f64, Logical>,
     },
@@ -81,7 +81,7 @@ pub struct DragGrab {
 }
 
 impl DragGrab {
-    /// Ziehen an einem Fenster: bewegt sein ganzes Cluster.
+    /// Dragging a window moves its whole cluster.
     pub fn move_window(state: &InfinityDesk, start_data: GrabStartData<InfinityDesk>, window: Window) -> Self {
         let members = state
             .clusters
@@ -126,7 +126,7 @@ impl PointerGrab<InfinityDesk> for DragGrab {
         _focus: Option<(WlSurface, Point<f64, Logical>)>,
         event: &MotionEvent,
     ) {
-        // Während des Ziehens bekommt kein Programm die Maus.
+        // No client receives pointer events while dragging.
         handle.motion(data, None, event);
 
         let pointer_delta = event.location - self.start_data.location;
@@ -137,12 +137,12 @@ impl PointerGrab<InfinityDesk> for DragGrab {
                 started,
                 detached,
             } => {
-                // Ruck erkennen: schnell weit gezogen, direkt nach dem Start.
+                // Detect a yank: dragged far, fast, right after the start.
                 let distance = pointer_delta.x.hypot(pointer_delta.y);
-                if !*detached && members.len() > 1 && started.elapsed() < RUCK_TIME && distance >= RUCK_DISTANCE {
+                if !*detached && members.len() > 1 && started.elapsed() < YANK_TIME && distance >= YANK_DISTANCE {
                     *detached = true;
-                    tracing::info!("Ruck: Fenster aus dem Cluster gelöst");
-                    // Die anderen Fenster zurück an ihren Platz.
+                    tracing::info!("Yank: window detached from its cluster");
+                    // Put the other windows back where they were.
                     for m in members.iter().filter(|m| &m.window != grabbed) {
                         data.space.map_element(m.window.clone(), m.initial_loc, false);
                     }
@@ -160,7 +160,7 @@ impl PointerGrab<InfinityDesk> for DragGrab {
                 start_screen,
                 initial_viewport,
             } => {
-                // In Bildschirmkoordinaten rechnen, weil sich der Canvas unter dem Zeiger mitbewegt.
+                // Work in screen coordinates, because the canvas moves under the pointer.
                 let screen_now = data.canvas.canvas_to_screen(event.location);
                 let delta = screen_now - *start_screen;
                 data.canvas.set_viewport_loc(*initial_viewport - delta);
@@ -270,7 +270,7 @@ impl PointerGrab<InfinityDesk> for DragGrab {
         &self.start_data
     }
 
-    /// Maustaste losgelassen: berührt das Cluster jetzt andere Fenster, wird angedockt.
+    /// Button released: if the cluster now touches other windows, they get docked.
     fn unset(&mut self, data: &mut InfinityDesk) {
         let DragKind::MoveCluster { members, .. } = &self.kind else {
             return;
@@ -289,7 +289,7 @@ impl PointerGrab<InfinityDesk> for DragGrab {
         for (mw, mr) in &moved {
             for (ow, or) in &others {
                 if touching(mr, or) {
-                    tracing::info!("Angedockt");
+                    tracing::info!("Docked");
                     data.clusters.join(mw, ow);
                 }
             }

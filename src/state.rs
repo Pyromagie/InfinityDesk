@@ -28,27 +28,27 @@ use smithay::{
     },
 };
 
-/// Der gesamte Zustand des Compositors.
+/// The complete compositor state.
 pub struct InfinityDesk {
     pub start_time: std::time::Instant,
     pub socket_name: OsString,
     pub display_handle: DisplayHandle,
     pub loop_signal: LoopSignal,
 
-    /// Die Arbeitsfläche mit Viewport.
+    /// The canvas and its viewport.
     pub canvas: Canvas,
-    /// Alle Fenster und Ausgaben in Canvas-Koordinaten. Die Ausgabe sitzt dort, wo der Viewport ist.
+    /// All windows and outputs in canvas coordinates. The output sits where the viewport is.
     pub space: Space<Window>,
     pub popups: PopupManager,
-    /// Der Bildschirm (im genesteten Betrieb: das winit-Fenster).
+    /// The screen (when nested: the winit window).
     pub output: Option<Output>,
-    /// Fenster, die noch keinen Inhalt hatten und deshalb noch nicht platziert sind.
+    /// Windows that have not committed a buffer yet and are therefore not placed yet.
     pub unplaced: Vec<Window>,
-    /// Welche Fenster zu welchem Cluster gehören.
+    /// Which windows belong to which cluster.
     pub clusters: Clusters<Window>,
     pub grid: Grid,
 
-    // Smithay-Protokollzustände
+    // Smithay protocol state
     pub compositor_state: CompositorState,
     pub xdg_shell_state: XdgShellState,
     pub shm_state: ShmState,
@@ -97,7 +97,7 @@ impl InfinityDesk {
         }
     }
 
-    /// Öffnet den Wayland-Socket, über den sich Programme verbinden.
+    /// Opens the Wayland socket that clients connect to.
     fn init_wayland_listener(display: Display<Self>, event_loop: &mut EventLoop<Self>) -> OsString {
         let listening_socket = ListeningSocketSource::new_auto().unwrap();
         let socket_name = listening_socket.socket_name().to_os_string();
@@ -110,13 +110,13 @@ impl InfinityDesk {
                     .insert_client(client_stream, Arc::new(ClientState::default()))
                     .unwrap();
             })
-            .expect("Wayland-Socket konnte nicht registriert werden");
+            .expect("failed to register the Wayland socket");
 
         handle
             .insert_source(
                 Generic::new(display, Interest::READ, Mode::Level),
                 |_, display, state| {
-                    // Safety: das Display wird nie gedroppt, solange die Quelle lebt.
+                    // Safety: the display is never dropped while the source is alive.
                     unsafe {
                         display.get_mut().dispatch_clients(state).unwrap();
                     }
@@ -128,14 +128,14 @@ impl InfinityDesk {
         socket_name
     }
 
-    /// Überträgt die Viewport-Position des Canvas auf die Ausgabe im Space.
+    /// Moves the output within the space to the canvas viewport position.
     pub fn apply_viewport(&mut self) {
         if let Some(output) = &self.output {
             self.space.map_output(output, self.canvas.viewport_loc().to_i32_round());
         }
     }
 
-    /// Platziert ein neues Fenster, sobald seine Größe bekannt ist (beim ersten Inhalt).
+    /// Places a new window once its size is known (on its first buffer commit).
     pub fn place_if_pending(&mut self, surface: &WlSurface) {
         let Some(idx) = self
             .unplaced
@@ -151,7 +151,7 @@ impl InfinityDesk {
         let window = self.unplaced.remove(idx);
         let loc = self.canvas.centered_in_viewport(size);
         tracing::info!(
-            "Fenster platziert bei {:?} (Größe {:?}, Viewport {:?})",
+            "Placed window at {:?} (size {:?}, viewport {:?})",
             loc,
             size,
             self.canvas.viewport()
@@ -166,7 +166,7 @@ impl InfinityDesk {
             .cloned()
     }
 
-    /// Holt ein Fenster samt seinem ganzen Cluster nach vorne.
+    /// Raises a window together with its whole cluster.
     pub fn raise_cluster(&mut self, window: &Window) {
         for w in self.clusters.members(window) {
             if &w != window {
@@ -176,7 +176,7 @@ impl InfinityDesk {
         self.space.raise_element(window, true);
     }
 
-    /// Findet die Oberfläche (Fenster/Popup) unter einem Punkt.
+    /// Finds the surface (window/popup) under a point.
     pub fn surface_under(&self, pos: Point<f64, Logical>) -> Option<(WlSurface, Point<f64, Logical>)> {
         self.space.element_under(pos).and_then(|(window, location)| {
             window
@@ -186,7 +186,7 @@ impl InfinityDesk {
     }
 }
 
-/// Daten pro verbundenem Programm.
+/// Per-client data.
 #[derive(Default)]
 pub struct ClientState {
     pub compositor_state: CompositorClientState,

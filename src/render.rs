@@ -1,4 +1,4 @@
-//! Zusammenstellen, was pro Bild gezeichnet wird: Fenster und das Punkteraster des Canvas.
+//! Assembles what gets drawn each frame: windows and the canvas dot grid.
 
 use smithay::{
     backend::renderer::{
@@ -16,9 +16,9 @@ use smithay::{
 
 use crate::canvas::Canvas;
 
-/// Abstand der Rasterpunkte in logischen Pixeln.
+/// Distance between grid dots in logical pixels.
 const GRID_SPACING: f64 = 100.0;
-/// Kantenlänge eines Rasterpunkts in Pixeln.
+/// Size of a grid dot in pixels.
 const GRID_DOT_SIZE: i32 = 2;
 const GRID_DOT_COLOR: [f32; 4] = [0.28, 0.28, 0.32, 1.0];
 
@@ -28,10 +28,10 @@ render_elements! {
     Solid = SolidColorRenderElement,
 }
 
-/// Punkteraster auf dem Canvas, damit man beim Verschieben sieht, dass man sich bewegt.
+/// Dot grid on the canvas, so panning is visible even on empty space.
 #[derive(Default)]
 pub struct Grid {
-    /// Wiederverwendete Ids, damit die Damage-Erkennung stabil bleibt.
+    /// Reused ids so damage tracking stays stable.
     ids: Vec<Id>,
 }
 
@@ -71,7 +71,7 @@ impl Grid {
     }
 }
 
-/// Alle Elemente eines Bildes, vorderstes zuerst: Fenster, dahinter das Raster.
+/// All elements of a frame, front to back: windows, then the grid.
 pub fn desk_elements(
     renderer: &mut GlesRenderer,
     output: &Output,

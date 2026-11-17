@@ -1,4 +1,4 @@
-//! Implementierungen der Wayland-Protokolle, die Smithay von uns verlangt.
+//! Wayland protocol handlers required by Smithay.
 
 mod compositor;
 mod xdg_shell;
@@ -23,7 +23,7 @@ use smithay::{
 
 use crate::InfinityDesk;
 
-// --- Seat (Tastatur + Maus) ---
+// --- Seat (keyboard + pointer) ---
 
 impl SeatHandler for InfinityDesk {
     type KeyboardFocus = WlSurface;
@@ -45,7 +45,7 @@ impl SeatHandler for InfinityDesk {
 
 impl PointerConstraintsHandler for InfinityDesk {}
 
-// --- Zwischenablage und Drag & Drop ---
+// --- Clipboard and drag & drop ---
 
 impl SelectionHandler for InfinityDesk {
     type SelectionUserData = ();
@@ -80,7 +80,7 @@ impl WaylandDndGrabHandler for InfinityDesk {
     }
 }
 
-// --- Ausgaben (Monitore) ---
+// --- Outputs (monitors) ---
 
 impl OutputHandler for InfinityDesk {}
 

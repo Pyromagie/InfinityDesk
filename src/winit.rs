@@ -1,4 +1,4 @@
-//! Backend für den genesteten Betrieb: InfinityDesk läuft als Fenster in der aktuellen Session.
+//! Nested backend: InfinityDesk runs as a window inside the current session.
 
 use std::time::Duration;
 
@@ -14,7 +14,7 @@ use smithay::{
 
 use crate::{InfinityDesk, render::desk_elements};
 
-/// Hintergrundfarbe der Arbeitsfläche (RGBA).
+/// Canvas background color (RGBA).
 const BACKGROUND: [f32; 4] = [0.1, 0.1, 0.12, 1.0];
 
 pub fn init_winit(
@@ -41,7 +41,7 @@ pub fn init_winit(
     let _global = output.create_global::<InfinityDesk>(&state.display_handle);
     output.change_current_state(Some(mode), Some(Transform::Flipped180), None, Some((0, 0).into()));
     output.set_preferred(mode);
-    // Start: Viewport in der Mitte des Canvas, damit man in alle Richtungen Platz hat.
+    // Start with the viewport in the middle of the canvas, leaving room in every direction.
     state.output = Some(output.clone());
     state.canvas.set_viewport_size(mode.size.to_logical(1));
     let canvas_size = state.canvas.size().to_f64();
@@ -67,12 +67,12 @@ pub fn init_winit(
                 let (renderer, mut framebuffer) = backend.bind().unwrap();
                 let elements = desk_elements(renderer, &output, &state.space, &state.canvas, &mut state.grid);
                 if let Err(err) = damage_tracker.render_output(renderer, &mut framebuffer, 0, &elements, BACKGROUND) {
-                    tracing::error!("Rendern fehlgeschlagen: {err:?}");
+                    tracing::error!("rendering failed: {err:?}");
                 }
             }
             backend.submit(Some(&[damage])).unwrap();
 
-            // Den Programmen sagen, dass sie das nächste Bild zeichnen dürfen.
+            // Tell clients they may draw their next frame.
             state.space.elements().for_each(|window| {
                 window.send_frame(&output, state.start_time.elapsed(), Some(Duration::ZERO), |_, _| {
                     Some(output.clone())

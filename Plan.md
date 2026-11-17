@@ -67,13 +67,51 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
 - 💡 Vorschlag: `layer-shell`-Protokoll unterstützen, damit vorhandene Tools funktionieren (swaybg/swww für Wallpaper, Waybar als Leiste).
 - 💬 Hintergrund komplett fest oder leichter **Parallax**-Effekt (bewegt sich beim Pannen langsam mit)?
 
+## 6c. Veröffentlichung & Konfiguration
+
+- ✅ Das Repo wird veröffentlicht; andere sollen InfinityDesk nutzen und anpassen können.
+- ✅ Konfiguration per **Lua** (z. B. `~/.config/infinitydesk/init.lua`), über die Rust-Bibliothek `mlua`.
+- 💡 Ausbaustufen:
+  1. **Einstellungen:** Canvas-Größe, Snap-Schwellwert, Ruck-Werte, Farben, Raster, Zoom-Verhalten …
+  2. **Tastenbelegung & Maus-Bedienung:** frei belegbar, mit sinnvollen Standardwerten.
+  3. **Fensterregeln:** z. B. "Programm X öffnet immer an Position Y / in Cluster Z".
+  4. **Ereignisse & Skripting:** Lua-Funktionen, die auf Ereignisse reagieren (Fenster geöffnet, Cluster gebildet …).
+- ✅ **Leichter Umstieg von niri/Hyprland:** gleiche Begriffe, Struktur und (wo sinnvoll) gleiche Standardtasten wie dort, nur in Lua.
+- 💡 Zielbild (Entwurf, Namen noch nicht final):
+
+  ```lua
+  -- ~/.config/infinitydesk/init.lua
+  local desk = require("infinitydesk")
+
+  desk.input {
+    keyboard = { xkb = { layout = "de", options = "caps:escape" }, repeat_delay = 200, repeat_rate = 25 },
+    touchpad = { tap = true, natural_scroll = true },
+  }
+
+  desk.canvas { width = 20000, height = 12000, grid = { spacing = 100 } }
+  desk.snapping { threshold = 15, ruck = { distance = 120, time_ms = 150 } }
+
+  desk.bind("Mod+Return", desk.spawn("alacritty"))
+  desk.bind("Mod+Q", desk.close_window)
+
+  desk.window_rule { match = { app_id = "firefox" }, open_at = { x = 1000, y = 500 } }
+
+  desk.on("window_opened", function(window) --[[ eigene Logik ]] end)
+  ```
+- 💡 Später evtl. ein Konverter, der eine niri-Config (KDL) einliest und eine `init.lua` erzeugt.
+- 💡 Referenz: *Pinnacle* ist ebenfalls ein Smithay-Compositor mit Lua-Konfiguration.
+- 💡 Neu geladen werden ohne Neustart (Hot-Reload), wenn möglich.
+- ✅ Code, Kommentare, Logs, README und Doku auf **Englisch** (öffentliches Repo). Dieser Plan bleibt unser deutsches Arbeitsdokument.
+
 ## 7. Roadmap
 
 1. ✅ Minimaler Compositor (genestet, winit), zeigt Wayland-Clients an
 2. ✅ Fenster auf dem Canvas platzieren, Viewport verschieben
 3. ✅ Snapping + Cluster
 4. Cluster-Resize, Culling, Zoom, Cluster-Fokus
-5. Bedienung, Konfiguration, Feinschliff
+5. Lua-Konfiguration (Einstellungen, dann Tastenbelegung)
+6. Bedienung festlegen (Standard-Belegung), Hintergrund / layer-shell, Feinschliff
+7. Standalone-Betrieb (eigener Login-Eintrag, ohne niri darunter), README, Veröffentlichung
 
 ## 8. Offene Fragen
 
