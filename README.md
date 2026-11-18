@@ -66,9 +66,9 @@ step further into two dimensions. Built in Rust on [Smithay](https://github.com/
 
 - **More Lua configuration:** window rules and events, designed to feel familiar when coming
   from niri or Hyprland. Maybe a converter for niri configs later.
-- **Final default controls**, configurable mouse bindings, touchpad gestures
+- **Final default controls**, configurable mouse bindings and gestures
 - **Standalone session:** several monitors, monitor settings, XWayland (e.g. via
-  xwayland-satellite), programs started with the session, touchpad and mouse settings
+  xwayland-satellite), programs started with the session, mouse settings
 - Visual polish: cluster outlines, decorations, animations
 
 ## Building and running
@@ -110,8 +110,11 @@ Keyboard shortcuts can be changed in the config (see Settings); mouse controls w
 
 | Action                          | Input                                              |
 |---------------------------------|----------------------------------------------------|
-| Pan the canvas                  | Left-drag on empty space                           |
+| Pan the canvas                  | Left-drag or scroll on empty space                 |
 | Zoom around the pointer         | Alt + scroll                                       |
+| Touchpad: zoom                  | Pinch (anywhere)                                   |
+| Touchpad: pan the canvas        | Three-finger swipe (anywhere)                      |
+| Touchpad: overview              | Four-finger swipe up (open) / down (close)         |
 | Move a window and its cluster   | Alt + left-drag on a window                        |
 | Dock windows                    | Drag a window close to another one                 |
 | Detach a window from a cluster  | Alt + left-click, hold still briefly, then drag    |
@@ -160,6 +163,14 @@ desk.input {
     xkb = { layout = "", variant = "", model = "", rules = "", options = nil },
     repeat_delay = 200, -- milliseconds before a held key repeats
     repeat_rate = 25,   -- repeats per second
+  },
+  -- Standalone only (nested, the host compositor sets up the touchpad)
+  touchpad = {
+    tap = true,              -- tapping clicks
+    natural_scroll = true,   -- content follows the fingers
+    dwt = true,              -- off while typing
+    accel_speed = 0.0,       -- -1 (slow) to 1 (fast)
+    accel_profile = "adaptive", -- or "flat"
   },
 }
 

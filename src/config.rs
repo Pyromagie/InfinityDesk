@@ -2,7 +2,9 @@
 //!
 //! ```lua
 //! local desk = require("infinitydesk")
-//! desk.input { keyboard = { xkb = { layout = "de" }, repeat_delay = 200, repeat_rate = 25 } }
+//! desk.input { keyboard = { xkb = { layout = "de" }, repeat_delay = 200, repeat_rate = 25 },
+//!              touchpad = { tap = true, natural_scroll = true, dwt = true,
+//!                           accel_speed = 0.0, accel_profile = "adaptive" } }
 //! desk.canvas { width = 20000, height = 12000, grid = { spacing = 100 } }
 //! desk.snapping { threshold = 15, match_size = false, hold_ms = 300 }
 //! desk.colors { background = "#1a1a1f", grid = "#474752", accent = "#59a6ff" }
@@ -31,6 +33,7 @@ use smithay::input::keyboard::{
 
 pub struct Config {
     pub keyboard: Keyboard,
+    pub touchpad: Touchpad,
     /// Keyboard shortcuts: the built-in ones, changed by `desk.bind` and `desk.unbind`.
     pub binds: Vec<Bind>,
     /// Canvas size in logical pixels.
@@ -58,6 +61,21 @@ pub struct Keyboard {
     pub repeat_delay: i32,
     /// Repeats per second (0: no repeat).
     pub repeat_rate: i32,
+}
+
+/// Touchpad settings. Only used standalone; nested, the host compositor sets up the touchpad.
+#[derive(Clone, PartialEq)]
+pub struct Touchpad {
+    /// Tapping clicks.
+    pub tap: bool,
+    /// Content follows the fingers when scrolling.
+    pub natural_scroll: bool,
+    /// Disable while typing.
+    pub dwt: bool,
+    /// Pointer speed, -1 (slow) to 1 (fast).
+    pub accel_speed: f64,
+    /// Flat: the pointer moves as far as the fingers, however fast they are.
+    pub accel_flat: bool,
 }
 
 /// Keyboard layout as xkb names; empty means the system default.
@@ -89,6 +107,13 @@ impl Default for Config {
                 xkb: Xkb::default(),
                 repeat_delay: 200,
                 repeat_rate: 25,
+            },
+            touchpad: Touchpad {
+                tap: true,
+                natural_scroll: true,
+                dwt: true,
+                accel_speed: 0.0,
+                accel_flat: false,
             },
             canvas_size: (20_000, 12_000),
             grid_spacing: 100.0,
@@ -380,7 +405,10 @@ impl Config {
 type Section = fn(&mut Config, &Table) -> mlua::Result<()>;
 
 fn input(config: &mut Config, t: &Table) -> mlua::Result<()> {
-    check_keys(t, "input", &["keyboard"])?;
+    check_keys(t, "input", &["keyboard", "touchpad"])?;
+    if let Some(tp) = get::<Table>(t, "input", "touchpad")? {
+        touchpad(&mut config.touchpad, &tp)?;
+    }
     let Some(kb) = get::<Table>(t, "input", "keyboard")? else {
         return Ok(());
     };
@@ -415,6 +443,45 @@ fn input(config: &mut Config, t: &Table) -> mlua::Result<()> {
     }
     if let Some(v) = get_in(&kb, "input.keyboard", "repeat_rate", 0..=1000)? {
         k.repeat_rate = v;
+    }
+    Ok(())
+}
+
+fn touchpad(tp: &mut Touchpad, t: &Table) -> mlua::Result<()> {
+    let section = "input.touchpad";
+    let known = [
+        "tap",
+        "natural_scroll",
+        "dwt",
+        "accel_speed",
+        "accel_profile",
+    ];
+    check_keys(t, section, &known)?;
+    for (key, field) in [
+        ("tap", &mut tp.tap),
+        ("natural_scroll", &mut tp.natural_scroll),
+        ("dwt", &mut tp.dwt),
+    ] {
+        *field = get(t, section, key)?.unwrap_or(*field);
+    }
+    if let Some(v) = get::<f64>(t, section, "accel_speed")? {
+        if !(-1.0..=1.0).contains(&v) {
+            return Err(setting_error(
+                section,
+                "accel_speed",
+                "must be between -1 and 1",
+            ));
+        }
+        tp.accel_speed = v;
+    }
+    match get::<String>(t, section, "accel_profile")?.as_deref() {
+        None => {}
+        Some("adaptive") => tp.accel_flat = false,
+        Some("flat") => tp.accel_flat = true,
+        Some(_) => {
+            let message = r#"expected "adaptive" or "flat""#;
+            return Err(setting_error(section, "accel_profile", message));
+        }
     }
     Ok(())
 }
@@ -529,6 +596,7 @@ mod tests {
             local desk = require("infinitydesk")
             desk.input { keyboard = { xkb = { layout = "de", options = "caps:escape" },
                                       repeat_delay = 300, repeat_rate = 40 } }
+            desk.input { touchpad = { tap = false, accel_speed = -0.5, accel_profile = "flat" } }
             desk.canvas { width = 30000, height = 15000, grid = { spacing = 200 } }
             desk.snapping { threshold = 20, match_size = true, hold_ms = 500 }
             desk.colors { background = "#000000", accent = "#ff8000" }
@@ -542,6 +610,10 @@ mod tests {
             (config.keyboard.repeat_delay, config.keyboard.repeat_rate),
             (300, 40)
         );
+        let tp = &config.touchpad;
+        assert_eq!((tp.tap, tp.accel_speed, tp.accel_flat), (false, -0.5, true));
+        // Not set in the table: default.
+        assert!(tp.natural_scroll && tp.dwt);
         assert_eq!(config.canvas_size, (30_000, 15_000));
         assert_eq!(config.grid_spacing, 200.0);
         assert_eq!(config.snap_threshold, 20.0);
@@ -576,6 +648,17 @@ mod tests {
         );
         let err = error(r#"require("infinitydesk").colors { accent = "blue" }"#);
         assert!(err.contains("colors.accent: expected"), "{err}");
+        let err =
+            error(r#"require("infinitydesk").input { touchpad = { accel_profile = "fast" } }"#);
+        assert!(
+            err.contains(r#"input.touchpad.accel_profile: expected "adaptive""#),
+            "{err}"
+        );
+        let err = error(r#"require("infinitydesk").input { touchpad = { accel_speed = 2 } }"#);
+        assert!(
+            err.contains("input.touchpad.accel_speed: must be between -1 and 1"),
+            "{err}"
+        );
         // Lua errors carry the file name and line.
         let err = error("local x = \n nil + 1");
         assert!(err.contains("init.lua:2"), "{err}");

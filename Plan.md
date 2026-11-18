@@ -78,7 +78,13 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
   - Mod+Tab und Mod+O: Übersicht (alle Fenster passen auf den Bildschirm; Mod+O, weil niri Alt+Tab genestet für sich behält). Nochmal Mod+Tab: zurück, oder zum Fenster, das in der Übersicht gewählt wurde (Klick oder Pfeile).
   - Alt+Tab: zuletzt benutzte Fenster. Alt halten, jedes Tab geht eins weiter zurück, die Ansicht fährt hin (die Fläche ist die Vorschau); Loslassen wählt. Genestet fängt niri Alt+Tab ab (und Mod+Tab wären dieselben Tasten); zum Ausprobieren `desk.bind("Ctrl+Tab", desk.recent_windows)`. 💬 Eigene Vorschau-Leiste nur, wenn sie beim Ausprobieren fehlt.
   - Mod+R: Vorlagen-Menü (war Mod+W; Super+W ist bei Pyro Firefox) · Mod+Leertaste: Launcher (war Mod+D).
-- 💬 Maus-Belegung in der Config, Touchpad-Gesten – später.
+- ✅ **Touchpad-Gesten** (18.11.2026, von Pyro ausgewählt; gelten überall, auch über Fenstern, Programme bekommen sie nicht; aus bei Ziehen und Vollbild):
+  - Pinch: zoomen um den Mauszeiger.
+  - Drei Finger wischen: Ansicht verschieben, der Inhalt folgt den Fingern.
+  - Vier Finger hoch: Übersicht · runter: zurück (wie niri).
+  - Scrollen (zwei Finger oder Mausrad) auf leerer Fläche: Ansicht verschieben. Über Fenstern scrollt es im Programm. Eine Mausrad-Raste verschiebt 60 px.
+  - Genestet behält niri die Drei- und Vier-Finger-Gesten für sich; zum Ausprobieren die eigenständige Sitzung.
+- 💬 Maus-Belegung und Gesten in der Config – später.
 - Vorläufige Test-Bedienung (Platzhalter, bis die Bedienung entschieden ist):
   - Linksziehen auf leerer Fläche: Fläche verschieben (Pan)
   - Alt + Mausrad: zoomen (um den Mauszeiger herum)
@@ -100,7 +106,7 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
 - ✅ Das Repo wird veröffentlicht; andere sollen InfinityDesk nutzen und anpassen können.
 - ✅ Konfiguration per **Lua** (z. B. `~/.config/infinitydesk/init.lua`), über die Rust-Bibliothek `mlua`.
 - 💡 Ausbaustufen:
-  1. ✅ **Einstellungen** (eingebaut): Tastatur (xkb-Belegung, Wiederholrate), Canvas-Größe, Raster-Abstand, Snap-Schwellwert, `match_size`, Haltezeit der Lös-Geste, Farben (Hintergrund, Raster, Akzent). Gelesen beim Start und **neu geladen, sobald die Datei gespeichert wird** (einmal pro Sekunde wird nachgesehen); Tippfehler, falsche Typen und Werte außerhalb des Bereichs sind Fehler (mit Einstellung, Datei und Zeile im Log), dann gelten beim Start die Standardwerte, im laufenden Betrieb bleiben die bisherigen. Wird die Fläche kleiner, rücken Cluster außerhalb als Ganzes herein. Lua 5.4 ist in die Binary eingebaut (`mlua`, vendored). `INFINITYDESK_CONFIG` zeigt auf eine andere Datei (zum Testen). Noch nicht: Touchpad (kommt mit der eigenständigen Sitzung), Zoom-Verhalten.
+  1. ✅ **Einstellungen** (eingebaut): Tastatur (xkb-Belegung, Wiederholrate), Canvas-Größe, Raster-Abstand, Snap-Schwellwert, `match_size`, Haltezeit der Lös-Geste, Farben (Hintergrund, Raster, Akzent). Gelesen beim Start und **neu geladen, sobald die Datei gespeichert wird** (einmal pro Sekunde wird nachgesehen); Tippfehler, falsche Typen und Werte außerhalb des Bereichs sind Fehler (mit Einstellung, Datei und Zeile im Log), dann gelten beim Start die Standardwerte, im laufenden Betrieb bleiben die bisherigen. Wird die Fläche kleiner, rücken Cluster außerhalb als Ganzes herein. Lua 5.4 ist in die Binary eingebaut (`mlua`, vendored). `INFINITYDESK_CONFIG` zeigt auf eine andere Datei (zum Testen). Touchpad (`desk.input { touchpad = { tap, natural_scroll, dwt, accel_speed, accel_profile } }`, nur eigenständig; Standard wie bei Pyro in niri: Tippen, natürliches Scrollen, aus beim Tippen, Beschleunigung 0). Noch nicht: Maus-Einstellungen, Zoom-Verhalten.
   2. ✅ **Tastenbelegung** (eingebaut): `desk.bind("Mod+Return", desk.spawn("alacritty"))`, `desk.unbind("Mod+Tab")`. Die eingebauten Kürzel (siehe Punkt 6) bleiben, eigene gehen vor oder kommen dazu. Modifikatoren Mod/Super/Alt/Ctrl/Shift, Tasten als xkb-Namen; "Shift+Q" meint die Q-Taste. Aktionen: `desk.spawn("Befehlszeile")` (über `sh -c`, also mit Argumenten), `desk.close_window`, `desk.fullscreen`, `desk.layout_menu`, `desk.focus/swap/resize/pan("left"|"right"|"up"|"down")`, `desk.zoom_in`, `desk.zoom_out`, `desk.center`, `desk.overview`, `desk.recent_windows`. Lua-Funktionen als Aktion erst mit Stufe 4.
      **Maus-Bedienung:** wird belegbar, wenn die endgültige Bedienung feststeht (Punkt 6).
   3. **Fensterregeln:** z. B. "Programm X öffnet immer an Position Y / in Cluster Z".
@@ -150,7 +156,7 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
 - ✅ dmabuf: Programme geben ihre Bilder direkt als GPU-Puffer weiter.
 - ✅ Mod+Shift+E beendet InfinityDesk (wie niri). Strg+Alt+F1…F12 wechselt die Konsole.
 - ✅ Login-Eintrag `resources/infinitydesk.desktop` (für den Login-Manager, wenn die Konsole klappt).
-- Noch nicht: mehrere Monitore, Monitor-Einstellungen in der Config, XWayland (Steam, ältere Programme; z. B. über xwayland-satellite wie niri), Programme beim Start (Autostart), Maus-/Touchpad-Einstellungen (Beschleunigung: bei Pyro flach, 0.45), Zeiger-Thema in der Config, Monitor ab-/anstecken im Betrieb.
+- Noch nicht: mehrere Monitore, Monitor-Einstellungen in der Config, XWayland (Steam, ältere Programme; z. B. über xwayland-satellite wie niri), Programme beim Start (Autostart), Maus-Einstellungen (Beschleunigung: bei Pyro flach, 0.45), Zeiger-Thema in der Config, Monitor ab-/anstecken im Betrieb.
 
 ## 8. Offene Fragen
 

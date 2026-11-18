@@ -18,7 +18,7 @@ use smithay::{
             exporter::gbm::GbmFramebufferExporter,
         },
         egl::{EGLContext, EGLDevice, EGLDisplay},
-        input::InputTime,
+        input::{InputEvent, InputTime},
         libinput::{LibinputInputBackend, LibinputSessionInterface},
         renderer::{
             ImportDma, ImportMemWl,
@@ -34,7 +34,7 @@ use smithay::{
             timer::{TimeoutAction, Timer},
         },
         drm::control::{Device as _, ModeTypeFlags, connector, crtc},
-        input::Libinput,
+        input::{AccelProfile, Device as InputDevice, Libinput},
         rustix::fs::OFlags,
     },
     utils::{DeviceFd, Transform},
@@ -43,6 +43,7 @@ use smithay::{
 
 use crate::{
     InfinityDesk,
+    config::Touchpad,
     cursor::Cursors,
     render::{Grid, compile_grid_shader, desk_elements},
 };
@@ -54,6 +55,8 @@ type Compositor =
 pub struct Udev {
     session: LibSeatSession,
     libinput: Libinput,
+    /// Connected input devices, so changed touchpad settings reach them.
+    devices: Vec<InputDevice>,
     drm: DrmDevice,
     pub renderer: GlesRenderer,
     compositor: Compositor,
@@ -73,6 +76,35 @@ impl Udev {
         if let Err(err) = self.session.change_vt(vt) {
             tracing::warn!("Switching to console {vt} failed: {err}");
         }
+    }
+
+    /// Applies the touchpad settings to every connected touchpad.
+    pub fn set_up_touchpads(&mut self, settings: &Touchpad) {
+        for device in &mut self.devices {
+            set_up_touchpad(device, settings);
+        }
+    }
+}
+
+/// Without settings, libinput leaves even tapping off. Devices that cannot tap are no touchpads.
+fn set_up_touchpad(device: &mut InputDevice, t: &Touchpad) {
+    if device.config_tap_finger_count() == 0 {
+        return;
+    }
+    let profile = if t.accel_flat {
+        AccelProfile::Flat
+    } else {
+        AccelProfile::Adaptive
+    };
+    let results = [
+        device.config_tap_set_enabled(t.tap),
+        device.config_scroll_set_natural_scroll_enabled(t.natural_scroll),
+        device.config_dwt_set_enabled(t.dwt),
+        device.config_accel_set_speed(t.accel_speed),
+        device.config_accel_set_profile(profile),
+    ];
+    if results.iter().any(|r| r.is_err()) {
+        tracing::warn!("{}: not every touchpad setting is supported", device.name());
     }
 }
 
@@ -235,7 +267,19 @@ pub fn init_udev(
     let handle = event_loop.handle();
     handle.insert_source(
         LibinputInputBackend::new(libinput.clone()),
-        |event, _, state| state.process_input_event(event),
+        |mut event, _, state| {
+            if let Some(udev) = &mut state.udev {
+                match &mut event {
+                    InputEvent::DeviceAdded { device } => {
+                        set_up_touchpad(device, &state.config.touchpad);
+                        udev.devices.push(device.clone());
+                    }
+                    InputEvent::DeviceRemoved { device } => udev.devices.retain(|d| d != device),
+                    _ => {}
+                }
+            }
+            state.process_input_event(event)
+        },
     )?;
 
     // Another console was shown, and back.
@@ -277,6 +321,7 @@ pub fn init_udev(
     state.udev = Some(Udev {
         session,
         libinput,
+        devices: Vec::new(),
         drm,
         renderer,
         compositor,

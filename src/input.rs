@@ -2,8 +2,9 @@
 
 use smithay::{
     backend::input::{
-        AbsolutePositionEvent, Axis, AxisSource, ButtonState, Event, InputBackend, InputEvent,
-        InputTime, KeyState, KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent,
+        AbsolutePositionEvent, Axis, AxisSource, ButtonState, Event, GestureBeginEvent,
+        GestureEndEvent, GesturePinchUpdateEvent, GestureSwipeUpdateEvent, InputBackend,
+        InputEvent, InputTime, KeyState, KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent,
         PointerMotionEvent,
     },
     input::{
@@ -27,6 +28,20 @@ const BTN_LEFT: u32 = 0x110;
 const BTN_RIGHT: u32 = 0x111;
 /// Zoom change per scrolled pixel (a mouse wheel notch is 15 px, about 14 %).
 const ZOOM_SPEED: f64 = 0.01;
+/// A mouse wheel notch on empty canvas moves the view this many times its 15 px.
+const WHEEL_PAN: f64 = 4.0;
+/// How far (screen pixels) four fingers swipe up or down to open or close the overview.
+const OVERVIEW_SWIPE: f64 = 100.0;
+
+/// A touchpad gesture in progress.
+pub enum Gesture {
+    /// Three fingers: the view follows them.
+    Pan,
+    /// Four fingers, with how far they went up (negative) or down so far.
+    Overview(f64),
+    /// Pinch, with its last scale: zooms around the pointer.
+    Zoom(f64),
+}
 
 /// What a key press does.
 enum KeyAction {
@@ -261,6 +276,40 @@ impl InfinityDesk {
             }
 
             // Mod + scroll zooms around the pointer (not while a window is fullscreen).
+            InputEvent::GestureSwipeBegin { event, .. } => match event.fingers() {
+                3 => self.gesture_begins(Gesture::Pan),
+                4 => self.gesture_begins(Gesture::Overview(0.0)),
+                _ => self.gesture = None,
+            },
+            InputEvent::GestureSwipeUpdate { event, .. } => match &mut self.gesture {
+                // The view follows the fingers: content moves with them.
+                Some(Gesture::Pan) => self.pan_screen(event.delta().upscale(-1.0), event.time()),
+                Some(Gesture::Overview(dy)) => *dy += event.delta_y(),
+                _ => {}
+            },
+            InputEvent::GestureSwipeEnd { event, .. } => {
+                if let Some(Gesture::Overview(dy)) = self.gesture.take()
+                    && !event.cancelled()
+                    && (dy < -OVERVIEW_SWIPE && self.overview.is_none()
+                        || dy > OVERVIEW_SWIPE && self.overview.is_some())
+                {
+                    self.toggle_overview();
+                    let screen = self.pointer_screen;
+                    self.pointer_moved(self.canvas.screen_to_canvas(screen), event.time());
+                }
+            }
+            InputEvent::GesturePinchBegin { .. } => self.gesture_begins(Gesture::Zoom(1.0)),
+            InputEvent::GesturePinchUpdate { event, .. } => {
+                if let Some(Gesture::Zoom(last)) = &mut self.gesture {
+                    let factor = event.scale() / *last;
+                    *last = event.scale();
+                    let screen = self.pointer_screen;
+                    self.canvas.zoom_at(screen, factor);
+                    self.apply_viewport();
+                    self.pointer_moved(self.canvas.screen_to_canvas(screen), event.time());
+                }
+            }
+            InputEvent::GesturePinchEnd { .. } => self.gesture = None,
             InputEvent::PointerAxis { event, .. }
                 if mod_held(&self.seat.get_keyboard().unwrap().modifier_state())
                     && !self.seat.get_pointer().unwrap().is_grabbed()
@@ -276,13 +325,19 @@ impl InfinityDesk {
                 self.pointer_moved(self.canvas.screen_to_canvas(screen), event.time());
             }
 
+            // Scrolling on empty canvas moves the view.
+            InputEvent::PointerAxis { event, .. } if self.on_empty_canvas() => {
+                let factor = match event.source() {
+                    AxisSource::Wheel => WHEEL_PAN,
+                    _ => 1.0,
+                };
+                let amount = |axis| scroll_amount(&event, axis) * factor;
+                let delta = Point::from((amount(Axis::Horizontal), amount(Axis::Vertical)));
+                self.pan_screen(delta, event.time());
+            }
             InputEvent::PointerAxis { event, .. } => {
                 let source = event.source();
-                let amount = |axis| {
-                    event
-                        .amount(axis)
-                        .unwrap_or_else(|| event.amount_v120(axis).unwrap_or(0.0) * 15.0 / 120.)
-                };
+                let amount = |axis| scroll_amount(&event, axis);
 
                 let mut frame = AxisFrame::new(event.time()).source(source);
                 for axis in [Axis::Horizontal, Axis::Vertical] {
@@ -346,6 +401,32 @@ impl InfinityDesk {
     }
 
     /// Moves the pointer to a canvas position and updates what is under it.
+    /// The pointer is over nothing but the canvas (no window, no bar), and nothing else is going on.
+    fn on_empty_canvas(&self) -> bool {
+        let pointer = self.seat.get_pointer().unwrap();
+        let pos = pointer.current_location();
+        !pointer.is_grabbed()
+            && self.fullscreen.is_none()
+            && self.space.element_under(pos).is_none()
+            && self.layer_surface_under(pos, self.upper_layers()).is_none()
+    }
+
+    /// Moves the view by `delta` screen pixels; the pointer stays put on the screen.
+    fn pan_screen(&mut self, delta: Point<f64, Logical>, time: InputTime) {
+        let screen = self.pointer_screen;
+        let loc = self.canvas.viewport_loc() + delta.downscale(self.canvas.zoom());
+        self.canvas.set_viewport_loc(loc);
+        self.apply_viewport();
+        self.pointer_moved(self.canvas.screen_to_canvas(screen), time);
+    }
+
+    /// Touchpad gestures: they work everywhere, also over windows (apps get none of them).
+    /// Not while a drag or fullscreen is going on.
+    fn gesture_begins(&mut self, gesture: Gesture) {
+        let busy = self.seat.get_pointer().unwrap().is_grabbed() || self.fullscreen.is_some();
+        self.gesture = (!busy).then_some(gesture);
+    }
+
     pub fn pointer_moved(&mut self, pos: Point<f64, Logical>, time: InputTime) {
         self.pointer_screen = self.canvas.canvas_to_screen(pos);
         let pointer = self.seat.get_pointer().unwrap();
@@ -375,4 +456,9 @@ impl InfinityDesk {
             self.set_resize_hint(hint, mods.shift);
         }
     }
+}
+
+/// How far a scroll event goes along `axis`, in pixels (a wheel notch counts as 15).
+fn scroll_amount<I: InputBackend>(event: &impl PointerAxisEvent<I>, axis: Axis) -> f64 {
+    (event.amount(axis)).unwrap_or_else(|| event.amount_v120(axis).unwrap_or(0.0) * 15.0 / 120.0)
 }

@@ -114,6 +114,8 @@ pub struct InfinityDesk {
     pub recent: Vec<Window>,
     /// While Alt+Tab is held: the position in `recent` of the window shown now.
     pub switching: Option<usize>,
+    /// The touchpad gesture in progress.
+    pub gesture: Option<crate::input::Gesture>,
 
     // Smithay protocol state
     pub compositor_state: CompositorState,
@@ -197,6 +199,7 @@ impl InfinityDesk {
             active: None,
             recent: Vec::new(),
             switching: None,
+            gesture: None,
             resizing: HashMap::new(),
             compositor_state,
             xdg_shell_state,
@@ -271,6 +274,11 @@ impl InfinityDesk {
             self.fit_clusters_into_canvas();
             self.apply_viewport();
             self.fit_fullscreen();
+        }
+        if let Some(udev) = &mut self.udev
+            && config.touchpad != self.config.touchpad
+        {
+            udev.set_up_touchpads(&config.touchpad);
         }
         self.config = config;
     }
