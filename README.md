@@ -202,7 +202,8 @@ local desk = require("infinitydesk")
 
 desk.input {
   keyboard = {
-    -- xkb names; empty means the system default (e.g. layout = "de", options = "caps:escape")
+    -- xkb names; empty means the system layout (`localectl set-x11-keymap`, else US),
+    -- e.g. layout = "de", options = "caps:escape"
     xkb = { layout = "", variant = "", model = "", rules = "", options = nil },
     repeat_delay = 200, -- milliseconds before a held key repeats
     repeat_rate = 25,   -- repeats per second

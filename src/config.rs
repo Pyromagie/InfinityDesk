@@ -88,7 +88,57 @@ pub struct Xkb {
     pub options: Option<String>,
 }
 
+/// Where systemd-localed keeps the system keyboard layout (`localectl set-x11-keymap`).
+const SYSTEM_KEYBOARD: &str = "/etc/X11/xorg.conf.d/00-keyboard.conf";
+
 impl Xkb {
+    /// The layout to use: what the config sets, the rest from the system layout. Without
+    /// `XKB_DEFAULT_LAYOUT` and a system layout, xkbcommon falls back to US.
+    pub fn with_system_default(&self) -> Xkb {
+        let system = match std::env::var_os("XKB_DEFAULT_LAYOUT") {
+            None => std::fs::read_to_string(SYSTEM_KEYBOARD).unwrap_or_default(),
+            Some(_) => String::new(),
+        };
+        self.or(&Xkb::from_x11_conf(&system))
+    }
+
+    /// Fills what is not set from `other`. Layout and variant belong together.
+    fn or(&self, other: &Xkb) -> Xkb {
+        let pick = |a: &String, b: &String| if a.is_empty() { b.clone() } else { a.clone() };
+        let (layout, variant) = match self.layout.is_empty() {
+            true => (other.layout.clone(), other.variant.clone()),
+            false => (self.layout.clone(), self.variant.clone()),
+        };
+        Xkb {
+            rules: pick(&self.rules, &other.rules),
+            model: pick(&self.model, &other.model),
+            layout,
+            variant,
+            options: self.options.clone().or(other.options.clone()),
+        }
+    }
+
+    /// Reads lines like `Option "XkbLayout" "at"` from an X11 keyboard config.
+    fn from_x11_conf(text: &str) -> Xkb {
+        let mut xkb = Xkb::default();
+        for line in text.lines() {
+            let parts: Vec<&str> = line.split('"').collect();
+            if !line.trim_start().starts_with("Option") || parts.len() < 4 || parts[3].is_empty() {
+                continue;
+            }
+            let value = parts[3].to_string();
+            match parts[1] {
+                "XkbRules" => xkb.rules = value,
+                "XkbModel" => xkb.model = value,
+                "XkbLayout" => xkb.layout = value,
+                "XkbVariant" => xkb.variant = value,
+                "XkbOptions" => xkb.options = Some(value),
+                _ => {}
+            }
+        }
+        xkb
+    }
+
     pub fn to_smithay(&self) -> XkbConfig<'_> {
         XkbConfig {
             rules: &self.rules,
@@ -623,6 +673,35 @@ mod tests {
         assert_eq!(config.accent, [1.0, 128.0 / 255.0, 0.0, 1.0]);
         // Not set: default.
         assert_eq!(config.grid_color, Config::default().grid_color);
+    }
+
+    #[test]
+    fn system_keyboard_layout_fills_what_the_config_leaves_open() {
+        let system = Xkb::from_x11_conf(
+            r#"Section "InputClass"
+                    Identifier "system-keyboard"
+                    Option "XkbLayout" "at"
+                    Option "XkbModel" "pc105"
+                    Option "XkbVariant" "nodeadkeys"
+                    Option "XkbOptions" "caps:escape"
+                EndSection"#,
+        );
+        // Nothing set: all from the system.
+        let xkb = Xkb::default().or(&system);
+        assert_eq!(
+            (xkb.layout.as_str(), xkb.variant.as_str()),
+            ("at", "nodeadkeys")
+        );
+        assert_eq!(xkb.model, "pc105");
+        assert_eq!(xkb.options.as_deref(), Some("caps:escape"));
+        // An own layout does not get the system's variant.
+        let own = Xkb {
+            layout: "us".into(),
+            ..Default::default()
+        };
+        let xkb = own.or(&system);
+        assert_eq!((xkb.layout.as_str(), xkb.variant.as_str()), ("us", ""));
+        assert_eq!(xkb.model, "pc105");
     }
 
     #[test]

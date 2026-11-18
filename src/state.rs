@@ -148,7 +148,9 @@ impl InfinityDesk {
         let mut seat_state = SeatState::new();
         let mut seat: Seat<Self> = seat_state.new_wl_seat(&dh, "seat0");
         let k = &config.keyboard;
-        if let Err(err) = seat.add_keyboard(k.xkb.to_smithay(), k.repeat_delay, k.repeat_rate) {
+        let xkb = k.xkb.with_system_default();
+        tracing::info!("Keyboard layout: {:?} {:?}", xkb.layout, xkb.variant);
+        if let Err(err) = seat.add_keyboard(xkb.to_smithay(), k.repeat_delay, k.repeat_rate) {
             // E.g. a layout name that does not exist.
             tracing::error!("Keyboard layout from the config failed ({err:?}), using the default");
             (seat.add_keyboard(Default::default(), k.repeat_delay, k.repeat_rate))
@@ -261,7 +263,8 @@ impl InfinityDesk {
         let keyboard = self.seat.get_keyboard().unwrap();
         let k = &mut config.keyboard;
         if k.xkb != self.config.keyboard.xkb
-            && let Err(err) = keyboard.set_xkb_config(self, k.xkb.to_smithay())
+            && let Err(err) =
+                keyboard.set_xkb_config(self, k.xkb.with_system_default().to_smithay())
         {
             tracing::error!(
                 "Keyboard layout from the config failed ({err:?}), keeping the old one"
