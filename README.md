@@ -98,8 +98,10 @@ at the monitor's own resolution and highest refresh rate. The pointer image come
 ./install.sh
 ```
 
-It builds InfinityDesk and installs it to `/usr/local/bin` with a session entry in
-`/usr/share/wayland-sessions` (asks for sudo). Run it again to update.
+On Arch-based systems it first installs the software InfinityDesk needs (build tools,
+libraries, alacritty and fuzzel); elsewhere it lists what is needed. Then it builds InfinityDesk
+and installs it to `/usr/local/bin` with a session entry in `/usr/share/wayland-sessions` (asks
+for sudo). Run it again to update; if nothing changed, it says so.
 
 The session's log is written to `~/.local/state/infinitydesk.log`.
 
