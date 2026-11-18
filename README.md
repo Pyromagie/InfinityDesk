@@ -92,13 +92,14 @@ infinitydesk 2> ~/infinitydesk.log  # standalone; the log goes to a file, the sc
 Super + Shift + E quits, Ctrl + Alt + F1 … F12 switch to another console. It uses the first
 graphics card with a monitor connected (`INFINITYDESK_DRM_DEVICE=/dev/dri/cardN` picks one),
 at the monitor's own resolution and highest refresh rate. The pointer image comes from
-`XCURSOR_THEME` and `XCURSOR_SIZE`. To choose it in a login manager:
+`XCURSOR_THEME` and `XCURSOR_SIZE`. To choose it in a login manager, run:
 
 ```sh
-cargo build --release
-sudo install -Dm755 target/release/infinitydesk resources/infinitydesk-session -t /usr/local/bin/
-sudo install -Dm644 resources/infinitydesk.desktop -t /usr/share/wayland-sessions/
+./install.sh
 ```
+
+It builds InfinityDesk and installs it to `/usr/local/bin` with a session entry in
+`/usr/share/wayland-sessions` (asks for sudo). Run it again to update.
 
 The session's log is written to `~/.local/state/infinitydesk.log`.
 
