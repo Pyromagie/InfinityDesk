@@ -8,9 +8,9 @@ get around. Think of a desk you can spread your work out on, with the screen as 
 Inspired by [niri](https://github.com/YaLTeR/niri) (freedom to scroll horizontally), taken one
 step further into two dimensions. Built in Rust on [Smithay](https://github.com/Smithay/smithay).
 
-> **Status: early development.** InfinityDesk runs *nested* as a window inside an existing
-> Wayland session (e.g. niri, Hyprland, Sway, GNOME, KDE), which is the safe way to try it. It
-> can also run standalone on the screen, but that is very new (one monitor, no XWayland yet).
+> **Status: early development.** InfinityDesk can be chosen as a session in your login screen
+> or tried as a window inside your current session. The standalone session is new: one monitor
+> for now, and no XWayland yet (only Wayland apps run).
 
 ## The idea
 
@@ -24,17 +24,96 @@ step further into two dimensions. Built in Rust on [Smithay](https://github.com/
 - **Windows stay where you put them.** Nothing is tiled automatically; you build the
   arrangement you want and it stays.
 
+## Installation
+
+### What you need
+
+- A Linux system with a graphics card that supports OpenGL ES (tested so far on NVIDIA)
+- A login manager that lists Wayland sessions (greetd greeters, SDDM, GDM, ...)
+- On Arch-based systems (Arch, CachyOS, EndeavourOS, Manjaro, ...) the install script sets up
+  everything else. Elsewhere you need Rust (https://rustup.rs), a C compiler, `pkg-config`, the
+  development files of `wayland`, `libxkbcommon`, `libinput`, `libdrm`, `mesa` (gbm, EGL),
+  `libudev` and `libseat`, and `alacritty` and `fuzzel` for the default shortcuts.
+
+### Install
+
+```sh
+git clone https://github.com/Pyromagie/InfinityDesk.git
+cd InfinityDesk
+./install.sh
+```
+
+The script:
+
+1. checks the required software and installs what is missing (Arch-based systems, with
+   `pacman`; elsewhere it lists what is needed),
+2. builds InfinityDesk,
+3. installs it to `/usr/local/bin` and adds the session entry
+   `/usr/share/wayland-sessions/infinitydesk.desktop`.
+
+It asks for your password (sudo) when it installs something. If everything is already
+installed and up to date, it says so and does nothing.
+
+### First start
+
+1. Log out.
+2. In the login screen, choose **InfinityDesk** as the session (where you would pick niri or
+   Plasma) and log in.
+3. A terminal opens in the middle of the canvas. **Super** is the modifier (Mod):
+   Super + Enter opens another terminal, Super + Space the app launcher, Super + Shift + E logs
+   out again. All controls are listed under [Controls](#controls-provisional).
+
+### Update
+
+```sh
+cd InfinityDesk
+git pull
+./install.sh
+```
+
+Then log out and in again.
+
+### Uninstall
+
+```sh
+sudo rm /usr/local/bin/infinitydesk /usr/local/bin/infinitydesk-session \
+        /usr/share/wayland-sessions/infinitydesk.desktop
+```
+
+Your settings (`~/.config/infinitydesk/`) and the log (`~/.local/state/infinitydesk.log`) stay;
+delete them too if you like.
+
+### If something goes wrong
+
+- **Super + Shift + E** quits InfinityDesk and brings you back to the login screen.
+- **Ctrl + Alt + F2** (or F3 ... F6) switches to a text console. Log in there and run
+  `pkill infinitydesk` to end it.
+- The log of the session is in `~/.local/state/infinitydesk.log`. Please attach it when you
+  report a problem.
+
+### Trying it without installing
+
+Inside your current Wayland session, InfinityDesk opens as a window, and Mod is **Alt**
+(the host compositor keeps Super). This is the safest way to look around:
+
+```sh
+cargo run --release                  # with an alacritty terminal inside
+cargo run --release -- -c kitty      # with another program inside
+```
+
 ## What works today
 
-- Nested Wayland compositor (winit backend) with xdg-shell windows, popups and menus,
-  keyboard and pointer input, clipboard and drag and drop between apps
+- Standalone session on the screen (login manager entry, one monitor at its own resolution and
+  highest refresh rate, GPU buffers from apps, console switching) or nested as a window
+- xdg-shell windows, popups and menus, keyboard, mouse and touchpad, clipboard and drag and drop
+  between apps
 - Canvas with a dot grid, panning and zooming around the pointer (drawn on the GPU, only
   visible windows are rendered)
 - **Docking:** edges snap together within 15 screen pixels at any zoom level and line up flush
   (tops or bottoms side by side, left or right edges stacked, whichever is closer), so windows
   of different sizes dock too and there are no offset connections. Pushing a window a bit too
-  far, onto its neighbor, still docks it at the edge. Spots that are
-  already taken are skipped, and windows passing by quickly do not snap.
+  far, onto its neighbor, still docks it at the edge. Spots that are already taken are skipped,
+  and windows passing by quickly do not snap.
 - **Clusters** move as a whole, split automatically when a window leaves, and merge when they
   touch another window
 - **Detaching:** hold a window still for 0.3 s (a blue pulse shows it is unlocked), then drag
@@ -43,115 +122,76 @@ step further into two dimensions. Built in Rust on [Smithay](https://github.com/
   their cluster together; they stay connected among themselves
 - **Cluster resize:** resizing a window takes its neighbors along, so the cluster stays closed.
   With Shift, the rest of the cluster moves instead. Grab any window border (a generous zone
-  around it shows resize arrows and lights up the edges that will move), or use Alt + right-drag.
+  around it shows resize arrows and lights up the edges that will move), or use Mod + right-drag.
   The dragged edge snaps to the edges of other visible windows, so they line up exactly.
-- **Layout templates:** Alt + R opens a menu of templates (half | half, a half and two
+- **Layout templates:** Mod + R opens a menu of templates (half | half, a half and two
   quarters, three columns, four quarters, ...). Picking one arranges the active window's
   cluster so it fills exactly one screen, shown at 1:1. Click the slot the active window should
   go to (the other windows take the slots closest to where they are), or press the template's
   number. Slots left over are filled by the next windows you open.
 - **New windows dock to the active window** (right of it, else below, left, above; the view
   follows if there is no room on the screen). Click empty space first for a free window.
-- **Fullscreen:** Alt + F (or the app itself, e.g. F11 in a browser) lets a window cover the
+- **Fullscreen:** Mod + F (or the app itself, e.g. F11 in a browser) lets a window cover the
   screen; its place in the cluster and the view are restored afterwards
 - **Keyboard navigation:** move the focus to the next window in a direction (also into the
   next cluster, the view follows), swap a window with its neighbor, resize in steps (the
   cluster stays closed), pan and zoom the view, center the active cluster, an overview
   that zooms out until all windows fit, and Alt + Tab through the recently used windows
+- **Touchpad gestures:** pinch to zoom, three fingers to pan, four fingers for the overview
+- **Lua configuration** with live reload: keyboard, touchpad, canvas, snapping, colors and
+  shortcuts
 - wlr-layer-shell, so launchers like fuzzel, bars and wallpaper tools (e.g. awww, swaybg) work;
   the wallpaper stays fixed behind the moving canvas
 - Optional setting: docked windows take their neighbor's height or width (clean grid)
 
-## Roadmap
-
-- **More Lua configuration:** window rules and events, designed to feel familiar when coming
-  from niri or Hyprland. Maybe a converter for niri configs later.
-- **Final default controls**, configurable mouse bindings and gestures
-- **Standalone session:** several monitors, monitor settings, XWayland (e.g. via
-  xwayland-satellite), programs started with the session, mouse settings
-- Visual polish: cluster outlines, decorations, animations
-
-## Building and running
-
-Requires Rust (edition 2024) and the usual Wayland libraries (`wayland`, `libxkbcommon`,
-`libinput`, `mesa`). The default terminal is `alacritty` and the default launcher is `fuzzel`.
-
-```sh
-cargo run                         # starts nested with an alacritty terminal inside
-cargo run -- -c kitty             # start a different program inside
-```
-
-Started inside a session (`WAYLAND_DISPLAY` or `DISPLAY` set), InfinityDesk opens as a window
-there and Mod is Alt. Started from a text console (e.g. Ctrl + Alt + F3, then log in), it takes
-over the screen and the input devices, and Mod is Super:
-
-```sh
-infinitydesk 2> ~/infinitydesk.log  # standalone; the log goes to a file, the screen is ours
-```
-
-Super + Shift + E quits, Ctrl + Alt + F1 … F12 switch to another console. It uses the first
-graphics card with a monitor connected (`INFINITYDESK_DRM_DEVICE=/dev/dri/cardN` picks one),
-at the monitor's own resolution and highest refresh rate. The pointer image comes from
-`XCURSOR_THEME` and `XCURSOR_SIZE`. To choose it in a login manager, run:
-
-```sh
-./install.sh
-```
-
-On Arch-based systems it first installs the software InfinityDesk needs (build tools,
-libraries, alacritty and fuzzel); elsewhere it lists what is needed. Then it builds InfinityDesk
-and installs it to `/usr/local/bin` with a session entry in `/usr/share/wayland-sessions` (asks
-for sudo). Run it again to update; if nothing changed, it says so.
-
-The session's log is written to `~/.local/state/infinitydesk.log`.
-
 ## Controls (provisional)
 
-Alt is the modifier (Mod) while running nested (like niri does); standalone it is Super, also
-for the mouse controls below.
-Keyboard shortcuts can be changed in the config (see Settings); mouse controls will follow.
+Mod is **Super** in the standalone session and **Alt** while running nested (like niri does).
+Keyboard shortcuts can be changed in the config (see [Settings](#settings)); mouse controls
+will follow.
 
 | Action                          | Input                                              |
 |---------------------------------|----------------------------------------------------|
 | Pan the canvas                  | Left-drag or scroll on empty space                 |
-| Zoom around the pointer         | Alt + scroll                                       |
+| Zoom around the pointer         | Mod + scroll                                       |
 | Touchpad: zoom                  | Pinch (anywhere)                                   |
 | Touchpad: pan the canvas        | Three-finger swipe (anywhere)                      |
 | Touchpad: overview              | Four-finger swipe up (open) / down (close)         |
-| Move a window and its cluster   | Alt + left-drag on a window                        |
+| Move a window and its cluster   | Mod + left-drag on a window                        |
 | Dock windows                    | Drag a window close to another one                 |
-| Detach a window from a cluster  | Alt + left-click, hold still briefly, then drag    |
-| Mark / unmark a window          | Alt + Shift + click                                |
-| Mark windows with a box         | Alt + Shift + drag on empty space                  |
+| Detach a window from a cluster  | Mod + left-click, hold still briefly, then drag    |
+| Mark / unmark a window          | Mod + Shift + click                                |
+| Mark windows with a box         | Mod + Shift + drag on empty space                  |
 | Detach marked windows together  | Hold and drag one of them (as above)               |
 | Clear marks                     | Click on empty space                               |
 | Resize (neighbors follow)       | Left-drag on a window border (the edges light up)  |
-|                                 | or Alt + right-drag on a window (nearest edges)    |
+|                                 | or Mod + right-drag on a window (nearest edges)    |
 | Resize, rest of cluster moves   | The same with Shift                                |
-| Focus the next window           | Alt + arrow keys                                   |
-| Swap with the neighbor          | Alt + Ctrl + arrow keys                            |
-| Move the right / bottom edge    | Alt + Shift + arrow keys (a tenth of the screen)   |
-| Pan the view                    | Alt + Ctrl + Shift + arrow keys                    |
-| Zoom in / out (screen middle)   | Alt + Plus / Alt + Minus                           |
-| Center the active cluster       | Alt + C                                            |
-| Overview (all windows)          | Alt + O or Alt + Tab; again to go back, or to the  |
-|                                 | window chosen meanwhile (click or Alt + arrow)     |
+| Focus the next window           | Mod + arrow keys                                   |
+| Swap with the neighbor          | Mod + Ctrl + arrow keys                            |
+| Move the right / bottom edge    | Mod + Shift + arrow keys (a tenth of the screen;   |
+|                                 | right and down grow, left and up shrink)           |
+| Pan the view                    | Mod + Ctrl + Shift + arrow keys                    |
+| Zoom in / out (screen middle)   | Mod + Plus / Mod + Minus                           |
+| Center the active cluster       | Mod + C                                            |
+| Overview (all windows)          | Mod + Tab or Mod + O; again to go back, or to the  |
+|                                 | window chosen meanwhile (click or Mod + arrow)     |
 | Recently used windows           | Alt + Tab (hold Alt; each Tab goes one further     |
 |                                 | back, the view follows; release to choose)         |
-| Open a terminal (alacritty)     | Alt + T or Alt + Enter                             |
-| App launcher (fuzzel)           | Alt + Space                                        |
-| Close the focused window        | Alt + Q                                            |
-| Arrange the cluster (templates) | Alt + R, then click a slot or press 1–8 (Esc)      |
-| Fullscreen on / off             | Alt + F                                            |
-| Quit InfinityDesk               | Alt + Shift + E                                    |
+| Open a terminal (alacritty)     | Mod + Enter or Mod + T                             |
+| App launcher (fuzzel)           | Mod + Space                                        |
+| Close the focused window        | Mod + Q                                            |
+| Arrange the cluster (templates) | Mod + R, then click a slot or press 1–8 (Esc)      |
+| Fullscreen on / off             | Mod + F                                            |
+| Switch to a text console        | Ctrl + Alt + F1 … F12 (standalone)                 |
+| Quit InfinityDesk               | Mod + Shift + E                                    |
 
-While nested, the host compositor may keep some shortcuts for itself (niri: Alt + Tab), which
-is why the overview is on Alt + O too (and Alt + Tab only switches windows standalone, where
-Mod is Super). Keyboard resizing moves the window's right (bottom)
-edge, or its left (top) edge if only that one has a neighbor, so a row that fills the screen
-keeps filling it.
+While nested, Mod + Tab and Alt + Tab are the same keys, and the host compositor may keep some
+shortcuts for itself (niri keeps Alt + Tab and the three- and four-finger gestures). That is
+why the overview is on Mod + O too. To try the recently used windows nested:
+`desk.bind("Ctrl+Tab", desk.recent_windows)`.
 
-### Settings
+## Settings
 
 Settings are read from `~/.config/infinitydesk/init.lua` (Lua 5.4; respects
 `$XDG_CONFIG_HOME`, and `INFINITYDESK_CONFIG` points to another file). Saving the file applies
@@ -189,11 +229,12 @@ desk.snapping {
 desk.colors { background = "#1a1a1f", grid = "#474752", accent = "#59a6ff" }
 
 -- Shortcuts: the built-in ones (see Controls) stay unless you change or remove them.
--- Modifiers: Mod (Alt while nested, Super later), Super, Alt, Ctrl, Shift. Keys are xkb names
+-- Modifiers: Mod (Super, or Alt while nested), Super, Alt, Ctrl, Shift. Keys are xkb names
 -- in any case ("T", "Return", "F11", "space", "Print", ...). Shift+Q means the Q key.
 -- Actions: desk.spawn("command line"), desk.close_window, desk.fullscreen, desk.layout_menu,
 -- desk.focus(dir), desk.swap(dir), desk.resize(dir), desk.pan(dir) with dir "left", "right",
--- "up" or "down", desk.zoom_in, desk.zoom_out, desk.center, desk.overview, desk.recent_windows
+-- "up" or "down", desk.zoom_in, desk.zoom_out, desk.center, desk.overview, desk.recent_windows,
+-- desk.quit
 desk.bind("Mod+B", desk.spawn("firefox"))
 desk.bind("Mod+L", desk.focus("right"))
 desk.unbind("Mod+Tab")
@@ -202,6 +243,28 @@ desk.unbind("Mod+Tab")
 A mistake (a typo in a setting name, a wrong type, a value out of range) is logged with the
 setting, file and line. At startup the defaults are used instead; while running, the previous
 settings stay. If the canvas gets smaller, clusters outside it move back in as a whole.
+
+## Roadmap
+
+- **More Lua configuration:** window rules and events, designed to feel familiar when coming
+  from niri or Hyprland. Maybe a converter for niri configs later.
+- **Final default controls**, configurable mouse bindings and gestures
+- **Standalone session:** several monitors, monitor settings, XWayland (e.g. via
+  xwayland-satellite), programs started with the session, mouse settings
+- Visual polish: cluster outlines, decorations, animations
+
+## Development
+
+```sh
+cargo run                            # nested, with an alacritty terminal inside
+cargo test                           # the pure logic (canvas, clusters, resize, layouts, config)
+```
+
+Started inside a session (`WAYLAND_DISPLAY` or `DISPLAY` set), InfinityDesk opens as a window
+there. Started from a text console, it takes over the screen and the input devices:
+`target/release/infinitydesk 2> ~/infinitydesk.log`. It uses the first graphics card with a
+monitor connected (`INFINITYDESK_DRM_DEVICE=/dev/dri/cardN` picks one). The pointer image comes
+from `XCURSOR_THEME` and `XCURSOR_SIZE`.
 
 ## Code overview
 
