@@ -75,6 +75,7 @@ Ersetzt die freien Fenstergrößen aus Punkt 5 (`match_size`, freies Resize, Aus
 - ✅ **Ansicht rastet ein, wenn sie schon fast passt** (wie das Andocken, nur für die "Kamera"): Beim Loslassen (Maus, Touchpad), nur bei 1:1, rutscht sie das letzte Stück, wenn ein Cluster schon beinahe genau im Bildschirm sitzt (Stellen in halben Bildschirm-Schritten des Clusters, höchstens etwa ein Zehntel des Bildschirms entfernt). Weiter weg bleibt sie, wo sie losgelassen wurde; herausgezoomt immer frei. Verworfen: immer einrasten (nimmt die Freiheit).
 - ✅ Größe ändern (Rand ziehen, Mod+Shift+Pfeile) wechselt zwischen halb und ganz.
 - ✅ Vorlagen (Mod+R) nur noch die, die ins 2×2-Raster passen; Drittel-Vorlagen fallen weg.
+- ✅ Liegt im Bildschirm-Bereich einer Vorlage schon ein anderes Cluster, **rückt es als Ganzes nach rechts bzw. unten weg**, bis es frei liegt (Pyro, 21.11.2026; vorher überdeckten sich die Fenster).
 - ✅ Dialoge bleiben frei schwebend in der Mitte.
 - ✅ Schritt 1 eingebaut (21.11.2026): Lücken (Standard 16 px), neue Fenster halbe Breite × ganze Höhe, frei in der linken Bildschirmhälfte, Andocken und Vorlagen mit Lücke, `match_size` entfernt. Die Größe wird beim Öffnen aus dem Bildschirm berechnet (ändert sich der Bildschirm danach, behalten offene Fenster ihre Größe). Noch frei: Größe ändern (Schritt 2), Ansicht einrasten (Schritt 3).
 - ✅ Schritt 2 eingebaut (21.11.2026): Größe ändern springt zwischen halb und ganz, sobald die Kante über die halbe Strecke gezogen ist (Mod+Shift+Pfeil: rechts/unten macht halb zu ganz, links/oben ganz zu halb). **Nachbarn geben Platz ab oder nehmen ihn, wenn sie dabei zwischen halb und ganz bleiben; sonst rücken sie samt allem dahinter zur Seite** (wie in niri; Pyro einverstanden). Mit Shift rückt wie bisher immer alles. Geht beides nicht (z.B. Mindestgröße eines Programms), passiert nichts. Das Einrasten der gezogenen Kante an fremden Kanten ist weg (bringt mit festen Größen nichts). Vorlagen: ganzer Bildschirm, Hälfte | Hälfte, Hälfte | zwei Viertel, zwei Viertel | Hälfte, vier Viertel (Tasten 1–5, eine Reihe im Menü).
@@ -99,8 +100,7 @@ Ersetzt die freien Fenstergrößen aus Punkt 5 (`match_size`, freies Resize, Aus
   - Vier Finger hoch: Übersicht · runter: zurück (wie niri).
   - Scrollen (zwei Finger oder Mausrad) auf leerer Fläche: Ansicht verschieben. Über Fenstern scrollt es im Programm. Eine Mausrad-Raste verschiebt 60 px.
   - Genestet behält niri die Drei- und Vier-Finger-Gesten für sich; zum Ausprobieren die eigenständige Sitzung.
-- 💬 Maus-Belegung und Gesten in der Config – später.
-- Vorläufige Test-Bedienung (Platzhalter, bis die Bedienung entschieden ist):
+- ✅ **Maus-Bedienung ist final** (Pyro, 21.11.2026) und wird in der Config belegbar:
   - Linksziehen auf leerer Fläche: Fläche verschieben (Pan)
   - Alt + Mausrad: zoomen (um den Mauszeiger herum)
   - Alt + Linksziehen auf einem Fenster: Cluster verschieben
@@ -172,6 +172,7 @@ Ersetzt die freien Fenstergrößen aus Punkt 5 (`match_size`, freies Resize, Aus
 - ✅ dmabuf: Programme geben ihre Bilder direkt als GPU-Puffer weiter.
 - ✅ Mod+Shift+E beendet InfinityDesk (wie niri). Strg+Alt+F1…F12 wechselt die Konsole.
 - ✅ Login-Eintrag `resources/infinitydesk.desktop` (für den Login-Manager, wenn die Konsole klappt).
+- Pyro will (21.11.2026) alle vier: Maus-Einstellungen, Autostart, XWayland, mehrere Monitore (dafür vorher Design-Frage).
 - Noch nicht: mehrere Monitore, Monitor-Einstellungen in der Config, XWayland (Steam, ältere Programme; z. B. über xwayland-satellite wie niri), Programme beim Start (Autostart), Maus-Einstellungen (Beschleunigung: bei Pyro flach, 0.45), Zeiger-Thema in der Config, Monitor ab-/anstecken im Betrieb.
 
 ## 8. Offene Fragen
