@@ -108,7 +108,8 @@ cargo run --release -- -c firefox    # with another program inside
 - xdg-shell windows, popups and menus, keyboard, mouse and touchpad, clipboard and drag and drop
   between apps
 - Canvas with a dot grid, panning and zooming around the pointer (drawn on the GPU, only
-  visible windows are rendered)
+  visible windows are rendered). When a pan ends almost aligned (at 1:1, within a tenth of the
+  screen), the view snaps so the windows sit exactly in the screen.
 - **Docking:** edges snap together within 15 screen pixels at any zoom level, with a gap
   between the windows, and line up flush (tops or bottoms side by side, left or right edges
   stacked, whichever is closer), so windows of different sizes dock too and there are no offset

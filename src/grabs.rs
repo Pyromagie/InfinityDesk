@@ -490,6 +490,9 @@ impl PointerGrab<InfinityDesk> for DragGrab {
             set_resizing(&toggle.windows, &toggle.follow, false);
             data.set_resize_hint(None, false);
         }
+        if let DragKind::Pan { .. } = self.kind {
+            data.snap_view();
+        }
         let DragKind::MoveWindows {
             members, pressed, ..
         } = &self.kind

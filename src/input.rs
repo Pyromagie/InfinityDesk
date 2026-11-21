@@ -263,6 +263,7 @@ impl InfinityDesk {
                     }
                 }
 
+                let view = self.canvas.viewport_loc();
                 pointer.button(
                     self,
                     &ButtonEvent {
@@ -273,6 +274,11 @@ impl InfinityDesk {
                     },
                 );
                 pointer.frame(self);
+                // The view snapped when a pan ended: the canvas moved under the pointer.
+                if self.canvas.viewport_loc() != view {
+                    let screen = self.pointer_screen;
+                    self.pointer_moved(self.canvas.screen_to_canvas(screen), event.time());
+                }
             }
 
             InputEvent::GestureSwipeBegin { event, .. } => match event.fingers() {
@@ -287,15 +293,19 @@ impl InfinityDesk {
                 _ => {}
             },
             InputEvent::GestureSwipeEnd { event, .. } => {
-                if let Some(Gesture::Overview(dy)) = self.gesture.take()
-                    && !event.cancelled()
-                    && (dy < -OVERVIEW_SWIPE && self.overview.is_none()
-                        || dy > OVERVIEW_SWIPE && self.overview.is_some())
-                {
-                    self.toggle_overview();
-                    let screen = self.pointer_screen;
-                    self.pointer_moved(self.canvas.screen_to_canvas(screen), event.time());
+                match self.gesture.take() {
+                    Some(Gesture::Overview(dy))
+                        if !event.cancelled()
+                            && (dy < -OVERVIEW_SWIPE && self.overview.is_none()
+                                || dy > OVERVIEW_SWIPE && self.overview.is_some()) =>
+                    {
+                        self.toggle_overview()
+                    }
+                    Some(Gesture::Pan) => self.snap_view(),
+                    _ => return,
                 }
+                let screen = self.pointer_screen;
+                self.pointer_moved(self.canvas.screen_to_canvas(screen), event.time());
             }
             InputEvent::GesturePinchBegin { .. } => self.gesture_begins(Gesture::Zoom(1.0)),
             InputEvent::GesturePinchUpdate { event, .. } => {
@@ -334,6 +344,12 @@ impl InfinityDesk {
                 let amount = |axis| scroll_amount(&event, axis) * factor;
                 let delta = Point::from((amount(Axis::Horizontal), amount(Axis::Vertical)));
                 self.pan_screen(delta, event.time());
+                // Fingers lifted from the touchpad: the view snaps into the grid if almost there.
+                if event.source() == AxisSource::Finger && delta == Point::default() {
+                    self.snap_view();
+                    let screen = self.pointer_screen;
+                    self.pointer_moved(self.canvas.screen_to_canvas(screen), event.time());
+                }
             }
             InputEvent::PointerAxis { event, .. } => {
                 let source = event.source();

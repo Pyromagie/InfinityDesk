@@ -123,6 +123,36 @@ impl Canvas {
         );
     }
 
+    /// At 1:1, the view snaps to the closest place (per axis, within a tenth of the screen) where
+    /// one of the windows `rects` sits exactly in the screen's 2×2 grid (its top-left corner one
+    /// `gap` from the screen edge, in steps of half a screen) and is still on the screen. Further
+    /// away, or zoomed out, it stays.
+    pub fn snap_to_grid(&mut self, rects: &[Rectangle<i32, Logical>], gap: i32) {
+        if self.zoom != 1.0 {
+            return;
+        }
+        let screen = [self.screen.w, self.screen.h];
+        let mut loc = [self.viewport_loc.x, self.viewport_loc.y];
+        for axis in [0, 1] {
+            let step = ((screen[axis] - gap) / 2) as f64;
+            let distance = |to: &f64| (to - loc[axis]).abs();
+            let closest = (rects.iter())
+                .filter_map(|r| {
+                    let (start, len) = ([r.loc.x, r.loc.y][axis], [r.size.w, r.size.h][axis]);
+                    let origin = (start - gap) as f64;
+                    let to = origin + ((loc[axis] - origin) / step).round() * step;
+                    let on_screen =
+                        to < (start + len) as f64 && to + screen[axis] as f64 > start as f64;
+                    on_screen.then_some(to)
+                })
+                .min_by(|a, b| distance(a).total_cmp(&distance(b)));
+            if let Some(to) = closest.filter(|to| distance(to) <= screen[axis] as f64 / 10.0) {
+                loc[axis] = to;
+            }
+        }
+        self.set_viewport_loc((loc[0], loc[1]).into());
+    }
+
     /// Goes back to a view saved earlier (`viewport_loc` and `zoom`).
     pub fn set_view(&mut self, loc: Point<f64, Logical>, zoom: f64) {
         self.zoom = zoom.clamp(self.min_zoom(), 1.0);
@@ -218,6 +248,37 @@ mod tests {
             c.viewport_loc(),
             ((10_000 - 1920) as f64, (6_000 - 1080) as f64).into()
         );
+    }
+
+    #[test]
+    fn view_snaps_into_the_grid_when_almost_there() {
+        // 1920×1080 with 16 px gaps: steps of 952 × 532, snapping within 192 × 108.
+        let window = Rectangle::new((3016, 2016).into(), (936, 1048).into());
+        let full = Rectangle::new((3016, 2016).into(), (1888, 1048).into());
+        let mut c = canvas();
+        // Half a screen further (a full window's right half on the screen) and 50 px off;
+        // 60 px too high.
+        c.set_viewport_loc((4002.0, 1940.0).into());
+        c.snap_to_grid(&[full], 16);
+        assert_eq!(c.viewport_loc(), (3952.0, 2000.0).into());
+        // A half window would be off the screen there: no place.
+        c.set_viewport_loc((4002.0, 2000.0).into());
+        c.snap_to_grid(&[window], 16);
+        assert_eq!(c.viewport_loc(), (4002.0, 2000.0).into());
+        // Too far on both axes: it stays.
+        c.set_viewport_loc((3300.0, 2200.0).into());
+        c.snap_to_grid(&[window], 16);
+        assert_eq!(c.viewport_loc(), (3300.0, 2200.0).into());
+        // Of two windows, the closer place wins.
+        let other = Rectangle::new((3416, 2016).into(), (936, 1048).into());
+        c.set_viewport_loc((3390.0, 2000.0).into());
+        c.snap_to_grid(&[window, other], 16);
+        assert_eq!(c.viewport_loc(), (3400.0, 2000.0).into());
+        // Zoomed out: never.
+        c.zoom_at((0.0, 0.0).into(), 0.5);
+        let before = c.viewport_loc();
+        c.snap_to_grid(&[window], 16);
+        assert_eq!(c.viewport_loc(), before);
     }
 
     #[test]
