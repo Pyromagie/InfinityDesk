@@ -13,6 +13,8 @@
 //! desk.colors { background = "#1a1a1f", grid = "#474752", accent = "#59a6ff" }
 //! desk.bind("Mod+B", desk.spawn("firefox"))
 //! desk.unbind("Mod+Space")
+//! desk.spawn_at_startup("awww-daemon")
+//! desk.env { QT_QPA_PLATFORM = "wayland" }
 //! ```
 //!
 //! Everything is optional. Without the file the defaults apply; if the file has an error, it is
@@ -55,6 +57,10 @@ pub struct Config {
     pub grid_color: [f32; 4],
     /// Frames, lit edges, the chosen slot in the template menu.
     pub accent: [f32; 4],
+    /// Command lines started once when InfinityDesk starts (not again when the config changes).
+    pub startup: Vec<String>,
+    /// Environment variables for every program started from InfinityDesk.
+    pub env: Vec<(String, String)>,
 }
 
 /// Keyboard layout and key repeat.
@@ -195,6 +201,8 @@ impl Default for Config {
             background: [0.1, 0.1, 0.12, 1.0],
             grid_color: [0.28, 0.28, 0.32, 1.0],
             accent: [0.35, 0.65, 1.0, 1.0],
+            startup: Vec::new(),
+            env: Vec::new(),
             binds: [
                 ("Mod+T".to_string(), Action::Spawn("kitty".into())),
                 ("Mod+Return".to_string(), Action::Spawn("kitty".into())),
@@ -414,12 +422,13 @@ impl Config {
         let lua = Lua::new();
         lua.set_app_data(Config::default());
         let desk = lua.create_table()?;
-        let sections: [(&str, Section); 5] = [
+        let sections: [(&str, Section); 6] = [
             ("input", input),
             ("canvas", canvas),
             ("layout", layout),
             ("snapping", snapping),
             ("colors", colors),
+            ("env", env),
         ];
         for (name, section) in sections {
             let f = lua.create_function(move |lua, t: Table| {
@@ -467,6 +476,11 @@ impl Config {
             Ok(())
         })?;
         desk.set("unbind", unbind)?;
+        let spawn_at_startup = lua.create_function(|lua, command: String| {
+            lua.app_data_mut::<Config>().unwrap().startup.push(command);
+            Ok(())
+        })?;
+        desk.set("spawn_at_startup", spawn_at_startup)?;
         let loaded: Table = lua.globals().get::<Table>("package")?.get("loaded")?;
         loaded.set("infinitydesk", desk)?;
         lua.load(source).set_name(format!("@{name}")).exec()?;
@@ -677,6 +691,17 @@ fn get_in(
     }
 }
 
+fn env(config: &mut Config, t: &Table) -> mlua::Result<()> {
+    for pair in t.pairs::<String, String>() {
+        let (name, value) = pair.map_err(|_| {
+            mlua::Error::runtime("env: names and values must be text, e.g. NAME = \"value\"")
+        })?;
+        config.env.retain(|(n, _)| n != &name);
+        config.env.push((name, value));
+    }
+    Ok(())
+}
+
 fn setting_error(section: &str, key: &str, message: &str) -> mlua::Error {
     mlua::Error::runtime(format!("{section}.{key}: {message}"))
 }
@@ -706,6 +731,10 @@ mod tests {
             desk.layout { gaps = 8 }
             desk.snapping { threshold = 20, hold_ms = 500 }
             desk.colors { background = "#000000", accent = "#ff8000" }
+            desk.spawn_at_startup("awww-daemon")
+            desk.spawn_at_startup("waybar -c ~/bar.json")
+            desk.env { QT_QPA_PLATFORM = "wayland", XCURSOR_SIZE = "32" }
+            desk.env { XCURSOR_SIZE = "24" }
             "##,
         )
         .unwrap();
@@ -735,6 +764,18 @@ mod tests {
         assert_eq!(config.accent, [1.0, 128.0 / 255.0, 0.0, 1.0]);
         // Not set: default.
         assert_eq!(config.grid_color, Config::default().grid_color);
+        assert_eq!(config.startup, ["awww-daemon", "waybar -c ~/bar.json"]);
+        // A variable set twice: the last value.
+        let mut env = config.env.clone();
+        env.sort();
+        let pair = |n: &str, v: &str| (n.to_string(), v.to_string());
+        assert_eq!(
+            env,
+            [
+                pair("QT_QPA_PLATFORM", "wayland"),
+                pair("XCURSOR_SIZE", "24")
+            ]
+        );
     }
 
     #[test]

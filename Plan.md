@@ -126,7 +126,7 @@ Ersetzt die freien Fenstergrößen aus Punkt 5 (`match_size`, freies Resize, Aus
      **Maus-Bedienung:** wird belegbar, wenn die endgültige Bedienung feststeht (Punkt 6).
   3. **Fensterregeln:** z. B. "Programm X öffnet immer an Position Y / in Cluster Z".
   4. **Ereignisse & Skripting:** Lua-Funktionen, die auf Ereignisse reagieren (Fenster geöffnet, Cluster gebildet …).
-- ✅ **Fast alles Wichtige einstellbar, wie in Hyprland** (Pyro, 21.11.2026). Dieses Repo ist die **Basis** mit allgemeinen Standardwerten; Pyros eigene Einstellungen kommen später in eine eigene Lua-Config in einem eigenen Dotfiles-Repo. Geplant (ungefähr in dieser Reihenfolge): ✅ Maus, Autostart, Umgebungsvariablen für gestartete Programme, Zeiger-Thema und -Größe, XWayland, Maus-Belegung, Monitore (Auflösung, Bildrate, Skalierung, Position), Fensterregeln (Stufe 3). Dazu kleine Verhaltens-Werte, wo sie fehlen (z. B. Zoom-Geschwindigkeit, Mausrad-Schwenk, Einrasten der Ansicht an/aus).
+- ✅ **Fast alles Wichtige einstellbar, wie in Hyprland** (Pyro, 21.11.2026). Dieses Repo ist die **Basis** mit allgemeinen Standardwerten; Pyros eigene Einstellungen kommen später in eine eigene Lua-Config in einem eigenen Dotfiles-Repo. Geplant (ungefähr in dieser Reihenfolge): ✅ Maus, ✅ Autostart (`desk.spawn_at_startup("…")`, wie niri; nur beim Start, nicht beim Neuladen), ✅ Umgebungsvariablen für gestartete Programme (`desk.env { NAME = "wert" }`, wie Hyprland `env`; `WAYLAND_DISPLAY` setzt immer InfinityDesk), Zeiger-Thema und -Größe, XWayland, Maus-Belegung, Monitore (Auflösung, Bildrate, Skalierung, Position), Fensterregeln (Stufe 3). Dazu kleine Verhaltens-Werte, wo sie fehlen (z. B. Zoom-Geschwindigkeit, Mausrad-Schwenk, Einrasten der Ansicht an/aus).
 - ✅ **Leichter Umstieg von niri/Hyprland:** gleiche Begriffe, Struktur und (wo sinnvoll) gleiche Standardtasten wie dort, nur in Lua.
 - 💡 Zielbild (Entwurf, Namen noch nicht final):
 
@@ -175,7 +175,7 @@ Ersetzt die freien Fenstergrößen aus Punkt 5 (`match_size`, freies Resize, Aus
 - ✅ Login-Eintrag `resources/infinitydesk.desktop` (für den Login-Manager, wenn die Konsole klappt).
 - ✅ Maus-Einstellungen in der Config (21.11.2026, siehe 6c).
 - Pyro will (21.11.2026) alle vier: Maus-Einstellungen, Autostart, XWayland, mehrere Monitore (dafür vorher Design-Frage).
-- Noch nicht: mehrere Monitore, Monitor-Einstellungen in der Config, XWayland (Steam, ältere Programme; z. B. über xwayland-satellite wie niri), Programme beim Start (Autostart), Zeiger-Thema in der Config, Monitor ab-/anstecken im Betrieb.
+- Noch nicht: mehrere Monitore, Monitor-Einstellungen in der Config, XWayland (Steam, ältere Programme; z. B. über xwayland-satellite wie niri), Zeiger-Thema in der Config, Monitor ab-/anstecken im Betrieb.
 
 ## 8. Offene Fragen
 

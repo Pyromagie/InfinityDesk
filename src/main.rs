@@ -41,11 +41,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tracing::info!("InfinityDesk running on {:?}", state.socket_name);
 
-    // Start a program inside: `-c <program>`, otherwise a terminal.
+    // Start a program inside: `-c <program>`, otherwise a terminal. Then the config's own.
     let mut args = std::env::args().skip(1);
-    match (args.next().as_deref(), args.next()) {
-        (Some("-c" | "--command"), Some(cmd)) => spawn(&cmd, &state.socket_name),
-        _ => spawn("kitty", &state.socket_name),
+    let first = match (args.next().as_deref(), args.next()) {
+        (Some("-c" | "--command"), Some(cmd)) => cmd,
+        _ => "kitty".to_string(),
+    };
+    for command in std::iter::once(&first).chain(&state.config.startup) {
+        spawn(command, &state.socket_name, &state.config.env);
     }
 
     event_loop.run(None, &mut state, |_| {})?;
@@ -62,10 +65,12 @@ fn init_logging() {
 }
 
 /// Starts a program inside InfinityDesk: it connects to our socket, not to the host compositor.
-/// The command line goes through `sh -c`, so arguments, quotes and `~` work.
-pub fn spawn(command: &str, socket: &std::ffi::OsStr) {
+/// The command line goes through `sh -c`, so arguments, quotes and `~` work. `env` comes from
+/// the config.
+pub fn spawn(command: &str, socket: &std::ffi::OsStr, env: &[(String, String)]) {
     match (std::process::Command::new("sh"))
         .args(["-c", command])
+        .envs(env.iter().map(|(name, value)| (name, value)))
         .env("WAYLAND_DISPLAY", socket)
         .spawn()
     {

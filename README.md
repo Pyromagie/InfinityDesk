@@ -145,8 +145,8 @@ cargo run --release -- -c firefox    # with another program inside
   an overview that zooms out until all windows fit, and Alt + Tab through the recently used
   windows
 - **Touchpad gestures:** pinch to zoom, three fingers to pan, four fingers for the overview
-- **Lua configuration** with live reload: keyboard, touchpad, mouse, canvas, gaps, snapping, colors
-  and shortcuts
+- **Lua configuration** with live reload: keyboard, touchpad, mouse, canvas, gaps, snapping,
+  colors, shortcuts, programs to start and their environment variables
 - wlr-layer-shell, so launchers like fuzzel, bars and wallpaper tools (e.g. awww, swaybg) work;
   the wallpaper stays fixed behind the moving canvas
 
@@ -253,6 +253,13 @@ desk.colors { background = "#1a1a1f", grid = "#474752", accent = "#59a6ff" }
 desk.bind("Mod+B", desk.spawn("firefox"))
 desk.bind("Mod+L", desk.focus("right"))
 desk.unbind("Mod+Tab")
+
+-- Programs started once with InfinityDesk (after the one given with -c, or the terminal)
+desk.spawn_at_startup("awww-daemon")
+desk.spawn_at_startup("waybar")
+
+-- Environment variables for every program started from InfinityDesk
+desk.env { QT_QPA_PLATFORM = "wayland", MOZ_ENABLE_WAYLAND = "1" }
 ```
 
 A mistake (a typo in a setting name, a wrong type, a value out of range) is logged with the
