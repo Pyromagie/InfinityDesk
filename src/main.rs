@@ -45,7 +45,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
     match (args.next().as_deref(), args.next()) {
         (Some("-c" | "--command"), Some(cmd)) => spawn(&cmd, &state.socket_name),
-        _ => spawn("alacritty", &state.socket_name),
+        _ => spawn("kitty", &state.socket_name),
     }
 
     event_loop.run(None, &mut state, |_| {})?;

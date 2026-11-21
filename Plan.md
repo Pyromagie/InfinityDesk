@@ -105,7 +105,7 @@ Ersetzt die freien Fenstergrößen aus Punkt 5 (`match_size`, freies Resize, Aus
   - Alt + Rechtsziehen: Größe ändern, Nachbarn im Cluster passen sich an · mit Shift: Rest des Clusters rückt mit
   - Alt + Linksklick, kurz stillhalten, dann ziehen: Fenster aus dem Cluster lösen (markierte Fenster gemeinsam)
   - Alt + Shift + Klick: Fenster markieren · Alt + Shift + Ziehen auf leerer Fläche: Auswahlrahmen
-  - Tastatur: siehe oben. Dazu Mod+F Vollbild, Mod+T und Mod+Enter Terminal (alacritty), Mod+Q Fenster schließen (wie niri). Mod = Alt im genesteten Betrieb, später Super
+  - Tastatur: siehe oben. Dazu Mod+F Vollbild, Mod+T und Mod+Enter Terminal (kitty, vorher alacritty), Mod+Q Fenster schließen (wie niri). Mod = Alt im genesteten Betrieb, später Super
   - (Super ist im genesteten Betrieb von niri belegt, daher Alt. In der eigenständigen Sitzung werden alle Alt-Kürzel zu Super-Kürzeln, so will es Pyro.)
 
 ## 6b. Hintergrund
@@ -140,7 +140,7 @@ Ersetzt die freien Fenstergrößen aus Punkt 5 (`match_size`, freies Resize, Aus
   desk.layout { gaps = 16 }
   desk.snapping { threshold = 15, hold_ms = 300 }
 
-  desk.bind("Mod+Return", desk.spawn("alacritty"))
+  desk.bind("Mod+Return", desk.spawn("kitty"))
   desk.bind("Mod+Q", desk.close_window)
 
   desk.window_rule { match = { app_id = "firefox" }, open_at = { x = 1000, y = 500 } }

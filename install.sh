@@ -8,7 +8,7 @@ cd "$(dirname "$0")"
 # What InfinityDesk needs (Arch package names): compiler and libraries to build it, and the
 # default terminal and launcher.
 PACKAGES="gcc pkgconf wayland libxkbcommon libinput libdrm mesa libglvnd systemd-libs seatd
-alacritty fuzzel"
+kitty fuzzel"
 
 # 1. Required software
 if command -v pacman >/dev/null; then
@@ -25,7 +25,7 @@ elif ! command -v cargo >/dev/null; then
     echo "cargo not found: install Rust first (https://rustup.rs)."
     echo "Also needed (names differ per distribution): a C compiler, pkg-config, and the"
     echo "development files of wayland, libxkbcommon, libinput, libdrm, mesa (gbm, EGL),"
-    echo "libudev and libseat; alacritty and fuzzel for the default shortcuts."
+    echo "libudev and libseat; kitty and fuzzel for the default shortcuts."
     exit 1
 fi
 

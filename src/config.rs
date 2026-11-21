@@ -174,8 +174,8 @@ impl Default for Config {
             grid_color: [0.28, 0.28, 0.32, 1.0],
             accent: [0.35, 0.65, 1.0, 1.0],
             binds: [
-                ("Mod+T".to_string(), Action::Spawn("alacritty".into())),
-                ("Mod+Return".to_string(), Action::Spawn("alacritty".into())),
+                ("Mod+T".to_string(), Action::Spawn("kitty".into())),
+                ("Mod+Return".to_string(), Action::Spawn("kitty".into())),
                 ("Mod+Space".to_string(), Action::Spawn("fuzzel".into())),
                 ("Mod+Q".to_string(), Action::CloseWindow),
                 ("Mod+F".to_string(), Action::Fullscreen),
@@ -853,7 +853,7 @@ mod tests {
         assert_eq!(action(&config, "Mod+R"), Some(Action::LayoutMenu));
         assert_eq!(
             action(&config, "Mod+Return"),
-            Some(Action::Spawn("alacritty".into()))
+            Some(Action::Spawn("kitty".into()))
         );
         assert_eq!(action(&config, "Mod+W"), None);
     }

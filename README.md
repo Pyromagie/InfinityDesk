@@ -33,7 +33,7 @@ step further into two dimensions. Built in Rust on [Smithay](https://github.com/
 - On Arch-based systems (Arch, CachyOS, EndeavourOS, Manjaro, ...) the install script sets up
   everything else. Elsewhere you need Rust (https://rustup.rs), a C compiler, `pkg-config`, the
   development files of `wayland`, `libxkbcommon`, `libinput`, `libdrm`, `mesa` (gbm, EGL),
-  `libudev` and `libseat`, and `alacritty` and `fuzzel` for the default shortcuts.
+  `libudev` and `libseat`, and `kitty` and `fuzzel` for the default shortcuts.
 
 ### Install
 
@@ -97,8 +97,8 @@ Inside your current Wayland session, InfinityDesk opens as a window, and Mod is 
 (the host compositor keeps Super). This is the safest way to look around:
 
 ```sh
-cargo run --release                  # with an alacritty terminal inside
-cargo run --release -- -c kitty      # with another program inside
+cargo run --release                  # with a kitty terminal inside
+cargo run --release -- -c firefox    # with another program inside
 ```
 
 ## What works today
@@ -180,7 +180,7 @@ will follow.
 |                                 | window chosen meanwhile (click or Mod + arrow)     |
 | Recently used windows           | Alt + Tab (hold Alt; each Tab goes one further     |
 |                                 | back, the view follows; release to choose)         |
-| Open a terminal (alacritty)     | Mod + Enter or Mod + T                             |
+| Open a terminal (kitty)         | Mod + Enter or Mod + T                             |
 | App launcher (fuzzel)           | Mod + Space                                        |
 | Close the focused window        | Mod + Q                                            |
 | Arrange the cluster (templates) | Mod + R, then click a slot or press 1–8 (Esc)      |
@@ -260,7 +260,7 @@ settings stay. If the canvas gets smaller, clusters outside it move back in as a
 ## Development
 
 ```sh
-cargo run                            # nested, with an alacritty terminal inside
+cargo run                            # nested, with a kitty terminal inside
 cargo test                           # the pure logic (canvas, clusters, resize, layouts, config)
 ```
 
