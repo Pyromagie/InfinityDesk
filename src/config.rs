@@ -6,7 +6,8 @@
 //!              touchpad = { tap = true, natural_scroll = true, dwt = true,
 //!                           accel_speed = 0.0, accel_profile = "adaptive" } }
 //! desk.canvas { width = 20000, height = 12000, grid = { spacing = 100 } }
-//! desk.snapping { threshold = 15, match_size = false, hold_ms = 300 }
+//! desk.layout { gaps = 16 }
+//! desk.snapping { threshold = 15, hold_ms = 300 }
 //! desk.colors { background = "#1a1a1f", grid = "#474752", accent = "#59a6ff" }
 //! desk.bind("Mod+B", desk.spawn("firefox"))
 //! desk.unbind("Mod+Space")
@@ -40,11 +41,10 @@ pub struct Config {
     pub canvas_size: (i32, i32),
     /// Distance between the grid dots on the canvas.
     pub grid_spacing: f64,
+    /// Space between windows, and between windows and the screen edge.
+    pub gaps: i32,
     /// Edges closer than this (in screen pixels) snap together.
     pub snap_threshold: f64,
-    /// A docked window takes its neighbor's height (side by side) or width (stacked), so the
-    /// cluster becomes a clean grid. Off: windows keep their size and only line up their edges.
-    pub match_size: bool,
     /// How long a window is held still before it can be pulled out of its cluster.
     pub hold_time: Duration,
     /// Colors as premultiplied RGBA.
@@ -167,8 +167,8 @@ impl Default for Config {
             },
             canvas_size: (20_000, 12_000),
             grid_spacing: 100.0,
+            gaps: 16,
             snap_threshold: 15.0,
-            match_size: false,
             hold_time: Duration::from_millis(300),
             background: [0.1, 0.1, 0.12, 1.0],
             grid_color: [0.28, 0.28, 0.32, 1.0],
@@ -392,9 +392,10 @@ impl Config {
         let lua = Lua::new();
         lua.set_app_data(Config::default());
         let desk = lua.create_table()?;
-        let sections: [(&str, Section); 4] = [
+        let sections: [(&str, Section); 5] = [
             ("input", input),
             ("canvas", canvas),
+            ("layout", layout),
             ("snapping", snapping),
             ("colors", colors),
         ];
@@ -550,12 +551,17 @@ fn canvas(config: &mut Config, t: &Table) -> mlua::Result<()> {
     Ok(())
 }
 
+fn layout(config: &mut Config, t: &Table) -> mlua::Result<()> {
+    check_keys(t, "layout", &["gaps"])?;
+    config.gaps = get_in(t, "layout", "gaps", 0..=200)?.unwrap_or(config.gaps);
+    Ok(())
+}
+
 fn snapping(config: &mut Config, t: &Table) -> mlua::Result<()> {
-    check_keys(t, "snapping", &["threshold", "match_size", "hold_ms"])?;
+    check_keys(t, "snapping", &["threshold", "hold_ms"])?;
     if let Some(v) = get_in(t, "snapping", "threshold", 0..=100)? {
         config.snap_threshold = v as f64;
     }
-    config.match_size = get(t, "snapping", "match_size")?.unwrap_or(config.match_size);
     if let Some(v) = get_in(t, "snapping", "hold_ms", 0..=5000)? {
         config.hold_time = Duration::from_millis(v as u64);
     }
@@ -648,7 +654,8 @@ mod tests {
                                       repeat_delay = 300, repeat_rate = 40 } }
             desk.input { touchpad = { tap = false, accel_speed = -0.5, accel_profile = "flat" } }
             desk.canvas { width = 30000, height = 15000, grid = { spacing = 200 } }
-            desk.snapping { threshold = 20, match_size = true, hold_ms = 500 }
+            desk.layout { gaps = 8 }
+            desk.snapping { threshold = 20, hold_ms = 500 }
             desk.colors { background = "#000000", accent = "#ff8000" }
             "##,
         )
@@ -666,8 +673,8 @@ mod tests {
         assert!(tp.natural_scroll && tp.dwt);
         assert_eq!(config.canvas_size, (30_000, 15_000));
         assert_eq!(config.grid_spacing, 200.0);
+        assert_eq!(config.gaps, 8);
         assert_eq!(config.snap_threshold, 20.0);
-        assert!(config.match_size);
         assert_eq!(config.hold_time, Duration::from_millis(500));
         assert_eq!(config.background, [0.0, 0.0, 0.0, 1.0]);
         assert_eq!(config.accent, [1.0, 128.0 / 255.0, 0.0, 1.0]);

@@ -48,7 +48,7 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
 
 - ✅ Einrasten an Kanten innerhalb von 15 px **auf dem Bildschirm** (gilt bei jedem Zoom gleich): **Andocken** (Kante an Kante) und **Ausrichten** (bündige Ober-/Seitenkanten, ergibt saubere Ecken).
 - ✅ **Keine versetzten Verbindungen:** Beim Andocken richtet sich das Fenster immer bündig am Nachbarn aus (nebeneinander: Ober- **oder** Unterkanten, untereinander: linke **oder** rechte Kanten, je nachdem welches Paar näher ist). So docken auch unterschiedlich große Fenster an und es entstehen saubere Ecken. Angedockt wird nur, wenn diese Kanten schon nah sind (höchstens 60 px auf dem Bildschirm), sonst würde das Fenster weit springen.
-- ✅ **Einstellung `match_size`:** Standard aus = Fenster behalten beim Andocken ihre Größe (unterschiedlich große Fenster dürfen aneinander docken). An = ein einzeln angedocktes Fenster übernimmt die Höhe (nebeneinander) bzw. Breite (untereinander) des Nachbarn, das Cluster wird ein sauberes Raster. In der Lua-Config: `desk.snapping { match_size = true }`.
+- ~~**Einstellung `match_size`**~~ (entfernt 21.11.2026, ersetzt durch Punkt 5b): Standard aus = Fenster behalten beim Andocken ihre Größe (unterschiedlich große Fenster dürfen aneinander docken). An = ein einzeln angedocktes Fenster übernimmt die Höhe (nebeneinander) bzw. Breite (untereinander) des Nachbarn, das Cluster wird ein sauberes Raster. In der Lua-Config: `desk.snapping { match_size = true }`.
   - ✅ Ein Platz, an dem schon ein Fenster liegt, wird nicht angedockt (keine überlappenden Fenster).
   - ✅ **Überschießen wird verziehen:** Schiebt man ein Fenster zu weit, schon über den Nachbarn, dockt es trotzdem an dessen Kante an (bis 60 px tief, Bildschirm). Beim Heranziehen bleibt es bei 15 px.
   - ✅ Schnell vorbeiziehen (über 1000 px/s) rastet nicht ein, damit nichts kurz hin- und herspringt. Beim Loslassen wird immer eingerastet.
@@ -76,6 +76,7 @@ Ersetzt die freien Fenstergrößen aus Punkt 5 (`match_size`, freies Resize, Aus
 - ✅ Größe ändern (Rand ziehen, Mod+Shift+Pfeile) wechselt zwischen halb und ganz.
 - ✅ Vorlagen (Mod+R) nur noch die, die ins 2×2-Raster passen; Drittel-Vorlagen fallen weg.
 - ✅ Dialoge bleiben frei schwebend in der Mitte.
+- ✅ Schritt 1 eingebaut (21.11.2026): Lücken (Standard 16 px), neue Fenster halbe Breite × ganze Höhe, frei in der linken Bildschirmhälfte, Andocken und Vorlagen mit Lücke, `match_size` entfernt. Die Größe wird beim Öffnen aus dem Bildschirm berechnet (ändert sich der Bildschirm danach, behalten offene Fenster ihre Größe). Noch frei: Größe ändern (Schritt 2), Ansicht einrasten (Schritt 3).
 
 ## 6. Navigation
 
@@ -118,7 +119,7 @@ Ersetzt die freien Fenstergrößen aus Punkt 5 (`match_size`, freies Resize, Aus
 - ✅ Das Repo wird veröffentlicht; andere sollen InfinityDesk nutzen und anpassen können.
 - ✅ Konfiguration per **Lua** (z. B. `~/.config/infinitydesk/init.lua`), über die Rust-Bibliothek `mlua`.
 - 💡 Ausbaustufen:
-  1. ✅ **Einstellungen** (eingebaut): Tastatur (xkb-Belegung, Wiederholrate), Canvas-Größe, Raster-Abstand, Snap-Schwellwert, `match_size`, Haltezeit der Lös-Geste, Farben (Hintergrund, Raster, Akzent). Gelesen beim Start und **neu geladen, sobald die Datei gespeichert wird** (einmal pro Sekunde wird nachgesehen); Tippfehler, falsche Typen und Werte außerhalb des Bereichs sind Fehler (mit Einstellung, Datei und Zeile im Log), dann gelten beim Start die Standardwerte, im laufenden Betrieb bleiben die bisherigen. Wird die Fläche kleiner, rücken Cluster außerhalb als Ganzes herein. Lua 5.4 ist in die Binary eingebaut (`mlua`, vendored). `INFINITYDESK_CONFIG` zeigt auf eine andere Datei (zum Testen). Touchpad (`desk.input { touchpad = { tap, natural_scroll, dwt, accel_speed, accel_profile } }`, nur eigenständig; Standard wie bei Pyro in niri: Tippen, natürliches Scrollen, aus beim Tippen, Beschleunigung 0). Noch nicht: Maus-Einstellungen, Zoom-Verhalten.
+  1. ✅ **Einstellungen** (eingebaut): Tastatur (xkb-Belegung, Wiederholrate), Canvas-Größe, Raster-Abstand, Snap-Schwellwert, Lücken (`desk.layout { gaps = 16 }`), Haltezeit der Lös-Geste, Farben (Hintergrund, Raster, Akzent). Gelesen beim Start und **neu geladen, sobald die Datei gespeichert wird** (einmal pro Sekunde wird nachgesehen); Tippfehler, falsche Typen und Werte außerhalb des Bereichs sind Fehler (mit Einstellung, Datei und Zeile im Log), dann gelten beim Start die Standardwerte, im laufenden Betrieb bleiben die bisherigen. Wird die Fläche kleiner, rücken Cluster außerhalb als Ganzes herein. Lua 5.4 ist in die Binary eingebaut (`mlua`, vendored). `INFINITYDESK_CONFIG` zeigt auf eine andere Datei (zum Testen). Touchpad (`desk.input { touchpad = { tap, natural_scroll, dwt, accel_speed, accel_profile } }`, nur eigenständig; Standard wie bei Pyro in niri: Tippen, natürliches Scrollen, aus beim Tippen, Beschleunigung 0). Noch nicht: Maus-Einstellungen, Zoom-Verhalten.
   2. ✅ **Tastenbelegung** (eingebaut): `desk.bind("Mod+Return", desk.spawn("alacritty"))`, `desk.unbind("Mod+Tab")`. Die eingebauten Kürzel (siehe Punkt 6) bleiben, eigene gehen vor oder kommen dazu. Modifikatoren Mod/Super/Alt/Ctrl/Shift, Tasten als xkb-Namen; "Shift+Q" meint die Q-Taste. Aktionen: `desk.spawn("Befehlszeile")` (über `sh -c`, also mit Argumenten), `desk.close_window`, `desk.fullscreen`, `desk.layout_menu`, `desk.focus/swap/resize/pan("left"|"right"|"up"|"down")`, `desk.zoom_in`, `desk.zoom_out`, `desk.center`, `desk.overview`, `desk.recent_windows`. Lua-Funktionen als Aktion erst mit Stufe 4.
      **Maus-Bedienung:** wird belegbar, wenn die endgültige Bedienung feststeht (Punkt 6).
   3. **Fensterregeln:** z. B. "Programm X öffnet immer an Position Y / in Cluster Z".
@@ -136,7 +137,8 @@ Ersetzt die freien Fenstergrößen aus Punkt 5 (`match_size`, freies Resize, Aus
   }
 
   desk.canvas { width = 20000, height = 12000, grid = { spacing = 100 } }
-  desk.snapping { threshold = 15, match_size = false, hold_ms = 300 }
+  desk.layout { gaps = 16 }
+  desk.snapping { threshold = 15, hold_ms = 300 }
 
   desk.bind("Mod+Return", desk.spawn("alacritty"))
   desk.bind("Mod+Q", desk.close_window)
@@ -174,4 +176,4 @@ Ersetzt die freien Fenstergrößen aus Punkt 5 (`match_size`, freies Resize, Aus
 
 - Bedienung des Ganzen (Punkt 6)
 - Mehrere Monitore: ein Canvas pro Monitor oder ein gemeinsamer?
-- ✅ Neue Fenster (eingebaut): zuerst füllen sie freie Plätze der letzten Vorlage (Mod+R). Sonst docken sie am **aktiven Fenster** an: rechts daneben (Oberkanten bündig), sonst darunter (linke Kanten bündig), links, oben. Seiten, die auf dem Bildschirm liegen, kommen zuerst; ist nirgends auf dem Bildschirm Platz, dockt es trotzdem an der ersten freien Seite an und die **Ansicht rückt gerade so weit mit**, dass es ganz zu sehen ist. Ist kein Fenster aktiv (vorher auf leere Fläche geklickt), erscheint es frei in der Mitte. Dialoge erscheinen immer frei in der Mitte. Ein Launcher (fuzzel) ändert das aktive Fenster nicht. 💬 Feinabstimmung beim Ausprobieren.
+- ✅ Neue Fenster (eingebaut): zuerst füllen sie freie Plätze der letzten Vorlage (Mod+R). Sonst docken sie am **aktiven Fenster** an: rechts daneben (Oberkanten bündig), sonst darunter (linke Kanten bündig), links, oben. Seiten, die auf dem Bildschirm liegen, kommen zuerst; ist nirgends auf dem Bildschirm Platz, dockt es trotzdem an der ersten freien Seite an und die **Ansicht rückt gerade so weit mit**, dass es ganz zu sehen ist. Ist kein Fenster aktiv (vorher auf leere Fläche geklickt), kommt es in die linke Bildschirmhälfte (seit 21.11.2026, vorher frei in der Mitte). Neue Fenster sind halb so breit und so hoch wie der Bildschirm (mit Lücken), zwei neue Fenster füllen ihn also genau. Dialoge erscheinen immer frei in der Mitte und wählen ihre Größe selbst. Ein Launcher (fuzzel) ändert das aktive Fenster nicht. 💬 Feinabstimmung beim Ausprobieren.

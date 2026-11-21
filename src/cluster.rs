@@ -113,26 +113,33 @@ impl<K: Eq + Hash + Clone> Clusters<K> {
     }
 }
 
-/// Do two windows lie edge to edge (with real overlap along the edge, not just corner to corner)?
-pub fn touching(a: &Rect, b: &Rect) -> bool {
+/// Do two windows lie edge to edge, `gap` apart (with real overlap along the edge, not just
+/// corner to corner)?
+pub fn touching(a: &Rect, b: &Rect, gap: i32) -> bool {
     let (al, ar, at, ab) = edges(a);
     let (bl, br, bt, bb) = edges(b);
     let h_overlap = ar.min(br) - al.max(bl) > 0;
     let v_overlap = ab.min(bb) - at.max(bt) > 0;
-    let side_by_side = (ar - bl).abs() <= TOUCH_TOLERANCE || (al - br).abs() <= TOUCH_TOLERANCE;
-    let stacked = (ab - bt).abs() <= TOUCH_TOLERANCE || (at - bb).abs() <= TOUCH_TOLERANCE;
+    let near = |d: i32| (d - gap).abs() <= TOUCH_TOLERANCE;
+    let side_by_side = near(bl - ar) || near(al - br);
+    let stacked = near(bt - ab) || near(at - bb);
     (side_by_side && v_overlap) || (stacked && h_overlap)
 }
 
 /// Computes the correction by which the moving windows must be shifted to dock to a nearby
-/// window. An edge within `threshold` (canvas pixels) of a neighbor docks to it, and the other
+/// window, `gap` apart. An edge within `threshold` (canvas pixels) of its spot docks, and the other
 /// axis always lines up with that neighbor, so there is a clean corner: side by side the tops or
 /// the bottoms are flush, stacked the left or the right edges (whichever pair is closer, so
 /// windows of different sizes dock too). A window pushed past the edge, already overlapping its
 /// neighbor, docks too (up to `OVERSHOOT_FACTOR` times `threshold` deep). The closest dock wins;
 /// ties go to the smallest alignment jump. A spot that is already taken by another window is
 /// skipped.
-pub fn snap_delta(moving: &[Rect], others: &[Rect], threshold: i32) -> Point<i32, Logical> {
+pub fn snap_delta(
+    moving: &[Rect],
+    others: &[Rect],
+    threshold: i32,
+    gap: i32,
+) -> Point<i32, Logical> {
     // (dock distance, alignment distance, delta)
     let mut best: Option<(i32, i32, Point<i32, Logical>)> = None;
     for m in moving {
@@ -143,19 +150,21 @@ pub fn snap_delta(moving: &[Rect], others: &[Rect], threshold: i32) -> Point<i32
             // vertically, stacked horizontally. Otherwise the alignment could jump across.
             let v_overlap = mt < ob && ot < mb;
             let h_overlap = ml < or && ol < mr;
-            // `gap` is the dock distance with its sign: positive = still apart, negative = the
-            // windows already overlap (pushed too far).
+            // The way to each docking spot. `apart` is the dock distance with its sign:
+            // positive = still apart, negative = already too close (pushed too far).
+            let (left, right) = (ol - gap - mr, or + gap - ml);
+            let (up, down) = (ot - gap - mb, ob + gap - mt);
             let candidates = [
-                (v_overlap, ol - mr, ol - mr, ot - mt, true), // left of o, tops flush
-                (v_overlap, ol - mr, ol - mr, ob - mb, true), // left of o, bottoms flush
-                (v_overlap, or - ml, ml - or, ot - mt, true), // right of o, tops flush
-                (v_overlap, or - ml, ml - or, ob - mb, true), // right of o, bottoms flush
-                (h_overlap, ot - mb, ot - mb, ol - ml, false), // above o, left edges flush
-                (h_overlap, ot - mb, ot - mb, or - mr, false), // above o, right edges flush
-                (h_overlap, ob - mt, mt - ob, ol - ml, false), // below o, left edges flush
-                (h_overlap, ob - mt, mt - ob, or - mr, false), // below o, right edges flush
+                (v_overlap, left, left, ot - mt, true), // left of o, tops flush
+                (v_overlap, left, left, ob - mb, true), // left of o, bottoms flush
+                (v_overlap, right, -right, ot - mt, true), // right of o, tops flush
+                (v_overlap, right, -right, ob - mb, true), // right of o, bottoms flush
+                (h_overlap, up, up, ol - ml, false),    // above o, left edges flush
+                (h_overlap, up, up, or - mr, false),    // above o, right edges flush
+                (h_overlap, down, -down, ol - ml, false), // below o, left edges flush
+                (h_overlap, down, -down, or - mr, false), // below o, right edges flush
             ];
-            for (faces, dock, gap, align, side_by_side) in candidates {
+            for (faces, dock, apart, align, side_by_side) in candidates {
                 let score = (dock.abs(), align.abs());
                 let delta = if side_by_side {
                     (dock, align)
@@ -164,8 +173,8 @@ pub fn snap_delta(moving: &[Rect], others: &[Rect], threshold: i32) -> Point<i32
                 }
                 .into();
                 if faces
-                    && gap <= threshold
-                    && -gap <= threshold * OVERSHOOT_FACTOR
+                    && apart <= threshold
+                    && -apart <= threshold * OVERSHOOT_FACTOR
                     && align.abs() <= threshold * ALIGN_FACTOR
                     && best.is_none_or(|(d, a, _)| score < (d, a))
                     && is_free(moving, others, delta)
@@ -187,35 +196,25 @@ fn is_free(moving: &[Rect], others: &[Rect], delta: Point<i32, Logical>) -> bool
     })
 }
 
-/// Where a window docked to `o` goes, so the cluster stays a clean grid: side by side it takes
-/// the top and height of `o`, stacked the left edge and width.
-pub fn grid_rect(m: &Rect, o: &Rect) -> Rect {
-    let (ml, mr, ..) = edges(m);
-    let (ol, or, ..) = edges(o);
-    let side_by_side = (mr - ol).abs() <= TOUCH_TOLERANCE || (ml - or).abs() <= TOUCH_TOLERANCE;
-    if side_by_side {
-        Rect::new((m.loc.x, o.loc.y).into(), (m.size.w, o.size.h).into())
-    } else {
-        Rect::new((o.loc.x, m.loc.y).into(), (o.size.w, m.size.h).into())
-    }
-}
-
-/// Where a new window of `size` docks to the active window `a`: right of it (tops flush), else
-/// below (left edges flush), left of it, above. The spot must lie within the canvas and not on
-/// another window; spots that are `visible` on the screen come first. With `match_size` it takes
-/// `a`'s height or width.
+/// Where a new window of `size` docks to the active window `a`, `gap` apart: right of it (tops
+/// flush), else below (left edges flush), left of it, above. The spot must lie within the canvas
+/// and not on another window; spots that are `visible` on the screen come first.
 pub fn dock_spot(
     a: &Rect,
     size: Size<i32, Logical>,
     others: &[Rect],
     visible: &Rect,
     canvas: &Rect,
-    match_size: bool,
+    gap: i32,
 ) -> Option<Rect> {
     let (al, ar, at, ab) = edges(a);
-    let spots = [(ar, at), (al, ab), (al - size.w, at), (al, at - size.h)]
-        .map(|loc| Rect::new(loc.into(), size))
-        .map(|r| if match_size { grid_rect(&r, a) } else { r });
+    let spots = [
+        (ar + gap, at),
+        (al, ab + gap),
+        (al - gap - size.w, at),
+        (al, at - gap - size.h),
+    ]
+    .map(|loc| Rect::new(loc.into(), size));
     let free = |r: &&Rect| canvas.contains_rect(**r) && others.iter().all(|o| !r.overlaps(*o));
     (spots.iter().filter(free))
         .find(|r| visible.contains_rect(**r))
@@ -264,7 +263,7 @@ mod tests {
         let other = rect(1000, 500, 400, 300);
         // 10 px gap to the left edge of `other`, 6 px lower.
         let moving = rect(590, 506, 400, 300);
-        let d = snap_delta(&[moving], &[other], 15);
+        let d = snap_delta(&[moving], &[other], 15, 0);
         assert_eq!(d, (10, -6).into());
     }
 
@@ -272,7 +271,7 @@ mod tests {
     fn snaps_below() {
         let other = rect(0, 0, 400, 300);
         let moving = rect(3, 312, 400, 300);
-        let d = snap_delta(&[moving], &[other], 15);
+        let d = snap_delta(&[moving], &[other], 15, 0);
         assert_eq!(d, (-3, -12).into());
     }
 
@@ -281,7 +280,7 @@ mod tests {
         // Docks to the right of `other`, 40 px lower: tops are lined up.
         let other = rect(0, 0, 400, 300);
         let moving = rect(405, 40, 400, 500);
-        assert_eq!(snap_delta(&[moving], &[other], 15), (-5, -40).into());
+        assert_eq!(snap_delta(&[moving], &[other], 15, 0), (-5, -40).into());
     }
 
     #[test]
@@ -291,7 +290,7 @@ mod tests {
         let left = rect(0, 0, 400, 300);
         let right = rect(810, 0, 400, 300);
         let moving = rect(405, 200, 400, 600);
-        assert_eq!(snap_delta(&[moving], &[left, right], 15), (0, 0).into());
+        assert_eq!(snap_delta(&[moving], &[left, right], 15, 0), (0, 0).into());
     }
 
     #[test]
@@ -300,7 +299,10 @@ mod tests {
         let top = rect(0, 0, 400, 300);
         let bottom = rect(0, 300, 400, 300);
         let moving = rect(420, 5, 400, 300);
-        assert_eq!(snap_delta(&[moving], &[top, bottom], 27), (-20, -5).into());
+        assert_eq!(
+            snap_delta(&[moving], &[top, bottom], 27, 0),
+            (-20, -5).into()
+        );
     }
 
     #[test]
@@ -313,7 +315,7 @@ mod tests {
             rect(400, 300, 400, 300),
         ];
         let moving = rect(410, 310, 400, 300);
-        assert_eq!(snap_delta(&[moving], &grid, 15), (0, 0).into());
+        assert_eq!(snap_delta(&[moving], &grid, 15, 0), (0, 0).into());
     }
 
     #[test]
@@ -321,7 +323,7 @@ mod tests {
         // Smaller window right of a tall one, near its bottom: bottoms are lined up.
         let other = rect(0, 0, 400, 800);
         let moving = rect(408, 470, 300, 300);
-        assert_eq!(snap_delta(&[moving], &[other], 15), (-8, 30).into());
+        assert_eq!(snap_delta(&[moving], &[other], 15, 0), (-8, 30).into());
     }
 
     #[test]
@@ -329,7 +331,7 @@ mod tests {
         // Wider window below a narrow one, right edges 30 px apart: right edges are lined up.
         let other = rect(500, 0, 400, 300);
         let moving = rect(70, 310, 800, 300);
-        assert_eq!(snap_delta(&[moving], &[other], 15), (30, -10).into());
+        assert_eq!(snap_delta(&[moving], &[other], 15, 0), (30, -10).into());
     }
 
     #[test]
@@ -339,11 +341,11 @@ mod tests {
         let small = rect(500, 0, 400, 300);
         let tall = rect(900, 0, 400, 700);
         let moving = rect(75, 310, 800, 300);
-        let d = snap_delta(&[moving], &[small, tall], 15);
+        let d = snap_delta(&[moving], &[small, tall], 15, 0);
         assert_eq!(d, (25, -10).into());
         let docked = Rect::new(moving.loc + d, moving.size);
-        assert!(touching(&docked, &small));
-        assert!(touching(&docked, &tall));
+        assert!(touching(&docked, &small, 0));
+        assert!(touching(&docked, &tall, 0));
     }
 
     #[test]
@@ -352,10 +354,10 @@ mod tests {
         // it still docks at the edge.
         let other = rect(1000, 0, 400, 300);
         let moving = rect(640, 0, 400, 300);
-        assert_eq!(snap_delta(&[moving], &[other], 15), (-40, 0).into());
+        assert_eq!(snap_delta(&[moving], &[other], 15, 0), (-40, 0).into());
         // Pushed 40 px too far up into a window above it.
         let moving = rect(1000, 260, 400, 300);
-        assert_eq!(snap_delta(&[moving], &[other], 15), (0, 40).into());
+        assert_eq!(snap_delta(&[moving], &[other], 15, 0), (0, 40).into());
     }
 
     #[test]
@@ -363,12 +365,12 @@ mod tests {
         // 40 px gap (not overlapping): too far to dock.
         let other = rect(1000, 0, 400, 300);
         assert_eq!(
-            snap_delta(&[rect(560, 0, 400, 300)], &[other], 15),
+            snap_delta(&[rect(560, 0, 400, 300)], &[other], 15, 0),
             (0, 0).into()
         );
         // Pushed 70 px deep, beyond 4 × 15: no dock either.
         assert_eq!(
-            snap_delta(&[rect(670, 0, 400, 300)], &[other], 15),
+            snap_delta(&[rect(670, 0, 400, 300)], &[other], 15, 0),
             (0, 0).into()
         );
     }
@@ -378,11 +380,11 @@ mod tests {
         let a = rect(1000, 1000, 400, 300);
         let area = rect(0, 0, 3000, 2000);
         let size = (500, 200).into();
-        let spot = dock_spot(&a, size, &[a], &area, &area, false);
+        let spot = dock_spot(&a, size, &[a], &area, &area, 0);
         assert_eq!(spot, Some(rect(1400, 1000, 500, 200)));
-        // With match_size it takes the height of the active window.
-        let spot = dock_spot(&a, size, &[a], &area, &area, true);
-        assert_eq!(spot, Some(rect(1400, 1000, 500, 300)));
+        // With a gap, it keeps the gap.
+        let spot = dock_spot(&a, size, &[a], &area, &area, 16);
+        assert_eq!(spot, Some(rect(1416, 1000, 500, 200)));
     }
 
     #[test]
@@ -392,48 +394,44 @@ mod tests {
         // Something on the right: below.
         let right = rect(1500, 900, 300, 300);
         let canvas = rect(0, 0, 3000, 2000);
-        let spot = dock_spot(&a, size, &[a, right], &canvas, &canvas, false);
+        let spot = dock_spot(&a, size, &[a, right], &canvas, &canvas, 0);
         assert_eq!(spot, Some(rect(1000, 1300, 500, 200)));
         // Right and below off the screen: left.
         let screen = rect(400, 700, 1000, 600);
-        let spot = dock_spot(&a, size, &[a], &screen, &canvas, false);
+        let spot = dock_spot(&a, size, &[a], &screen, &canvas, 0);
         assert_eq!(spot, Some(rect(500, 1000, 500, 200)));
         // No room on the screen: right of it anyway (the view then moves there).
         let screen = rect(1000, 1000, 400, 300);
-        let spot = dock_spot(&a, size, &[a], &screen, &canvas, false);
+        let spot = dock_spot(&a, size, &[a], &screen, &canvas, 0);
         assert_eq!(spot, Some(rect(1400, 1000, 500, 200)));
         // No room on the canvas either.
-        assert_eq!(dock_spot(&a, size, &[a], &screen, &a, false), None);
+        assert_eq!(dock_spot(&a, size, &[a], &screen, &a, 0), None);
     }
 
     #[test]
-    fn grid_rect_matches_neighbor() {
+    fn docking_keeps_the_gap() {
+        // Right of `other`, 10 px past the gap and 6 px lower: it docks 16 px apart, tops flush.
         let other = rect(0, 0, 400, 300);
-        // Side by side: same top and height. Below: same left edge and width.
-        assert_eq!(
-            grid_rect(&rect(400, 0, 200, 500), &other),
-            rect(400, 0, 200, 300)
-        );
-        assert_eq!(
-            grid_rect(&rect(0, 300, 200, 500), &other),
-            rect(0, 300, 400, 500)
-        );
-        // Docked with bottoms or right edges flush: it also takes the top or left edge.
-        assert_eq!(
-            grid_rect(&rect(400, -200, 200, 500), &other),
-            rect(400, 0, 200, 300)
-        );
-        assert_eq!(
-            grid_rect(&rect(-100, 300, 500, 200), &other),
-            rect(0, 300, 400, 200)
-        );
+        let moving = rect(426, 6, 400, 300);
+        let d = snap_delta(&[moving], &[other], 15, 16);
+        assert_eq!(d, (-10, -6).into());
+        assert!(touching(
+            &Rect::new(moving.loc + d, moving.size),
+            &other,
+            16
+        ));
+        // Below it, pushed into the gap: back out to the gap.
+        let moving = rect(0, 305, 400, 300);
+        assert_eq!(snap_delta(&[moving], &[other], 15, 16), (0, 11).into());
+        // Edge to edge without the gap does not count as docked.
+        assert!(!touching(&other, &rect(400, 0, 400, 300), 16));
     }
 
     #[test]
     fn far_away_does_not_snap() {
         let other = rect(0, 0, 400, 300);
         let moving = rect(2000, 2000, 400, 300);
-        assert_eq!(snap_delta(&[moving], &[other], 15), (0, 0).into());
+        assert_eq!(snap_delta(&[moving], &[other], 15, 0), (0, 0).into());
     }
 
     #[test]
@@ -441,7 +439,7 @@ mod tests {
         // Same x column but vertically far apart: left edges must not align.
         let other = rect(0, 0, 400, 300);
         let moving = rect(5, 1000, 400, 300);
-        assert_eq!(snap_delta(&[moving], &[other], 15), (0, 0).into());
+        assert_eq!(snap_delta(&[moving], &[other], 15, 0), (0, 0).into());
     }
 
     #[test]
@@ -450,18 +448,18 @@ mod tests {
         let a = rect(0, 0, 300, 300);
         let b = rect(300, 0, 300, 300);
         let other = rect(608, 0, 300, 300);
-        assert_eq!(snap_delta(&[a, b], &[other], 15), (8, 0).into());
+        assert_eq!(snap_delta(&[a, b], &[other], 15, 0), (8, 0).into());
     }
 
     #[test]
     fn touching_detection() {
         let a = rect(0, 0, 100, 100);
-        assert!(touching(&a, &rect(100, 50, 100, 100)));
-        assert!(touching(&a, &rect(20, 101, 100, 100)));
+        assert!(touching(&a, &rect(100, 50, 100, 100), 0));
+        assert!(touching(&a, &rect(20, 101, 100, 100), 0));
         // Corner to corner only: no cluster.
-        assert!(!touching(&a, &rect(100, 100, 100, 100)));
+        assert!(!touching(&a, &rect(100, 100, 100, 100), 0));
         // Gap.
-        assert!(!touching(&a, &rect(120, 0, 100, 100)));
+        assert!(!touching(&a, &rect(120, 0, 100, 100), 0));
     }
 
     #[test]

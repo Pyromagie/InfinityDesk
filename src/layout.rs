@@ -24,13 +24,15 @@ pub const TEMPLATES: &[&[Slot]] = &[
     &[[0, 0, 6, 6], [6, 0, 12, 6], [0, 6, 6, 12], [6, 6, 12, 12]], // four quarters
 ];
 
-/// The slots of `template` within `area`. Neighboring slots share their edge exactly.
-pub fn slots(template: usize, area: Rect) -> Vec<Rect> {
-    let x = |t: i32| area.loc.x + t * area.size.w / 12;
-    let y = |t: i32| area.loc.y + t * area.size.h / 12;
-    TEMPLATES[template]
-        .iter()
-        .map(|&[l, t, r, b]| Rect::new((x(l), y(t)).into(), (x(r) - x(l), y(b) - y(t)).into()))
+/// The slots of `template` within `area`, `gap` apart from each other and from the area's edges.
+pub fn slots(template: usize, area: Rect, gap: i32) -> Vec<Rect> {
+    let x = |t: i32| area.loc.x + t * (area.size.w - gap) / 12;
+    let y = |t: i32| area.loc.y + t * (area.size.h - gap) / 12;
+    (TEMPLATES[template].iter())
+        .map(|&[l, t, r, b]| {
+            let (left, top) = (x(l) + gap, y(t) + gap);
+            Rect::new((left, top).into(), (x(r) - left, y(b) - top).into())
+        })
         .collect()
 }
 
@@ -111,13 +113,7 @@ pub fn menu_slots(screen: Size<i32, Logical>) -> Vec<Vec<Rect>> {
                     .into(),
                 (THUMB_WIDTH, thumb_h).into(),
             );
-            let half = SLOT_GAP / 2;
-            (slots(i, thumb).into_iter())
-                .map(|r| {
-                    let size = (r.size.w - SLOT_GAP, r.size.h - SLOT_GAP);
-                    Rect::new((r.loc.x + half, r.loc.y + half).into(), size.into())
-                })
-                .collect()
+            slots(i, thumb, SLOT_GAP)
         })
         .collect()
 }
@@ -143,7 +139,7 @@ mod tests {
     fn slots_tile_the_area_without_gaps() {
         let area = rect(100, 50, 3440, 1440);
         for t in 0..TEMPLATES.len() {
-            let s = slots(t, area);
+            let s = slots(t, area, 0);
             let total: i32 = s.iter().map(|r| r.size.w * r.size.h).sum();
             assert_eq!(total, 3440 * 1440, "template {t}");
             for (i, a) in s.iter().enumerate() {
@@ -152,16 +148,25 @@ mod tests {
             }
         }
         // Thirds of an odd width still meet exactly.
-        let s = slots(5, rect(0, 0, 1000, 600));
+        let s = slots(5, rect(0, 0, 1000, 600), 0);
         assert_eq!(s[0], rect(0, 0, 333, 600));
         assert_eq!(s[1], rect(333, 0, 333, 600));
         assert_eq!(s[2], rect(666, 0, 334, 600));
     }
 
     #[test]
+    fn slots_keep_the_gap() {
+        // Half | two quarters on 3440×1440 with 16 px gaps: 16 px around and between the slots.
+        let s = slots(3, rect(0, 0, 3440, 1440), 16);
+        assert_eq!(s[0], rect(16, 16, 1696, 1408));
+        assert_eq!(s[1], rect(1728, 16, 1696, 696));
+        assert_eq!(s[2], rect(1728, 728, 1696, 696));
+    }
+
+    #[test]
     fn windows_go_to_the_closest_slot() {
         // Half | two quarters, cluster: left window, right top, right bottom (shuffled order).
-        let s = slots(3, rect(0, 0, 1200, 600));
+        let s = slots(3, rect(0, 0, 1200, 600), 0);
         let windows = [
             rect(500, 300, 500, 300),
             rect(0, 0, 500, 600),
@@ -172,13 +177,18 @@ mod tests {
 
     #[test]
     fn the_active_window_goes_where_it_was_clicked() {
-        let s = slots(1, rect(0, 0, 1200, 600));
+        let s = slots(1, rect(0, 0, 1200, 600), 0);
         // Left window active, but put into the right half: the other one takes the left half.
         let windows = [rect(0, 0, 500, 600), rect(500, 0, 500, 600)];
         assert_eq!(assign(&windows, 0, Some(1), &s), vec![1, 0]);
         // A single window in a template with more slots: the rest stays free.
         assert_eq!(
-            assign(&windows[..1], 0, Some(2), &slots(3, rect(0, 0, 1200, 600))),
+            assign(
+                &windows[..1],
+                0,
+                Some(2),
+                &slots(3, rect(0, 0, 1200, 600), 0)
+            ),
             vec![2]
         );
     }

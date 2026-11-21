@@ -132,7 +132,7 @@ impl InfinityDesk {
         };
         if let Some(i) = next {
             self.focus_window(&windows[i]);
-            self.canvas.reveal(rects[i]);
+            self.canvas.reveal(rects[i], self.config.gaps);
             self.apply_viewport();
         }
     }
@@ -157,7 +157,7 @@ impl InfinityDesk {
         self.resize_to(&windows[a], rects[b], None);
         self.resize_to(&windows[b], rects[a], None);
         self.focus_window(&active);
-        self.canvas.reveal(rects[b]);
+        self.canvas.reveal(rects[b], self.config.gaps);
         self.apply_viewport();
     }
 
@@ -180,12 +180,12 @@ impl InfinityDesk {
         edges[axis] = Edge::End;
         let mut delta = [0, 0];
         delta[axis] = step;
-        let follow = resize::plan(&rects, i, edges, false);
+        let follow = resize::plan(&rects, i, edges, false, self.config.gaps);
         let min: Vec<_> = windows.iter().map(min_size).collect();
         let new = resize::apply(&rects, &follow, &min, (delta[0], delta[1]).into());
         let rect = new[i];
         self.resize_windows(&windows, &follow, new);
-        self.canvas.reveal(rect);
+        self.canvas.reveal(rect, self.config.gaps);
         self.apply_viewport();
     }
 
@@ -266,7 +266,7 @@ impl InfinityDesk {
         let window = self.recent[next].clone();
         self.focus_window(&window);
         if let Some(rect) = self.target_rect(&window) {
-            self.canvas.reveal(rect);
+            self.canvas.reveal(rect, self.config.gaps);
             self.apply_viewport();
         }
     }

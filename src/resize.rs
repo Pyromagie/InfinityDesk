@@ -33,13 +33,19 @@ pub enum Follow {
 }
 
 /// For every window of the cluster: how it follows when `rects[dragged]` is resized at `edges`
-/// (x and y axis).
+/// (x and y axis). Windows lie `gap` apart.
 ///
 /// The dragged edge moves together with the whole seam it belongs to: the windows across it, and
 /// through them further windows on the dragged window's side whose edge lies on the same line
 /// (e.g. the window below the dragged one, when both sit next to one tall window). Otherwise the
 /// cluster would tear open there.
-pub fn plan(rects: &[Rect], dragged: usize, edges: [Edge; 2], shift: bool) -> Vec<[Follow; 2]> {
+pub fn plan(
+    rects: &[Rect],
+    dragged: usize,
+    edges: [Edge; 2],
+    shift: bool,
+    gap: i32,
+) -> Vec<[Follow; 2]> {
     let Some(&d) = rects.get(dragged) else {
         return Vec::new();
     };
@@ -52,7 +58,8 @@ pub fn plan(rects: &[Rect], dragged: usize, edges: [Edge; 2], shift: bool) -> Ve
             Edge::End => d_end,
         };
         let dragged_side = edges[axis] == Edge::End;
-        let seam = seam(rects, dragged, axis, line);
+        let end_line = if dragged_side { line } else { line - gap };
+        let seam = seam(rects, dragged, axis, end_line, gap);
         for (i, r) in rects.iter().enumerate() {
             let (start, end) = span(r, axis);
             let beyond = match edges[axis] {
@@ -79,16 +86,17 @@ pub fn plan(rects: &[Rect], dragged: usize, edges: [Edge; 2], shift: bool) -> Ve
     follow
 }
 
-/// The windows forming the seam at `line` (along `axis`) that `rects[dragged]` lies on: per
-/// window `Some(true)` if its end edge lies on the line, `Some(false)` its start edge, `None` if
-/// it is not part of the seam. Windows join when they face a member across the line.
-fn seam(rects: &[Rect], dragged: usize, axis: usize, line: i32) -> Vec<Option<bool>> {
+/// The windows forming the seam (along `axis`) that `rects[dragged]` lies on: end edges at
+/// `end_line`, start edges `gap` further. Per window `Some(true)` if its end edge lies on the
+/// seam, `Some(false)` its start edge, `None` if it is not part of the seam. Windows join when
+/// they face a member across the seam.
+fn seam(rects: &[Rect], dragged: usize, axis: usize, end_line: i32, gap: i32) -> Vec<Option<bool>> {
     let on_line = |r: &Rect| {
         let (start, end) = span(r, axis);
-        let near = |x: i32| (x - line).abs() <= TOUCH_TOLERANCE;
-        if near(end) {
+        let near = |x: i32, line: i32| (x - line).abs() <= TOUCH_TOLERANCE;
+        if near(end, end_line) {
             Some(true)
-        } else if near(start) {
+        } else if near(start, end_line + gap) {
             Some(false)
         } else {
             None
@@ -259,7 +267,7 @@ mod tests {
     #[test]
     fn neighbor_shrinks_with_the_edge() {
         let rects = row();
-        let follow = plan(&rects, 0, [Edge::End, Edge::None], false);
+        let follow = plan(&rects, 0, [Edge::End, Edge::None], false, 0);
         let new = apply(&rects, &follow, &min(), (30, 0).into());
         assert_eq!(new[0], rect(0, 0, 130, 100));
         assert_eq!(new[1], rect(130, 0, 70, 100));
@@ -269,7 +277,7 @@ mod tests {
     #[test]
     fn with_shift_everything_beyond_moves() {
         let rects = row();
-        let follow = plan(&rects, 0, [Edge::End, Edge::None], true);
+        let follow = plan(&rects, 0, [Edge::End, Edge::None], true, 0);
         let new = apply(&rects, &follow, &min(), (30, 0).into());
         assert_eq!(new[0], rect(0, 0, 130, 100));
         assert_eq!(new[1], rect(130, 0, 100, 100));
@@ -279,7 +287,7 @@ mod tests {
     #[test]
     fn left_edge_takes_the_left_neighbor_along() {
         let rects = row();
-        let follow = plan(&rects, 1, [Edge::Start, Edge::None], false);
+        let follow = plan(&rects, 1, [Edge::Start, Edge::None], false, 0);
         let new = apply(&rects, &follow, &min(), (-40, 0).into());
         assert_eq!(new[0], rect(0, 0, 60, 100));
         assert_eq!(new[1], rect(60, 0, 140, 100));
@@ -289,7 +297,7 @@ mod tests {
     #[test]
     fn neighbors_do_not_shrink_below_their_minimum() {
         let rects = row();
-        let follow = plan(&rects, 0, [Edge::End, Edge::None], false);
+        let follow = plan(&rects, 0, [Edge::End, Edge::None], false, 0);
         let new = apply(&rects, &follow, &min(), (500, 0).into());
         assert_eq!(new[0], rect(0, 0, 180, 100));
         assert_eq!(new[1], rect(180, 0, 20, 100));
@@ -299,7 +307,7 @@ mod tests {
     fn bottom_edge_takes_the_window_below_along() {
         // A above B; dragging A's bottom edge down shrinks B from the top.
         let rects = vec![rect(0, 0, 100, 100), rect(0, 100, 100, 100)];
-        let follow = plan(&rects, 0, [Edge::None, Edge::End], false);
+        let follow = plan(&rects, 0, [Edge::None, Edge::End], false, 0);
         let new = apply(&rects, &follow, &min()[..2], (0, 30).into());
         assert_eq!(new[0], rect(0, 0, 100, 130));
         assert_eq!(new[1], rect(0, 130, 100, 70));
@@ -308,7 +316,7 @@ mod tests {
     #[test]
     fn with_shift_the_left_edge_moves_everything_left_of_it() {
         let rects = row();
-        let follow = plan(&rects, 2, [Edge::Start, Edge::None], true);
+        let follow = plan(&rects, 2, [Edge::Start, Edge::None], true, 0);
         let new = apply(&rects, &follow, &min(), (-30, 0).into());
         assert_eq!(new[0], rect(-30, 0, 100, 100));
         assert_eq!(new[1], rect(70, 0, 100, 100));
@@ -328,13 +336,13 @@ mod tests {
     fn the_whole_seam_moves_when_grabbed_from_either_window() {
         let rects = l_shape();
         // Grabbing the left edge of the top-right window: the bottom-right one comes along too.
-        let follow = plan(&rects, 1, [Edge::Start, Edge::None], false);
+        let follow = plan(&rects, 1, [Edge::Start, Edge::None], false, 0);
         let new = apply(&rects, &follow, &min(), (-50, 0).into());
         assert_eq!(new[0], rect(0, 0, 350, 600));
         assert_eq!(new[1], rect(350, 0, 350, 300));
         assert_eq!(new[2], rect(350, 300, 350, 300));
         // Grabbing the right edge of the left window gives the same result.
-        let follow = plan(&rects, 0, [Edge::End, Edge::None], false);
+        let follow = plan(&rects, 0, [Edge::End, Edge::None], false, 0);
         assert_eq!(apply(&rects, &follow, &min(), (-50, 0).into()), new);
     }
 
@@ -343,7 +351,7 @@ mod tests {
         let rects = l_shape();
         // Top-right window grows to the left; the left window moves away, so the bottom-right
         // window grows along instead of leaving a gap.
-        let follow = plan(&rects, 1, [Edge::Start, Edge::None], true);
+        let follow = plan(&rects, 1, [Edge::Start, Edge::None], true, 0);
         let new = apply(&rects, &follow, &min(), (-50, 0).into());
         assert_eq!(new[0], rect(-50, 0, 400, 600));
         assert_eq!(new[1], rect(350, 0, 350, 300));
@@ -354,7 +362,7 @@ mod tests {
     fn a_column_without_a_neighbor_across_does_not_follow() {
         // A above B, nothing to their right: widening A leaves B alone.
         let rects = vec![rect(0, 0, 100, 100), rect(0, 100, 100, 100)];
-        let follow = plan(&rects, 0, [Edge::End, Edge::None], false);
+        let follow = plan(&rects, 0, [Edge::End, Edge::None], false, 0);
         assert_eq!(follow[1], [Follow::None, Follow::None]);
     }
 
@@ -394,7 +402,7 @@ mod tests {
         // tall left window. The right windows follow its right edge (x), but the bottom of the
         // bottom-right window stays put, so the bottom edge still snaps to it.
         let rects = l_shape();
-        let follow = plan(&rects, 0, [Edge::End, Edge::End], false);
+        let follow = plan(&rects, 0, [Edge::End, Edge::End], false, 0);
         assert_eq!(follow[2], [Follow::Start, Follow::None]);
         let targets = snap_targets(rects.iter().copied().zip(follow.iter().copied()));
         let d = snap(
@@ -459,10 +467,30 @@ mod tests {
     }
 
     #[test]
+    fn neighbors_across_the_gap_follow() {
+        // A | B and A above C, 16 px apart: A's right edge takes B along, its bottom edge C.
+        let rects = vec![
+            rect(0, 0, 100, 100),
+            rect(116, 0, 100, 100),
+            rect(0, 116, 100, 100),
+        ];
+        let follow = plan(&rects, 0, [Edge::End, Edge::End], false, 16);
+        let new = apply(&rects, &follow, &min(), (30, 20).into());
+        assert_eq!(new[1], rect(146, 0, 70, 100));
+        assert_eq!(new[2], rect(0, 136, 100, 80));
+        // Grabbed at B's left edge: the same seam.
+        let follow = plan(&rects, 1, [Edge::Start, Edge::None], false, 16);
+        assert_eq!(
+            apply(&rects, &follow, &min(), (30, 0).into())[0],
+            rect(0, 0, 130, 100)
+        );
+    }
+
+    #[test]
     fn window_below_is_not_a_neighbor_of_the_right_edge() {
         // A above B; dragging A's right edge must not touch B.
         let rects = vec![rect(0, 0, 100, 100), rect(0, 100, 100, 100)];
-        let follow = plan(&rects, 0, [Edge::End, Edge::None], false);
+        let follow = plan(&rects, 0, [Edge::End, Edge::None], false, 0);
         assert_eq!(follow[1], [Follow::None, Follow::None]);
     }
 }

@@ -16,6 +16,8 @@ use crate::{
 
 const MENU_COLOR: [f32; 4] = [0.15, 0.15, 0.18, 1.0];
 const SLOT_COLOR: [f32; 4] = [0.33, 0.33, 0.39, 1.0];
+/// The template "half | half" (see `layout::TEMPLATES`).
+const HALF_HALF: usize = 1;
 /// Templates with fewer slots than the cluster has windows cannot be chosen.
 const SLOT_DISABLED_COLOR: [f32; 4] = [0.2, 0.2, 0.23, 1.0];
 
@@ -144,8 +146,8 @@ impl InfinityDesk {
         }
     }
 
-    /// Arranges the cluster of `window` in `template` so that it fills exactly one screen,
-    /// starting at the cluster's top-left corner, and shows it at 1:1.
+    /// Arranges the cluster of `window` in `template` so that it fills exactly one screen
+    /// (with gaps), starting at the cluster's top-left corner, and shows it at 1:1.
     fn apply_template(&mut self, window: &Window, template: usize, slot: Option<usize>) {
         let (windows, rects): (Vec<Window>, Vec<Rect>) = (self.clusters.members(window))
             .into_iter()
@@ -155,8 +157,11 @@ impl InfinityDesk {
             return;
         };
         let screen = self.canvas.screen_size();
-        let area = Rect::new(self.canvas.clamp_window_loc(bbox.loc, screen), screen);
-        let slots = layout::slots(template, area);
+        let gap = self.config.gaps;
+        // The screen starts one gap before the cluster's top-left corner.
+        let loc = bbox.loc - Point::from((gap, gap));
+        let area = Rect::new(self.canvas.clamp_window_loc(loc, screen), screen);
+        let slots = layout::slots(template, area, gap);
         let active = windows.iter().position(|w| w == window).unwrap_or(0);
         let slot_of = layout::assign(&rects, active, slot, &slots);
 
@@ -166,7 +171,7 @@ impl InfinityDesk {
         }
         for (i, a) in windows.iter().enumerate() {
             for (j, b) in windows.iter().enumerate().skip(i + 1) {
-                if touching(&slots[slot_of[i]], &slots[slot_of[j]]) {
+                if touching(&slots[slot_of[i]], &slots[slot_of[j]], gap) {
                     self.clusters.join(a, b);
                 }
             }
@@ -250,8 +255,15 @@ impl InfinityDesk {
             .collect();
         let canvas = Rect::from_size(self.canvas.size());
         let visible = self.canvas.viewport().to_i32_round();
-        let match_size = self.config.match_size;
-        dock_spot(&active, size, &others, &visible, &canvas, match_size)
+        dock_spot(&active, size, &others, &visible, &canvas, self.config.gaps)
+    }
+
+    /// Where a new window goes that docks nowhere: the left half of the screen, around the
+    /// middle of the view. New windows also get its size.
+    pub fn free_slot(&self) -> Rect {
+        let screen = self.canvas.screen_size();
+        let area = Rect::new(self.canvas.centered_in_viewport(screen), screen);
+        layout::slots(HALF_HALF, area, self.config.gaps)[0]
     }
 
     /// Where a window is, or is about to be while it changes its size.
@@ -264,7 +276,10 @@ impl InfinityDesk {
     pub fn dock_into_slot(&mut self, window: &Window, slot: Rect) {
         let neighbors: Vec<Window> = (self.space.elements())
             .filter(|w| *w != window)
-            .filter(|w| (self.space.element_geometry(w)).is_some_and(|r| touching(&r, &slot)))
+            .filter(|w| {
+                let geo = self.space.element_geometry(w);
+                geo.is_some_and(|r| touching(&r, &slot, self.config.gaps))
+            })
             .cloned()
             .collect();
         for n in neighbors {

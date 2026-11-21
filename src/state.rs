@@ -362,8 +362,12 @@ impl InfinityDesk {
             return;
         }
         let window = self.unplaced.remove(idx);
+        // Placed with the size it was asked for: some apps draw their own size first (alacritty).
+        let asked = (window.toplevel().unwrap()).with_committed_state(|s| s.and_then(|s| s.size));
+        let size = asked.unwrap_or(size);
         // A free template slot was reserved for it when it was configured the first time,
-        // otherwise it docks next to the active window, or (with no room there) stands alone.
+        // otherwise it docks next to the active window, or (with no room there) stands alone:
+        // dialogs in the middle of the screen, other windows in its left half.
         let slot = self.resizing.get(&window).map(|r| r.rect);
         match slot.or_else(|| self.spot_next_to_active(&window, size)) {
             Some(rect) => {
@@ -375,12 +379,15 @@ impl InfinityDesk {
                 self.place_resized(&window);
                 // Docked off the screen: the view follows. The pointer stays put on the screen.
                 let screen = self.pointer_screen;
-                self.canvas.reveal(rect);
+                self.canvas.reveal(rect, self.config.gaps);
                 self.apply_viewport();
                 self.pointer_moved(self.canvas.screen_to_canvas(screen), InputTime::now());
             }
             None => {
-                let loc = self.canvas.centered_in_viewport(size);
+                let loc = match window.toplevel().unwrap().parent() {
+                    Some(_) => self.canvas.centered_in_viewport(size),
+                    None => self.free_slot().loc,
+                };
                 self.space.map_element(window.clone(), loc, false);
             }
         }
@@ -520,7 +527,7 @@ impl InfinityDesk {
             .filter_map(|w| Some((w.clone(), self.space.element_geometry(&w)?)))
             .unzip();
         let dragged = windows.iter().position(|w| w == &window).unwrap_or(0);
-        let follow = resize::plan(&rects, dragged, edges, shift);
+        let follow = resize::plan(&rects, dragged, edges, shift, self.config.gaps);
         self.resize_hint = windows.into_iter().zip(follow).collect();
         self.set_cursor_for(edges);
     }

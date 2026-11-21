@@ -98,9 +98,13 @@ impl Canvas {
         self.set_viewport_loc(anchor - screen.downscale(self.zoom));
     }
 
-    /// Pans the viewport just far enough that `rect` is completely on the screen (if it is larger
-    /// than the screen, its top-left corner).
-    pub fn reveal(&mut self, rect: Rectangle<i32, Logical>) {
+    /// Pans the viewport just far enough that `rect`, with `margin` around it, is completely on
+    /// the screen (if it is larger than the screen, its top-left corner).
+    pub fn reveal(&mut self, rect: Rectangle<i32, Logical>, margin: i32) {
+        let rect = Rectangle::new(
+            rect.loc - Point::from((margin, margin)),
+            rect.size + Size::from((2 * margin, 2 * margin)),
+        );
         let vp = self.viewport();
         let axis = |start: f64, len: f64, r_start: i32, r_len: i32| {
             let (r_start, r_len) = (r_start as f64, r_len as f64);
@@ -324,14 +328,17 @@ mod tests {
         let mut c = canvas();
         c.set_viewport_loc((1_000.0, 1_000.0).into());
         // Already visible: nothing moves.
-        c.reveal(Rectangle::new((1_100, 1_100).into(), (500, 400).into()));
+        c.reveal(Rectangle::new((1_100, 1_100).into(), (500, 400).into()), 0);
         assert_eq!(c.viewport_loc(), (1_000.0, 1_000.0).into());
         // Sticking out on the right: the right edge lands on the screen edge.
-        c.reveal(Rectangle::new((2_700, 1_100).into(), (500, 400).into()));
+        c.reveal(Rectangle::new((2_700, 1_100).into(), (500, 400).into()), 0);
         assert_eq!(c.viewport_loc(), (3_200.0 - 1_920.0, 1_000.0).into());
         // Above the screen: its top edge lands on the screen's top edge.
-        c.reveal(Rectangle::new((1_500, 600).into(), (500, 400).into()));
+        c.reveal(Rectangle::new((1_500, 600).into(), (500, 400).into()), 0);
         assert_eq!(c.viewport_loc(), (3_200.0 - 1_920.0, 600.0).into());
+        // With a margin, it keeps that much space to the screen edge.
+        c.reveal(Rectangle::new((1_500, 400).into(), (500, 400).into()), 16);
+        assert_eq!(c.viewport_loc(), (3_200.0 - 1_920.0, 384.0).into());
     }
 
     #[test]

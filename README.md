@@ -109,9 +109,10 @@ cargo run --release -- -c kitty      # with another program inside
   between apps
 - Canvas with a dot grid, panning and zooming around the pointer (drawn on the GPU, only
   visible windows are rendered)
-- **Docking:** edges snap together within 15 screen pixels at any zoom level and line up flush
-  (tops or bottoms side by side, left or right edges stacked, whichever is closer), so windows
-  of different sizes dock too and there are no offset connections. Pushing a window a bit too
+- **Docking:** edges snap together within 15 screen pixels at any zoom level, with a gap
+  between the windows, and line up flush (tops or bottoms side by side, left or right edges
+  stacked, whichever is closer), so windows of different sizes dock too and there are no offset
+  connections. Pushing a window a bit too
   far, onto its neighbor, still docks it at the edge. Spots that are already taken are skipped,
   and windows passing by quickly do not snap.
 - **Clusters** move as a whole, split automatically when a window leaves, and merge when they
@@ -129,8 +130,10 @@ cargo run --release -- -c kitty      # with another program inside
   cluster so it fills exactly one screen, shown at 1:1. Click the slot the active window should
   go to (the other windows take the slots closest to where they are), or press the template's
   number. Slots left over are filled by the next windows you open.
-- **New windows dock to the active window** (right of it, else below, left, above; the view
-  follows if there is no room on the screen). Click empty space first for a free window.
+- **New windows** open half the screen wide and as high as the screen, and dock to the active
+  window (right of it, else below, left, above; the view follows if there is no room on the
+  screen). Click empty space first for a free window: it goes into the left half of the screen.
+  So two new windows fill the screen exactly.
 - **Fullscreen:** Mod + F (or the app itself, e.g. F11 in a browser) lets a window cover the
   screen; its place in the cluster and the view are restored afterwards
 - **Keyboard navigation:** move the focus to the next window in a direction (also into the
@@ -138,11 +141,10 @@ cargo run --release -- -c kitty      # with another program inside
   cluster stays closed), pan and zoom the view, center the active cluster, an overview
   that zooms out until all windows fit, and Alt + Tab through the recently used windows
 - **Touchpad gestures:** pinch to zoom, three fingers to pan, four fingers for the overview
-- **Lua configuration** with live reload: keyboard, touchpad, canvas, snapping, colors and
-  shortcuts
+- **Lua configuration** with live reload: keyboard, touchpad, canvas, gaps, snapping, colors
+  and shortcuts
 - wlr-layer-shell, so launchers like fuzzel, bars and wallpaper tools (e.g. awww, swaybg) work;
   the wallpaper stays fixed behind the moving canvas
-- Optional setting: docked windows take their neighbor's height or width (clean grid)
 
 ## Controls (provisional)
 
@@ -220,10 +222,11 @@ desk.input {
 
 desk.canvas { width = 20000, height = 12000, grid = { spacing = 100 } }
 
+desk.layout { gaps = 16 } -- space between windows and around the screen
+
 desk.snapping {
-  threshold = 15,     -- screen pixels within which edges snap together
-  match_size = false, -- a docked window takes its neighbor's height or width (clean grid)
-  hold_ms = 300,      -- hold a window still this long to pull it out of its cluster
+  threshold = 15, -- screen pixels within which edges snap together
+  hold_ms = 300,  -- hold a window still this long to pull it out of its cluster
 }
 
 -- "#rrggbb" or "#rrggbbaa"; accent is used for frames, lit edges and the template menu

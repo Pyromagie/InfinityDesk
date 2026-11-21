@@ -222,17 +222,21 @@ impl InfinityDesk {
                     .initial_configure_sent
             });
             if !initial_configure_sent {
-                // A free slot of the last template: the window gets its size right away and is
-                // placed there (`place_if_pending`).
-                let dialog = window.toplevel().unwrap().parent().is_some();
-                if let Some(rect) = (!dialog).then(|| self.take_free_slot()).flatten() {
-                    let anchor_end = [false; 2];
-                    let toplevel = window.toplevel().unwrap();
-                    toplevel.with_pending_state(|s| s.size = Some(rect.size));
-                    self.resizing
-                        .insert(window.clone(), Resizing { rect, anchor_end });
+                // The window gets its size right away: a free slot of the last template (it is
+                // placed there by `place_if_pending`), else half the screen. Dialogs choose
+                // their own size.
+                let toplevel = window.toplevel().unwrap();
+                if toplevel.parent().is_none() {
+                    let slot = self.take_free_slot();
+                    let size = slot.unwrap_or_else(|| self.free_slot()).size;
+                    toplevel.with_pending_state(|s| s.size = Some(size));
+                    if let Some(rect) = slot {
+                        let anchor_end = [false; 2];
+                        self.resizing
+                            .insert(window.clone(), Resizing { rect, anchor_end });
+                    }
                 }
-                window.toplevel().unwrap().send_configure();
+                toplevel.send_configure();
             }
         }
 

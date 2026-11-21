@@ -18,7 +18,7 @@ use smithay::{
 
 use crate::{
     InfinityDesk,
-    cluster::{Rect, grid_rect, snap_delta, touching},
+    cluster::{Rect, snap_delta, touching},
     resize::{self, Edge, Follow},
     state::Resizing,
 };
@@ -50,7 +50,7 @@ fn cluster_delta(
         .collect();
     let others: Vec<Rect> = others(data, members).map(|(_, r)| r).collect();
     let threshold = (data.config.snap_threshold / data.canvas.zoom()).round() as i32;
-    delta += snap_delta(&moved, &others, threshold);
+    delta += snap_delta(&moved, &others, threshold, data.config.gaps);
     delta
 }
 
@@ -234,7 +234,7 @@ impl DragGrab {
             .filter_map(|w| Some((w.clone(), state.space.element_geometry(&w)?)))
             .unzip();
         let dragged = windows.iter().position(|w| w == &window).unwrap_or(0);
-        let follow = resize::plan(&initial, dragged, edges, shift);
+        let follow = resize::plan(&initial, dragged, edges, shift, state.config.gaps);
         set_resizing(&windows, &follow, true);
         state.resize_hint = windows
             .iter()
@@ -535,25 +535,11 @@ impl PointerGrab<InfinityDesk> for DragGrab {
         let others: Vec<(Window, Rect)> = others(data, members).collect();
 
         for (mw, mr) in &moved {
-            let mut rect = *mr;
             for (ow, or) in &others {
-                if touching(mr, or) {
+                if touching(mr, or, data.config.gaps) {
                     tracing::info!("Docked");
                     data.clusters.join(mw, ow);
-                    rect = grid_rect(&rect, or);
                 }
-            }
-            // Setting: a single docked window takes its neighbors' height/width (clean grid).
-            if data.config.match_size && moved.len() == 1 && rect != *mr {
-                // The edge that is already flush (e.g. the bottom) stays while the client resizes.
-                let end = |r: &Rect| [r.loc.x + r.size.w, r.loc.y + r.size.h];
-                let anchor_end = [0, 1].map(|axis| end(mr)[axis] == end(&rect)[axis]);
-                data.resizing
-                    .insert(mw.clone(), Resizing { rect, anchor_end });
-                let toplevel = mw.toplevel().unwrap();
-                toplevel.with_pending_state(|s| s.size = Some(rect.size));
-                toplevel.send_pending_configure();
-                data.place_resized(mw);
             }
         }
     }
