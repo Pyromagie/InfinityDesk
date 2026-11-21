@@ -384,7 +384,7 @@ impl InfinityDesk {
         let keyboard = self.seat.get_keyboard().unwrap();
         let focused = (keyboard.current_focus()).and_then(|s| self.window_for_surface(&s));
         match action {
-            Action::Spawn(command) => crate::spawn(&command, &self.socket_name, &self.config.env),
+            Action::Spawn(command) => crate::spawn(&command, self),
             Action::CloseWindow => {
                 if let Some(window) = focused {
                     window.toplevel().unwrap().send_close();

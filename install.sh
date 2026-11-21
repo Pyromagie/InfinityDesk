@@ -6,9 +6,9 @@ set -eu
 cd "$(dirname "$0")"
 
 # What InfinityDesk needs (Arch package names): compiler and libraries to build it, and the
-# default terminal and launcher.
+# default terminal and launcher, and xwayland-satellite for X11 programs.
 PACKAGES="gcc pkgconf wayland libxkbcommon libinput libdrm mesa libglvnd systemd-libs seatd
-kitty fuzzel"
+kitty fuzzel xwayland-satellite"
 
 # 1. Required software
 if command -v pacman >/dev/null; then

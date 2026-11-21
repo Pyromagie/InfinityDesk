@@ -174,8 +174,9 @@ Ersetzt die freien Fenstergrößen aus Punkt 5 (`match_size`, freies Resize, Aus
 - ✅ Mod+Shift+E beendet InfinityDesk (wie niri). Strg+Alt+F1…F12 wechselt die Konsole.
 - ✅ Login-Eintrag `resources/infinitydesk.desktop` (für den Login-Manager, wenn die Konsole klappt).
 - ✅ Maus-Einstellungen in der Config (21.11.2026, siehe 6c).
-- Pyro will (21.11.2026) alle vier: Maus-Einstellungen, Autostart, XWayland, mehrere Monitore (dafür vorher Design-Frage).
-- Noch nicht: mehrere Monitore, Monitor-Einstellungen in der Config, XWayland (Steam, ältere Programme; z. B. über xwayland-satellite wie niri), Zeiger-Thema in der Config, Monitor ab-/anstecken im Betrieb.
+- Pyro will (21.11.2026) alle vier: ✅ Maus-Einstellungen, ✅ Autostart, ✅ XWayland, mehrere Monitore (dafür vorher Design-Frage).
+- ✅ XWayland (21.11.2026) über xwayland-satellite wie niri: InfinityDesk belegt selbst ein freies X-Display (Lock-Datei + Socket, verwaiste Locks toter Prozesse werden wiederverwendet) und reicht den Socket per `-listenfd` weiter. So können X11-Programme aus dem Autostart sofort verbinden. Gestartete Programme bekommen `DISPLAY`; ohne xwayland-satellite wird `DISPLAY` entfernt (nie das X-Display des Hosts). Offen: X11-Fenster (glxgears) bekommen nicht die halbe Bildschirmbreite wie Wayland-Fenster (Ursache noch nicht untersucht); stürzt xwayland-satellite ab, wird es nicht neu gestartet.
+- Noch nicht: mehrere Monitore, Monitor-Einstellungen in der Config, Monitor ab-/anstecken im Betrieb.
 
 ## 8. Offene Fragen
 

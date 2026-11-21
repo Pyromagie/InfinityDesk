@@ -24,6 +24,7 @@ use crate::{
     navigate::Overview,
     render::{OUTLINE_WIDTH, Outline, outline_bars},
     resize::{self, Edge, Follow},
+    xwayland::XDisplay,
 };
 use smithay::{
     backend::input::InputTime,
@@ -63,6 +64,8 @@ use smithay::{
 pub struct InfinityDesk {
     pub start_time: std::time::Instant,
     pub socket_name: OsString,
+    /// Where X11 programs show up (`None`: nowhere, xwayland-satellite is missing).
+    pub xdisplay: Option<XDisplay>,
     pub display_handle: DisplayHandle,
     pub loop_signal: LoopSignal,
 
@@ -177,6 +180,7 @@ impl InfinityDesk {
         Self {
             start_time: std::time::Instant::now(),
             socket_name,
+            xdisplay: None,
             display_handle: dh,
             loop_signal: event_loop.get_signal(),
             canvas: Canvas::new(config.canvas_size.into()),

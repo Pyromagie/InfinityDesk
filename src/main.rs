@@ -18,6 +18,7 @@ mod resize;
 mod state;
 mod udev;
 mod winit;
+mod xwayland;
 
 use smithay::reexports::{calloop::EventLoop, wayland_server::Display};
 pub use state::InfinityDesk;
@@ -40,6 +41,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     tracing::info!("InfinityDesk running on {:?}", state.socket_name);
+    state.xdisplay = xwayland::XDisplay::start(&state.socket_name);
 
     // Start a program inside: `-c <program>`, otherwise a terminal. Then the config's own.
     let mut args = std::env::args().skip(1);
@@ -48,7 +50,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         _ => "kitty".to_string(),
     };
     for command in std::iter::once(&first).chain(&state.config.startup) {
-        spawn(command, &state.socket_name, &state.config.env);
+        spawn(command, &state);
     }
 
     event_loop.run(None, &mut state, |_| {})?;
@@ -65,15 +67,19 @@ fn init_logging() {
 }
 
 /// Starts a program inside InfinityDesk: it connects to our socket, not to the host compositor.
-/// The command line goes through `sh -c`, so arguments, quotes and `~` work. `env` comes from
-/// the config.
-pub fn spawn(command: &str, socket: &std::ffi::OsStr, env: &[(String, String)]) {
-    match (std::process::Command::new("sh"))
-        .args(["-c", command])
-        .envs(env.iter().map(|(name, value)| (name, value)))
-        .env("WAYLAND_DISPLAY", socket)
-        .spawn()
-    {
+/// The command line goes through `sh -c`, so arguments, quotes and `~` work. The environment
+/// variables from the config come along.
+pub fn spawn(command: &str, state: &InfinityDesk) {
+    let mut cmd = std::process::Command::new("sh");
+    cmd.args(["-c", command])
+        .envs(state.config.env.iter().map(|(name, value)| (name, value)))
+        .env("WAYLAND_DISPLAY", &state.socket_name);
+    // X11 programs too: on our X display, never on the host's.
+    match &state.xdisplay {
+        Some(x) => cmd.env("DISPLAY", &x.name),
+        None => cmd.env_remove("DISPLAY"),
+    };
+    match cmd.spawn() {
         // Reap the child when it exits, so it does not linger as a zombie.
         Ok(mut child) => drop(std::thread::spawn(move || child.wait())),
         Err(err) => tracing::warn!("Failed to spawn {command}: {err}"),

@@ -10,7 +10,7 @@ step further into two dimensions. Built in Rust on [Smithay](https://github.com/
 
 > **Status: early development.** InfinityDesk can be chosen as a session in your login screen
 > or tried as a window inside your current session. The standalone session is new: one monitor
-> for now, and no XWayland yet (only Wayland apps run).
+> for now.
 
 ## The idea
 
@@ -33,7 +33,8 @@ step further into two dimensions. Built in Rust on [Smithay](https://github.com/
 - On Arch-based systems (Arch, CachyOS, EndeavourOS, Manjaro, ...) the install script sets up
   everything else. Elsewhere you need Rust (https://rustup.rs), a C compiler, `pkg-config`, the
   development files of `wayland`, `libxkbcommon`, `libinput`, `libdrm`, `mesa` (gbm, EGL),
-  `libudev` and `libseat`, and `kitty` and `fuzzel` for the default shortcuts.
+  `libudev` and `libseat`, `kitty` and `fuzzel` for the default shortcuts, and
+  `xwayland-satellite` for X11 programs (optional).
 
 ### Install
 
@@ -150,6 +151,8 @@ cargo run --release -- -c firefox    # with another program inside
   colors, shortcuts, programs to start and their environment variables, pointer theme
 - wlr-layer-shell, so launchers like fuzzel, bars and wallpaper tools (e.g. awww, swaybg) work;
   the wallpaper stays fixed behind the moving canvas
+- **X11 programs** (Steam, older games and tools) through `xwayland-satellite`, if it is
+  installed. InfinityDesk claims a free X display for the programs it starts (`DISPLAY`).
 
 ## Controls (provisional)
 
@@ -275,8 +278,7 @@ settings stay. If the canvas gets smaller, clusters outside it move back in as a
 - **More Lua configuration:** window rules and events, designed to feel familiar when coming
   from niri or Hyprland. Maybe a converter for niri configs later.
 - **Final default controls**, configurable mouse bindings and gestures
-- **Standalone session:** several monitors, monitor settings, XWayland (e.g. via
-  xwayland-satellite), programs started with the session, mouse settings
+- **Standalone session:** several monitors, monitor settings
 - Visual polish: cluster outlines, decorations, animations
 
 ## Development
@@ -310,6 +312,7 @@ from `XCURSOR_THEME` and `XCURSOR_SIZE`.
 | `src/winit.rs`    | Nested backend                                                |
 | `src/udev.rs`     | Standalone backend: screen, GPU, input devices, consoles      |
 | `src/cursor.rs`   | The pointer image (standalone)                                |
+| `src/xwayland.rs` | X11 programs through xwayland-satellite                       |
 | `src/handlers/`   | Wayland protocol handlers                                     |
 
 ## License
