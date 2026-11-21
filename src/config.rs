@@ -4,7 +4,9 @@
 //! local desk = require("infinitydesk")
 //! desk.input { keyboard = { xkb = { layout = "de" }, repeat_delay = 200, repeat_rate = 25 },
 //!              touchpad = { tap = true, natural_scroll = true, dwt = true,
-//!                           accel_speed = 0.0, accel_profile = "adaptive" } }
+//!                           accel_speed = 0.0, accel_profile = "adaptive" },
+//!              mouse = { natural_scroll = false, left_handed = false,
+//!                        accel_speed = 0.0, accel_profile = "adaptive" } }
 //! desk.canvas { width = 20000, height = 12000, grid = { spacing = 100 } }
 //! desk.layout { gaps = 16 }
 //! desk.snapping { threshold = 15, hold_ms = 300 }
@@ -35,6 +37,7 @@ use smithay::input::keyboard::{
 pub struct Config {
     pub keyboard: Keyboard,
     pub touchpad: Touchpad,
+    pub mouse: Mouse,
     /// Keyboard shortcuts: the built-in ones, changed by `desk.bind` and `desk.unbind`.
     pub binds: Vec<Bind>,
     /// Canvas size in logical pixels.
@@ -75,6 +78,19 @@ pub struct Touchpad {
     /// Pointer speed, -1 (slow) to 1 (fast).
     pub accel_speed: f64,
     /// Flat: the pointer moves as far as the fingers, however fast they are.
+    pub accel_flat: bool,
+}
+
+/// Mouse settings (also trackballs and the like). Only used standalone, like the touchpad ones.
+#[derive(Clone, PartialEq)]
+pub struct Mouse {
+    /// Content follows the wheel the other way round (like on a touchpad).
+    pub natural_scroll: bool,
+    /// Left and right buttons swapped.
+    pub left_handed: bool,
+    /// Pointer speed, -1 (slow) to 1 (fast).
+    pub accel_speed: f64,
+    /// Flat: the pointer moves as far as the mouse, however fast it is.
     pub accel_flat: bool,
 }
 
@@ -162,6 +178,12 @@ impl Default for Config {
                 tap: true,
                 natural_scroll: true,
                 dwt: true,
+                accel_speed: 0.0,
+                accel_flat: false,
+            },
+            mouse: Mouse {
+                natural_scroll: false,
+                left_handed: false,
                 accel_speed: 0.0,
                 accel_flat: false,
             },
@@ -456,9 +478,12 @@ impl Config {
 type Section = fn(&mut Config, &Table) -> mlua::Result<()>;
 
 fn input(config: &mut Config, t: &Table) -> mlua::Result<()> {
-    check_keys(t, "input", &["keyboard", "touchpad"])?;
+    check_keys(t, "input", &["keyboard", "touchpad", "mouse"])?;
     if let Some(tp) = get::<Table>(t, "input", "touchpad")? {
         touchpad(&mut config.touchpad, &tp)?;
+    }
+    if let Some(m) = get::<Table>(t, "input", "mouse")? {
+        mouse(&mut config.mouse, &m)?;
     }
     let Some(kb) = get::<Table>(t, "input", "keyboard")? else {
         return Ok(());
@@ -515,6 +540,29 @@ fn touchpad(tp: &mut Touchpad, t: &Table) -> mlua::Result<()> {
     ] {
         *field = get(t, section, key)?.unwrap_or(*field);
     }
+    accel(t, section, &mut tp.accel_speed, &mut tp.accel_flat)
+}
+
+fn mouse(m: &mut Mouse, t: &Table) -> mlua::Result<()> {
+    let section = "input.mouse";
+    let known = [
+        "natural_scroll",
+        "left_handed",
+        "accel_speed",
+        "accel_profile",
+    ];
+    check_keys(t, section, &known)?;
+    for (key, field) in [
+        ("natural_scroll", &mut m.natural_scroll),
+        ("left_handed", &mut m.left_handed),
+    ] {
+        *field = get(t, section, key)?.unwrap_or(*field);
+    }
+    accel(t, section, &mut m.accel_speed, &mut m.accel_flat)
+}
+
+/// `accel_speed` and `accel_profile` of the touchpad or the mouse.
+fn accel(t: &Table, section: &str, speed: &mut f64, flat: &mut bool) -> mlua::Result<()> {
     if let Some(v) = get::<f64>(t, section, "accel_speed")? {
         if !(-1.0..=1.0).contains(&v) {
             return Err(setting_error(
@@ -523,12 +571,12 @@ fn touchpad(tp: &mut Touchpad, t: &Table) -> mlua::Result<()> {
                 "must be between -1 and 1",
             ));
         }
-        tp.accel_speed = v;
+        *speed = v;
     }
     match get::<String>(t, section, "accel_profile")?.as_deref() {
         None => {}
-        Some("adaptive") => tp.accel_flat = false,
-        Some("flat") => tp.accel_flat = true,
+        Some("adaptive") => *flat = false,
+        Some("flat") => *flat = true,
         Some(_) => {
             let message = r#"expected "adaptive" or "flat""#;
             return Err(setting_error(section, "accel_profile", message));
@@ -652,7 +700,8 @@ mod tests {
             local desk = require("infinitydesk")
             desk.input { keyboard = { xkb = { layout = "de", options = "caps:escape" },
                                       repeat_delay = 300, repeat_rate = 40 } }
-            desk.input { touchpad = { tap = false, accel_speed = -0.5, accel_profile = "flat" } }
+            desk.input { touchpad = { tap = false, accel_speed = -0.5, accel_profile = "flat" },
+                         mouse = { left_handed = true, accel_speed = 0.45, accel_profile = "flat" } }
             desk.canvas { width = 30000, height = 15000, grid = { spacing = 200 } }
             desk.layout { gaps = 8 }
             desk.snapping { threshold = 20, hold_ms = 500 }
@@ -669,6 +718,12 @@ mod tests {
         );
         let tp = &config.touchpad;
         assert_eq!((tp.tap, tp.accel_speed, tp.accel_flat), (false, -0.5, true));
+        let m = &config.mouse;
+        assert_eq!(
+            (m.left_handed, m.accel_speed, m.accel_flat),
+            (true, 0.45, true)
+        );
+        assert!(!m.natural_scroll);
         // Not set in the table: default.
         assert!(tp.natural_scroll && tp.dwt);
         assert_eq!(config.canvas_size, (30_000, 15_000));

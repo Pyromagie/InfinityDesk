@@ -145,7 +145,7 @@ cargo run --release -- -c firefox    # with another program inside
   an overview that zooms out until all windows fit, and Alt + Tab through the recently used
   windows
 - **Touchpad gestures:** pinch to zoom, three fingers to pan, four fingers for the overview
-- **Lua configuration** with live reload: keyboard, touchpad, canvas, gaps, snapping, colors
+- **Lua configuration** with live reload: keyboard, touchpad, mouse, canvas, gaps, snapping, colors
   and shortcuts
 - wlr-layer-shell, so launchers like fuzzel, bars and wallpaper tools (e.g. awww, swaybg) work;
   the wallpaper stays fixed behind the moving canvas
@@ -215,13 +215,19 @@ desk.input {
     repeat_delay = 200, -- milliseconds before a held key repeats
     repeat_rate = 25,   -- repeats per second
   },
-  -- Standalone only (nested, the host compositor sets up the touchpad)
+  -- Standalone only (nested, the host compositor sets up touchpad and mouse)
   touchpad = {
     tap = true,              -- tapping clicks
     natural_scroll = true,   -- content follows the fingers
     dwt = true,              -- off while typing
     accel_speed = 0.0,       -- -1 (slow) to 1 (fast)
     accel_profile = "adaptive", -- or "flat"
+  },
+  mouse = {
+    natural_scroll = false,  -- the wheel scrolls the other way round
+    left_handed = false,     -- left and right buttons swapped
+    accel_speed = 0.0,       -- -1 (slow) to 1 (fast)
+    accel_profile = "adaptive", -- or "flat" (the pointer moves as far as the mouse)
   },
 }
 

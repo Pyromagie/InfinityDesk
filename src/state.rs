@@ -279,9 +279,9 @@ impl InfinityDesk {
             self.fit_fullscreen();
         }
         if let Some(udev) = &mut self.udev
-            && config.touchpad != self.config.touchpad
+            && (config.touchpad != self.config.touchpad || config.mouse != self.config.mouse)
         {
-            udev.set_up_touchpads(&config.touchpad);
+            udev.set_up_devices(&config);
         }
         self.config = config;
     }
