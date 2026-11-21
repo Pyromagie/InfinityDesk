@@ -3,23 +3,22 @@
 use smithay::{
     backend::renderer::{
         element::{
-            AsRenderElements, Id, Kind, memory::MemoryRenderBufferRenderElement, render_elements,
-            solid::SolidColorRenderElement, surface::WaylandSurfaceRenderElement,
+            AsRenderElements, Kind,
+            memory::MemoryRenderBufferRenderElement,
+            render_elements,
+            solid::{SolidColorBuffer, SolidColorRenderElement},
+            surface::WaylandSurfaceRenderElement,
             utils::RescaleRenderElement,
         },
-        gles::{
-            GlesPixelProgram, GlesRenderer, Uniform, UniformName, UniformType,
-            element::PixelShaderElement,
-        },
-        utils::CommitCounter,
+        gles::{GlesRenderer, Uniform, UniformName, UniformType, element::PixelShaderElement},
     },
     desktop::{Space, Window, layer_map_for_output},
     output::Output,
-    utils::{Logical, Physical, Rectangle, Scale},
+    utils::{Logical, Rectangle, Scale},
     wayland::shell::wlr_layer::Layer,
 };
 
-use crate::canvas::Canvas;
+use crate::{canvas::Canvas, config::Config};
 
 /// Grid dots are spaced further apart (doubled) zoomed out so far that dots would be closer than this on screen.
 const GRID_MIN_SCREEN_SPACING: f64 = 40.0;
@@ -59,53 +58,65 @@ void main() {
 }
 "#;
 
-pub fn compile_grid_shader(renderer: &mut GlesRenderer) -> GlesPixelProgram {
-    let uniforms = [
-        UniformName::new("spacing", UniformType::_1f),
-        UniformName::new("dot_size", UniformType::_1f),
-        UniformName::new("offset", UniformType::_2f),
-        UniformName::new("color", UniformType::_4f),
-    ];
-    renderer
-        .compile_custom_pixel_shader(GRID_SHADER, &uniforms)
-        .expect("grid shader must compile")
+/// The dot grid on the canvas, so panning is visible even on empty space. The element is kept
+/// from frame to frame and only changes with the view or the settings, so a still screen is not
+/// redrawn.
+pub struct Grid {
+    element: PixelShaderElement,
+    /// Spacing, offset and color the shader's uniforms were last set from.
+    uniforms: Option<[f32; 7]>,
 }
 
-/// The dot grid on the canvas, so panning is visible even on empty space.
-pub struct Grid<'a> {
-    pub shader: &'a GlesPixelProgram,
-    /// Distance between the dots in canvas pixels.
-    pub spacing: f64,
-    pub color: [f32; 4],
-}
-
-fn grid_element(grid: &Grid, canvas: &Canvas) -> Option<PixelShaderElement> {
-    let mut spacing = grid.spacing;
-    while spacing * canvas.zoom() < GRID_MIN_SCREEN_SPACING {
-        spacing *= 2.0;
+impl Grid {
+    pub fn new(renderer: &mut GlesRenderer) -> Self {
+        let uniforms = [
+            UniformName::new("spacing", UniformType::_1f),
+            UniformName::new("dot_size", UniformType::_1f),
+            UniformName::new("offset", UniformType::_2f),
+            UniformName::new("color", UniformType::_4f),
+        ];
+        let shader = (renderer.compile_custom_pixel_shader(GRID_SHADER, &uniforms))
+            .expect("grid shader must compile");
+        let area = Rectangle::default();
+        let element =
+            PixelShaderElement::new(shader, area, None, 1.0, Vec::new(), Kind::Unspecified);
+        Self {
+            element,
+            uniforms: None,
+        }
     }
-    let spacing = spacing * canvas.zoom();
-    // Only the part of the screen that shows canvas (zoomed far out, it is surrounded by nothing).
-    let origin = canvas.canvas_to_screen((0.0, 0.0).into());
-    let canvas_rect = Rectangle::new(origin, canvas.size().to_f64().upscale(canvas.zoom()));
-    let screen = Rectangle::from_size(canvas.viewport().size.upscale(canvas.zoom()));
-    let area = canvas_rect.intersection(screen)?.to_i32_round();
-    let offset = area.loc.to_f64() - origin;
-    let [r, g, b, a] = grid.color;
-    let uniforms = vec![
-        Uniform::new("spacing", spacing as f32),
-        Uniform::new("dot_size", GRID_DOT_SIZE),
-        Uniform::new("offset", (offset.x as f32, offset.y as f32)),
-        Uniform::new("color", (r, g, b, a)),
-    ];
-    Some(PixelShaderElement::new(
-        grid.shader.clone(),
-        area,
-        None,
-        1.0,
-        uniforms,
-        Kind::Unspecified,
-    ))
+
+    /// The grid for the current view, with `spacing` (canvas pixels) between the dots.
+    fn element(
+        &mut self,
+        canvas: &Canvas,
+        mut spacing: f64,
+        color: [f32; 4],
+    ) -> Option<PixelShaderElement> {
+        while spacing * canvas.zoom() < GRID_MIN_SCREEN_SPACING {
+            spacing *= 2.0;
+        }
+        let spacing = spacing * canvas.zoom();
+        // Only the part of the screen that shows canvas (zoomed far out, it is surrounded by nothing).
+        let origin = canvas.canvas_to_screen((0.0, 0.0).into());
+        let canvas_rect = Rectangle::new(origin, canvas.size().to_f64().upscale(canvas.zoom()));
+        let screen = Rectangle::from_size(canvas.viewport().size.upscale(canvas.zoom()));
+        let area = canvas_rect.intersection(screen)?.to_i32_round();
+        let offset = area.loc.to_f64() - origin;
+        self.element.resize(area, None);
+        let [r, g, b, a] = color;
+        let now = [spacing as f32, offset.x as f32, offset.y as f32, r, g, b, a];
+        if self.uniforms != Some(now) {
+            self.uniforms = Some(now);
+            self.element.update_uniforms(vec![
+                Uniform::new("spacing", now[0]),
+                Uniform::new("dot_size", GRID_DOT_SIZE),
+                Uniform::new("offset", (now[1], now[2])),
+                Uniform::new("color", (r, g, b, a)),
+            ]);
+        }
+        Some(self.element.clone())
+    }
 }
 
 /// A blue frame around a window (selected, or pulsing when unlocked) or a selection box.
@@ -140,19 +151,24 @@ pub fn outline_bars(
     .map(|(x, y, w, h)| (Rectangle::new((x, y).into(), (w, h).into()), color))
 }
 
-/// A solid rectangle on the screen (frames, lit edges, the template menu).
-fn bar_element((rect, color): &(Rectangle<i32, Logical>, [f32; 4])) -> SolidColorRenderElement {
-    let geo = Rectangle::<i32, Physical>::new(
-        (rect.loc.x, rect.loc.y).into(),
-        (rect.size.w, rect.size.h).into(),
-    );
-    SolidColorRenderElement::new(
-        Id::new(),
-        geo,
-        CommitCounter::default(),
-        *color,
-        Kind::Unspecified,
-    )
+/// Solid rectangles on the screen (frames, lit edges, the template menu). Their buffers are kept
+/// from frame to frame, so only bars that changed get redrawn. They go in front of everything.
+pub fn bar_elements(
+    buffers: &mut Vec<SolidColorBuffer>,
+    bars: &[(Rectangle<i32, Logical>, [f32; 4])],
+) -> Vec<DeskElement> {
+    if buffers.len() < bars.len() {
+        buffers.resize_with(bars.len(), SolidColorBuffer::default);
+    }
+    (bars.iter().zip(buffers.iter_mut()))
+        .map(|((rect, color), buffer)| {
+            buffer.update(rect.size, *color);
+            let loc = (rect.loc.x, rect.loc.y);
+            let element =
+                SolidColorRenderElement::from_buffer(buffer, loc, 1.0, 1.0, Kind::Unspecified);
+            DeskElement::Solid(element)
+        })
+        .collect()
 }
 
 /// Layer surfaces (launchers, bars, wallpapers) sit on the screen and are never zoomed.
@@ -170,21 +186,19 @@ fn layer_elements(
         .collect()
 }
 
-/// All elements of a frame, front to back: solid bars (menu, frames, lit edges), the upper
-/// layers, windows, grid, bottom layers.
+/// The elements of a frame behind the bars, front to back: the upper layers, windows, grid,
+/// bottom layers.
 pub fn desk_elements(
     renderer: &mut GlesRenderer,
     output: &Output,
     space: &Space<Window>,
     canvas: &Canvas,
-    grid: &Grid,
-    bars: &[(Rectangle<i32, Logical>, [f32; 4])],
+    grid: &mut Grid,
+    config: &Config,
     upper_layers: &[Layer],
 ) -> Vec<DeskElement> {
-    let mut elements: Vec<DeskElement> =
-        (bars.iter().map(bar_element).map(DeskElement::Solid)).collect();
     let upper = layer_elements(renderer, output, upper_layers);
-    elements.extend(upper.into_iter().map(DeskElement::Surface));
+    let mut elements: Vec<DeskElement> = upper.into_iter().map(DeskElement::Surface).collect();
     // Only windows inside the viewport are rendered (culling), then shrunk by the zoom.
     let viewport = canvas.viewport().to_i32_round();
     let windows = space.render_elements_for_region(renderer, &viewport, 1.0, 1.0);
@@ -195,7 +209,8 @@ pub fn desk_elements(
             canvas.zoom(),
         ))
     }));
-    elements.extend(grid_element(grid, canvas).map(DeskElement::Grid));
+    let grid = grid.element(canvas, config.grid_spacing, config.grid_color);
+    elements.extend(grid.map(DeskElement::Grid));
     let lower = layer_elements(renderer, output, &[Layer::Bottom, Layer::Background]);
     elements.extend(lower.into_iter().map(DeskElement::Surface));
     elements

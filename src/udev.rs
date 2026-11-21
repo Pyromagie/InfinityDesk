@@ -20,10 +20,7 @@ use smithay::{
         egl::{EGLContext, EGLDevice, EGLDisplay},
         input::{InputEvent, InputTime},
         libinput::{LibinputInputBackend, LibinputSessionInterface},
-        renderer::{
-            ImportDma, ImportMemWl,
-            gles::{GlesPixelProgram, GlesRenderer},
-        },
+        renderer::{ImportDma, ImportMemWl, element::solid::SolidColorBuffer, gles::GlesRenderer},
         session::{Event as SessionEvent, Session, libseat::LibSeatSession},
         udev::all_gpus,
     },
@@ -45,7 +42,7 @@ use crate::{
     InfinityDesk,
     config::Touchpad,
     cursor::Cursors,
-    render::{Grid, compile_grid_shader, desk_elements},
+    render::{Grid, bar_elements, desk_elements},
 };
 
 type Compositor =
@@ -60,7 +57,9 @@ pub struct Udev {
     drm: DrmDevice,
     pub renderer: GlesRenderer,
     compositor: Compositor,
-    grid_shader: GlesPixelProgram,
+    grid: Grid,
+    /// Buffers of the solid bars, kept so that unchanged outlines are not redrawn.
+    bar_buffers: Vec<SolidColorBuffer>,
     cursors: Cursors,
     handle: LoopHandle<'static, InfinityDesk>,
     /// A frame is on its way to the screen; the next one is drawn when it got there.
@@ -317,7 +316,7 @@ pub fn init_udev(
         DrmEvent::Error(err) => tracing::error!("Screen error: {err}"),
     })?;
 
-    let grid_shader = compile_grid_shader(&mut renderer);
+    let grid = Grid::new(&mut renderer);
     state.udev = Some(Udev {
         session,
         libinput,
@@ -325,7 +324,8 @@ pub fn init_udev(
         drm,
         renderer,
         compositor,
-        grid_shader,
+        grid,
+        bar_buffers: Vec::new(),
         cursors: Cursors::load(),
         handle,
         frame_pending: false,
@@ -361,18 +361,14 @@ impl InfinityDesk {
             self.cursor,
             &self.client_cursor,
         );
-        let grid = Grid {
-            shader: &udev.grid_shader,
-            spacing: self.config.grid_spacing,
-            color: self.config.grid_color,
-        };
+        elements.extend(bar_elements(&mut udev.bar_buffers, &bars));
         elements.extend(desk_elements(
             &mut udev.renderer,
             &output,
             &self.space,
             &self.canvas,
-            &grid,
-            &bars,
+            &mut udev.grid,
+            &self.config,
             upper_layers,
         ));
         let rendered = udev.compositor.render_frame(

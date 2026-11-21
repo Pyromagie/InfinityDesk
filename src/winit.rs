@@ -12,7 +12,7 @@ use smithay::{
 
 use crate::{
     InfinityDesk,
-    render::{Grid, compile_grid_shader, desk_elements},
+    render::{Grid, bar_elements, desk_elements},
 };
 use smithay::{
     desktop::layer_map_for_output,
@@ -51,7 +51,8 @@ pub fn init_winit(
     state.set_output(output.clone());
 
     let mut damage_tracker = OutputDamageTracker::from_output(&output);
-    let grid_shader = compile_grid_shader(backend.renderer());
+    let mut grid = Grid::new(backend.renderer());
+    let mut bar_buffers = Vec::new();
     // The back buffer has no age before the first frame (asking EGL then logs an error).
     let mut first_frame = true;
     // Pointer image currently shown by the host.
@@ -95,19 +96,16 @@ pub fn init_winit(
                 }
                 let damage = match backend.bind() {
                     Ok((renderer, mut framebuffer)) => {
-                        let elements = desk_elements(
+                        let mut elements = bar_elements(&mut bar_buffers, &bars);
+                        elements.extend(desk_elements(
                             renderer,
                             &output,
                             &state.space,
                             &state.canvas,
-                            &Grid {
-                                shader: &grid_shader,
-                                spacing: state.config.grid_spacing,
-                                color: state.config.grid_color,
-                            },
-                            &bars,
+                            &mut grid,
+                            &state.config,
                             state.upper_layers(),
-                        );
+                        ));
                         damage_tracker
                             .render_output(
                                 renderer,
