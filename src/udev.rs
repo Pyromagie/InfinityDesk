@@ -77,6 +77,11 @@ impl Udev {
         }
     }
 
+    /// Another pointer theme or size from the config.
+    pub fn set_cursor_theme(&mut self, config: &Config) {
+        self.cursors = Cursors::load(config.cursor_theme.as_deref(), config.cursor_size);
+    }
+
     /// Applies the touchpad and mouse settings to every connected device.
     pub fn set_up_devices(&mut self, config: &Config) {
         for device in &mut self.devices {
@@ -336,7 +341,10 @@ pub fn init_udev(
         compositor,
         grid,
         bar_buffers: Vec::new(),
-        cursors: Cursors::load(),
+        cursors: Cursors::load(
+            state.config.cursor_theme.as_deref(),
+            state.config.cursor_size,
+        ),
         handle,
         frame_pending: false,
         redraw_planned: false,

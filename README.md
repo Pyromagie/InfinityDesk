@@ -147,7 +147,7 @@ cargo run --release -- -c firefox    # with another program inside
   windows
 - **Touchpad gestures:** pinch to zoom, three fingers to pan, four fingers for the overview
 - **Lua configuration** with live reload: keyboard, touchpad, mouse, canvas, gaps, snapping,
-  colors, shortcuts, programs to start and their environment variables
+  colors, shortcuts, programs to start and their environment variables, pointer theme
 - wlr-layer-shell, so launchers like fuzzel, bars and wallpaper tools (e.g. awww, swaybg) work;
   the wallpaper stays fixed behind the moving canvas
 
@@ -261,6 +261,9 @@ desk.spawn_at_startup("waybar")
 
 -- Environment variables for every program started from InfinityDesk
 desk.env { QT_QPA_PLATFORM = "wayland", MOZ_ENABLE_WAYLAND = "1" }
+
+-- Pointer theme and size (also passed to programs as XCURSOR_THEME / XCURSOR_SIZE)
+desk.cursor { theme = "Adwaita", size = 24 }
 ```
 
 A mistake (a typo in a setting name, a wrong type, a value out of range) is logged with the

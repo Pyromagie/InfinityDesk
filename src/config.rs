@@ -15,6 +15,7 @@
 //! desk.unbind("Mod+Space")
 //! desk.spawn_at_startup("awww-daemon")
 //! desk.env { QT_QPA_PLATFORM = "wayland" }
+//! desk.cursor { theme = "Adwaita", size = 24 }
 //! ```
 //!
 //! Everything is optional. Without the file the defaults apply; if the file has an error, it is
@@ -61,6 +62,9 @@ pub struct Config {
     pub startup: Vec<String>,
     /// Environment variables for every program started from InfinityDesk.
     pub env: Vec<(String, String)>,
+    /// Pointer theme and size; `None`: `XCURSOR_THEME` / `XCURSOR_SIZE`, else the defaults.
+    pub cursor_theme: Option<String>,
+    pub cursor_size: Option<u32>,
 }
 
 /// Keyboard layout and key repeat.
@@ -203,6 +207,8 @@ impl Default for Config {
             accent: [0.35, 0.65, 1.0, 1.0],
             startup: Vec::new(),
             env: Vec::new(),
+            cursor_theme: None,
+            cursor_size: None,
             binds: [
                 ("Mod+T".to_string(), Action::Spawn("kitty".into())),
                 ("Mod+Return".to_string(), Action::Spawn("kitty".into())),
@@ -422,13 +428,14 @@ impl Config {
         let lua = Lua::new();
         lua.set_app_data(Config::default());
         let desk = lua.create_table()?;
-        let sections: [(&str, Section); 6] = [
+        let sections: [(&str, Section); 7] = [
             ("input", input),
             ("canvas", canvas),
             ("layout", layout),
             ("snapping", snapping),
             ("colors", colors),
             ("env", env),
+            ("cursor", cursor),
         ];
         for (name, section) in sections {
             let f = lua.create_function(move |lua, t: Table| {
@@ -696,10 +703,28 @@ fn env(config: &mut Config, t: &Table) -> mlua::Result<()> {
         let (name, value) = pair.map_err(|_| {
             mlua::Error::runtime("env: names and values must be text, e.g. NAME = \"value\"")
         })?;
-        config.env.retain(|(n, _)| n != &name);
-        config.env.push((name, value));
+        set_env(config, name, value);
     }
     Ok(())
+}
+
+/// The programs get the same pointer as InfinityDesk (if they use these variables).
+fn cursor(config: &mut Config, t: &Table) -> mlua::Result<()> {
+    check_keys(t, "cursor", &["theme", "size"])?;
+    if let Some(theme) = get::<String>(t, "cursor", "theme")? {
+        set_env(config, "XCURSOR_THEME".into(), theme.clone());
+        config.cursor_theme = Some(theme);
+    }
+    if let Some(size) = get_in(t, "cursor", "size", 8..=256)? {
+        set_env(config, "XCURSOR_SIZE".into(), size.to_string());
+        config.cursor_size = Some(size as u32);
+    }
+    Ok(())
+}
+
+fn set_env(config: &mut Config, name: String, value: String) {
+    config.env.retain(|(n, _)| n != &name);
+    config.env.push((name, value));
 }
 
 fn setting_error(section: &str, key: &str, message: &str) -> mlua::Error {
@@ -735,6 +760,7 @@ mod tests {
             desk.spawn_at_startup("waybar -c ~/bar.json")
             desk.env { QT_QPA_PLATFORM = "wayland", XCURSOR_SIZE = "32" }
             desk.env { XCURSOR_SIZE = "24" }
+            desk.cursor { theme = "Adwaita" }
             "##,
         )
         .unwrap();
@@ -773,9 +799,12 @@ mod tests {
             env,
             [
                 pair("QT_QPA_PLATFORM", "wayland"),
-                pair("XCURSOR_SIZE", "24")
+                pair("XCURSOR_SIZE", "24"),
+                pair("XCURSOR_THEME", "Adwaita")
             ]
         );
+        assert_eq!(config.cursor_theme.as_deref(), Some("Adwaita"));
+        assert_eq!(config.cursor_size, None);
     }
 
     #[test]

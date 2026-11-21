@@ -30,7 +30,8 @@ const DEFAULT_SIZE: u32 = 24;
 /// A picture and its hotspot (the point that clicks).
 type Image = (MemoryRenderBuffer, Point<i32, Logical>);
 
-/// Images from the cursor theme (`XCURSOR_THEME`, `XCURSOR_SIZE`), loaded when first needed.
+/// Images from the cursor theme (config, else `XCURSOR_THEME`, `XCURSOR_SIZE`), loaded when first
+/// needed.
 pub struct Cursors {
     theme: xcursor::CursorTheme,
     size: u32,
@@ -39,9 +40,11 @@ pub struct Cursors {
 }
 
 impl Cursors {
-    pub fn load() -> Self {
-        let name = std::env::var("XCURSOR_THEME").unwrap_or_else(|_| "default".into());
-        let size = (std::env::var("XCURSOR_SIZE").ok()).and_then(|s| s.parse().ok());
+    pub fn load(theme: Option<&str>, size: Option<u32>) -> Self {
+        let name = (theme.map(String::from))
+            .or_else(|| std::env::var("XCURSOR_THEME").ok())
+            .unwrap_or_else(|| "default".into());
+        let size = size.or_else(|| std::env::var("XCURSOR_SIZE").ok()?.parse().ok());
         tracing::info!("Cursor theme {name:?}");
         Self {
             theme: xcursor::CursorTheme::load(&name),

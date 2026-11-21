@@ -283,6 +283,12 @@ impl InfinityDesk {
         {
             udev.set_up_devices(&config);
         }
+        if let Some(udev) = &mut self.udev
+            && (config.cursor_theme != self.config.cursor_theme
+                || config.cursor_size != self.config.cursor_size)
+        {
+            udev.set_cursor_theme(&config);
+        }
         self.config = config;
     }
 
