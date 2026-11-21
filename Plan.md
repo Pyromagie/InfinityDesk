@@ -56,7 +56,7 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
 - ✅ Nur Ecke-an-Ecke zählt nicht als angedockt, es braucht eine gemeinsame Kante.
 - ✅ Resize einer geteilten Kante (eingebaut: **Alt + Rechtsziehen**, es bewegen sich die Kanten nächst zum Mauszeiger; auch Ziehen am Fensterrand des Programms), zwei Modi:
   - ✅ **Am Fensterrand ziehen** (ohne Alt): eigene Greifzone, 10 px außerhalb und 5 px innerhalb des Fensters (Bildschirm-Pixel). Rückmeldung: Resize-Pfeile als Mauszeiger, und die Kanten, die sich bewegen werden (auch die der Nachbarn), leuchten blau.
-  - ✅ **Kanten rasten beim Resize ein** (wie in PowerPoint): Die gezogene Kante rastet innerhalb von 15 px (Bildschirm) bündig an Kanten anderer sichtbarer Fenster ein, z.B. Unterkante an Unterkante.
+  - ~~**Kanten rasten beim Resize ein**~~ (entfernt 21.11.2026 mit Punkt 5b, Schritt 2) (wie in PowerPoint): Die gezogene Kante rastet innerhalb von 15 px (Bildschirm) bündig an Kanten anderer sichtbarer Fenster ein, z.B. Unterkante an Unterkante.
   - **Standard:** Nachbarn im Cluster wachsen/schrumpfen mit (der Viewport ist nur ein Bildschirm, daher nicht einfach wegschieben).
   - **Mit Shift (o. ä.) gehalten:** nur das gezogene Fenster ändert seine Größe, das Nachbarfenster (und alles dahinter) wird verschoben.
   - ✅ "Verschoben" gilt für alles, was auf der anderen Seite der Kante im Cluster hängt. Das Cluster bleibt zusammen, wird nur größer/kleiner.
@@ -77,6 +77,7 @@ Ersetzt die freien Fenstergrößen aus Punkt 5 (`match_size`, freies Resize, Aus
 - ✅ Vorlagen (Mod+R) nur noch die, die ins 2×2-Raster passen; Drittel-Vorlagen fallen weg.
 - ✅ Dialoge bleiben frei schwebend in der Mitte.
 - ✅ Schritt 1 eingebaut (21.11.2026): Lücken (Standard 16 px), neue Fenster halbe Breite × ganze Höhe, frei in der linken Bildschirmhälfte, Andocken und Vorlagen mit Lücke, `match_size` entfernt. Die Größe wird beim Öffnen aus dem Bildschirm berechnet (ändert sich der Bildschirm danach, behalten offene Fenster ihre Größe). Noch frei: Größe ändern (Schritt 2), Ansicht einrasten (Schritt 3).
+- ✅ Schritt 2 eingebaut (21.11.2026): Größe ändern springt zwischen halb und ganz, sobald die Kante über die halbe Strecke gezogen ist (Mod+Shift+Pfeil: rechts/unten macht halb zu ganz, links/oben ganz zu halb). **Nachbarn geben Platz ab oder nehmen ihn, wenn sie dabei zwischen halb und ganz bleiben; sonst rücken sie samt allem dahinter zur Seite** (wie in niri; Pyro einverstanden). Mit Shift rückt wie bisher immer alles. Geht beides nicht (z.B. Mindestgröße eines Programms), passiert nichts. Das Einrasten der gezogenen Kante an fremden Kanten ist weg (bringt mit festen Größen nichts). Vorlagen: ganzer Bildschirm, Hälfte | Hälfte, Hälfte | zwei Viertel, zwei Viertel | Hälfte, vier Viertel (Tasten 1–5, eine Reihe im Menü).
 
 ## 6. Navigation
 
@@ -86,7 +87,7 @@ Ersetzt die freien Fenstergrößen aus Punkt 5 (`match_size`, freies Resize, Aus
 - ✅ **Tastatur-Bedienung** (17.11.2026, von Pyro ausgewählt; Mod = Alt genestet, später Super; alles per `desk.bind` änderbar). Keine Workspaces: InfinityDesk hat ein eigenes Konzept und muss sich nicht an andere Fenstermanager halten.
   - Mod+Pfeile: Fokus zum nächsten Fenster in der Richtung, auch ins nächste Cluster; die Ansicht rückt mit.
   - Mod+Strg+Pfeile: aktives Fenster mit dem Nachbarn im Cluster tauschen (Plätze tauschen, Größen gehen mit).
-  - Mod+Shift+Pfeile: Größe ändern in Schritten von 10 % des Bildschirms . Es bewegt sich immer nur die rechte bzw. untere Kante, und zwar in Pfeilrichtung: → und ↓ machen größer, ← und ↑ kleiner (Pyro, nach dem ersten Test; vorher wanderte je nach Nachbar mal die linke/obere Kante, und ↑ hieß größer). Nachbarn gehen mit wie beim Ziehen.
+  - Mod+Shift+Pfeile: Größe ändern, seit Schritt 2 von Punkt 5b zwischen halb und ganz (vorher in Schritten von 10 % des Bildschirms). Es bewegt sich immer nur die rechte bzw. untere Kante, und zwar in Pfeilrichtung: → und ↓ machen größer, ← und ↑ kleiner (Pyro, nach dem ersten Test; vorher wanderte je nach Nachbar mal die linke/obere Kante, und ↑ hieß größer). Nachbarn gehen mit wie beim Ziehen.
   - Mod+Strg+Shift+Pfeile: Ansicht verschieben · Mod+Minus/Plus: zoomen um die Bildschirmmitte · Mod+C: aktives Cluster in die Mitte.
   - Mod+Tab und Mod+O: Übersicht (alle Fenster passen auf den Bildschirm; Mod+O, weil niri Alt+Tab genestet für sich behält). Nochmal Mod+Tab: zurück, oder zum Fenster, das in der Übersicht gewählt wurde (Klick oder Pfeile).
   - Alt+Tab: zuletzt benutzte Fenster. Alt halten, jedes Tab geht eins weiter zurück, die Ansicht fährt hin (die Fläche ist die Vorschau); Loslassen wählt. Genestet fängt niri Alt+Tab ab (und Mod+Tab wären dieselben Tasten); zum Ausprobieren `desk.bind("Ctrl+Tab", desk.recent_windows)`. 💬 Eigene Vorschau-Leiste nur, wenn sie beim Ausprobieren fehlt.

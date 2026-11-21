@@ -522,13 +522,8 @@ impl InfinityDesk {
             self.cursor = CursorIcon::Default;
             return;
         };
-        let (windows, rects): (Vec<Window>, Vec<_>) = (self.clusters.members(&window))
-            .into_iter()
-            .filter_map(|w| Some((w.clone(), self.space.element_geometry(&w)?)))
-            .unzip();
-        let dragged = windows.iter().position(|w| w == &window).unwrap_or(0);
-        let follow = resize::plan(&rects, dragged, edges, shift, self.config.gaps);
-        self.resize_hint = windows.into_iter().zip(follow).collect();
+        let toggle = self.plan_toggle(&window, edges, shift);
+        self.resize_hint = toggle.windows.into_iter().zip(toggle.follow).collect();
         self.set_cursor_for(edges);
     }
 

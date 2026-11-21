@@ -11,16 +11,13 @@ use crate::cluster::Rect;
 /// A slot of a template in twelfths of the screen: `[left, top, right, bottom]`.
 type Slot = [i32; 4];
 
-/// The templates in menu order (keys 1–8). Slots are in reading order; free slots are filled by
-/// new windows in this order.
+/// The templates in menu order (keys 1–5), all in the 2×2 grid of window sizes. Slots are in
+/// reading order; free slots are filled by new windows in this order.
 pub const TEMPLATES: &[&[Slot]] = &[
     &[[0, 0, 12, 12]],                                             // whole screen
     &[[0, 0, 6, 12], [6, 0, 12, 12]],                              // half | half
-    &[[0, 0, 8, 12], [8, 0, 12, 12]],                              // two thirds | third
     &[[0, 0, 6, 12], [6, 0, 12, 6], [6, 6, 12, 12]],               // half | two quarters
     &[[0, 0, 6, 6], [6, 0, 12, 12], [0, 6, 6, 12]],                // two quarters | half
-    &[[0, 0, 4, 12], [4, 0, 8, 12], [8, 0, 12, 12]],               // three columns
-    &[[0, 0, 3, 12], [3, 0, 9, 12], [9, 0, 12, 12]],               // quarter | half | quarter
     &[[0, 0, 6, 6], [6, 0, 12, 6], [0, 6, 6, 12], [6, 6, 12, 12]], // four quarters
 ];
 
@@ -82,7 +79,7 @@ pub fn assign(
 const THUMB_WIDTH: i32 = 240;
 /// Space between the pictures and around them.
 const MENU_GAP: i32 = 24;
-const MENU_COLUMNS: i32 = 4;
+const MENU_COLUMNS: i32 = 5;
 /// Gap between the slots within a picture.
 const SLOT_GAP: i32 = 4;
 
@@ -147,17 +144,16 @@ mod tests {
                 assert!(s[i + 1..].iter().all(|b| !a.overlaps(*b)), "template {t}");
             }
         }
-        // Thirds of an odd width still meet exactly.
-        let s = slots(5, rect(0, 0, 1000, 600), 0);
-        assert_eq!(s[0], rect(0, 0, 333, 600));
-        assert_eq!(s[1], rect(333, 0, 333, 600));
-        assert_eq!(s[2], rect(666, 0, 334, 600));
+        // Halves of an odd width still meet exactly.
+        let s = slots(1, rect(0, 0, 1001, 600), 0);
+        assert_eq!(s[0], rect(0, 0, 500, 600));
+        assert_eq!(s[1], rect(500, 0, 501, 600));
     }
 
     #[test]
     fn slots_keep_the_gap() {
         // Half | two quarters on 3440×1440 with 16 px gaps: 16 px around and between the slots.
-        let s = slots(3, rect(0, 0, 3440, 1440), 16);
+        let s = slots(2, rect(0, 0, 3440, 1440), 16);
         assert_eq!(s[0], rect(16, 16, 1696, 1408));
         assert_eq!(s[1], rect(1728, 16, 1696, 696));
         assert_eq!(s[2], rect(1728, 728, 1696, 696));
@@ -166,7 +162,7 @@ mod tests {
     #[test]
     fn windows_go_to_the_closest_slot() {
         // Half | two quarters, cluster: left window, right top, right bottom (shuffled order).
-        let s = slots(3, rect(0, 0, 1200, 600), 0);
+        let s = slots(2, rect(0, 0, 1200, 600), 0);
         let windows = [
             rect(500, 300, 500, 300),
             rect(0, 0, 500, 600),
@@ -187,7 +183,7 @@ mod tests {
                 &windows[..1],
                 0,
                 Some(2),
-                &slots(3, rect(0, 0, 1200, 600), 0)
+                &slots(2, rect(0, 0, 1200, 600), 0)
             ),
             vec![2]
         );

@@ -1,8 +1,10 @@
-//! Resizing a window inside its cluster: the dragged edge takes its neighbors along.
+//! Resizing a window inside its cluster: its size toggles between half and full screen, and the
+//! dragged edge takes its neighbors along.
 //!
 //! Default: neighbors at the dragged edge (the whole seam) shrink or grow with it, the cluster
-//! stays closed. With Shift: the windows on the dragged side of the seam change size, everything
-//! in the cluster beyond the edge moves along.
+//! stays closed. With Shift, or if the neighbors cannot (they would get smaller than half or
+//! larger than full): the windows on the dragged side of the seam change size, everything in the
+//! cluster beyond the edge moves along.
 //!
 //! Pure geometry without Wayland, so it is easy to test.
 
@@ -32,6 +34,66 @@ pub enum Follow {
     Shift,
 }
 
+/// How each window of a cluster follows a resize, per axis.
+pub type Plan = Vec<[Follow; 2]>;
+
+/// Toggling the size of `rects[dragged]` at `edges`: on each dragged axis, a window closer to
+/// half the `screen` (with gaps) becomes full, else half. Returns how the windows follow (see
+/// `plan`) and the pointer movement that toggles the dragged edges, or `None` if the windows
+/// cannot take the new size (`min`, or neighbors beyond half or full even with `shift`).
+pub fn toggle(
+    rects: &[Rect],
+    min: &[Size<i32, Logical>],
+    dragged: usize,
+    edges: [Edge; 2],
+    shift: bool,
+    screen: Size<i32, Logical>,
+    gap: i32,
+) -> Option<(Plan, Point<i32, Logical>)> {
+    let d = rects.get(dragged)?;
+    let screen = [screen.w, screen.h];
+    let half = [0, 1].map(|axis| (screen[axis] - gap) / 2 - gap);
+    let full = [0, 1].map(|axis| screen[axis] - 2 * gap);
+    let len = |r: &Rect, axis: usize| [r.size.w, r.size.h][axis];
+    let target = [0, 1].map(|axis| match 2 * len(d, axis) < half[axis] + full[axis] {
+        true => full[axis],
+        false => half[axis],
+    });
+    let delta = [0, 1].map(|axis| match edges[axis] {
+        Edge::None => 0,
+        Edge::Start => len(d, axis) - target[axis],
+        Edge::End => target[axis] - len(d, axis),
+    });
+    let delta = Point::from((delta[0], delta[1]));
+    // The dragged window gets exactly its new size, every other window that changes size stays
+    // between half and full.
+    let fits = |follow: &Plan| {
+        let new = apply(rects, follow, min, delta);
+        (rects.iter().zip(&new).enumerate()).all(|(i, (old, new))| {
+            (0..2).all(|axis| match len(new, axis) {
+                l if i == dragged && edges[axis] != Edge::None => l == target[axis],
+                l if l == len(old, axis) => true,
+                l => half[axis] - TOUCH_TOLERANCE <= l && l <= full[axis] + TOUCH_TOLERANCE,
+            })
+        })
+    };
+    let follow = [shift, true]
+        .map(|shift| plan(rects, dragged, edges, shift, gap))
+        .into_iter()
+        .find(fits)?;
+    Some((follow, delta))
+}
+
+/// The part of the movement `toggle` to apply: each axis once the pointer moved past half of it.
+pub fn toggled(toggle: Point<i32, Logical>, pointer: Point<i32, Logical>) -> Point<i32, Logical> {
+    let past_half = |t: i32, p: i32| if 2 * p * t > t * t { t } else { 0 };
+    (
+        past_half(toggle.x, pointer.x),
+        past_half(toggle.y, pointer.y),
+    )
+        .into()
+}
+
 /// For every window of the cluster: how it follows when `rects[dragged]` is resized at `edges`
 /// (x and y axis). Windows lie `gap` apart.
 ///
@@ -39,13 +101,7 @@ pub enum Follow {
 /// through them further windows on the dragged window's side whose edge lies on the same line
 /// (e.g. the window below the dragged one, when both sit next to one tall window). Otherwise the
 /// cluster would tear open there.
-pub fn plan(
-    rects: &[Rect],
-    dragged: usize,
-    edges: [Edge; 2],
-    shift: bool,
-    gap: i32,
-) -> Vec<[Follow; 2]> {
+fn plan(rects: &[Rect], dragged: usize, edges: [Edge; 2], shift: bool, gap: i32) -> Plan {
     let Some(&d) = rects.get(dragged) else {
         return Vec::new();
     };
@@ -160,52 +216,6 @@ pub fn apply(
             r
         })
         .collect()
-}
-
-/// Edges the dragged edges can snap to, per axis: every edge that stays where it is during the
-/// resize. A window that only follows along x still offers its top and bottom edges, and one
-/// whose left edge follows still offers its right edge.
-pub fn snap_targets(windows: impl Iterator<Item = (Rect, [Follow; 2])>) -> [Vec<i32>; 2] {
-    let mut targets = [Vec::new(), Vec::new()];
-    for (r, follow) in windows {
-        for axis in [0, 1] {
-            let (start, end) = span(&r, axis);
-            match follow[axis] {
-                Follow::None => targets[axis].extend([start, end]),
-                Follow::Start => targets[axis].push(end),
-                Follow::End => targets[axis].push(start),
-                Follow::Shift => {}
-            }
-        }
-    }
-    targets
-}
-
-/// Pointer movement adjusted so that the dragged edges of `dragged` line up with the closest
-/// edge in `targets` (see `snap_targets`) within `threshold`, like objects in a drawing program.
-pub fn snap(
-    dragged: &Rect,
-    edges: [Edge; 2],
-    targets: &[Vec<i32>; 2],
-    delta: Point<i32, Logical>,
-    threshold: i32,
-) -> Point<i32, Logical> {
-    let mut d = [delta.x, delta.y];
-    for axis in [0, 1] {
-        let (start, end) = span(dragged, axis);
-        let edge = match edges[axis] {
-            Edge::None => continue,
-            Edge::Start => start,
-            Edge::End => end,
-        };
-        let target = (targets[axis].iter().copied())
-            .min_by_key(|c| (c - (edge + d[axis])).abs())
-            .filter(|c| (c - (edge + d[axis])).abs() <= threshold);
-        if let Some(c) = target {
-            d[axis] = c - edge;
-        }
-    }
-    (d[0], d[1]).into()
 }
 
 /// The edges of `r` grabbed at `pos`: up to `outer` outside the window or `inner` inside it.
@@ -367,87 +377,11 @@ mod tests {
     }
 
     #[test]
-    fn dragged_edges_snap_to_nearby_edges() {
-        // The case from the screenshot: the big window's bottom edge lines up with the bottom of
-        // the window at the bottom right, the top-right window's right edge with its right edge.
-        let big = rect(0, 0, 800, 600);
-        let bottom_right = rect(800, 380, 600, 380);
-        let d = snap(
-            &big,
-            [Edge::None, Edge::End],
-            &fixed(&[bottom_right]),
-            (0, 150).into(),
-            15,
-        );
-        assert_eq!(d, (0, 160).into());
-        let top_right = rect(800, 0, 560, 380);
-        let d = snap(
-            &top_right,
-            [Edge::End, Edge::None],
-            &fixed(&[bottom_right]),
-            (30, 0).into(),
-            15,
-        );
-        assert_eq!(d, (40, 0).into());
-    }
-
-    /// Snap targets of windows that do not move at all.
-    fn fixed(rects: &[Rect]) -> [Vec<i32>; 2] {
-        snap_targets(rects.iter().map(|r| (*r, [Follow::None; 2])))
-    }
-
-    #[test]
-    fn corner_drag_snaps_to_edges_of_windows_that_only_move_sideways() {
-        // The case from the second video: Alt + right-drag at the bottom-right corner of the
-        // tall left window. The right windows follow its right edge (x), but the bottom of the
-        // bottom-right window stays put, so the bottom edge still snaps to it.
-        let rects = l_shape();
-        let follow = plan(&rects, 0, [Edge::End, Edge::End], false, 0);
+    fn corner_drag_takes_the_right_windows_along_sideways() {
+        // Bottom-right corner of the tall left window: the right windows follow its right edge,
+        // nothing follows its bottom edge.
+        let follow = plan(&l_shape(), 0, [Edge::End, Edge::End], false, 0);
         assert_eq!(follow[2], [Follow::Start, Follow::None]);
-        let targets = snap_targets(rects.iter().copied().zip(follow.iter().copied()));
-        let d = snap(
-            &rects[0],
-            [Edge::End, Edge::End],
-            &targets,
-            (20, 10).into(),
-            15,
-        );
-        // y: 600 + 10 snaps back to the common bottom at 600. x: the fixed x edges are 0 and
-        // 700, both too far, so x stays as dragged.
-        assert_eq!(d, (20, 0).into());
-    }
-
-    #[test]
-    fn left_edge_snaps_and_far_edges_do_not() {
-        let other = rect(0, 500, 300, 300);
-        let r = rect(400, 0, 300, 300);
-        // Left edge dragged to x = 110: no edge within 15 px (others are at 0 and 300).
-        let d = snap(
-            &r,
-            [Edge::Start, Edge::None],
-            &fixed(&[other]),
-            (-290, 0).into(),
-            15,
-        );
-        assert_eq!(d, (-290, 0).into());
-        // Left edge dragged to x = 290: snaps to 300.
-        let d = snap(
-            &r,
-            [Edge::Start, Edge::None],
-            &fixed(&[other]),
-            (-110, 0).into(),
-            15,
-        );
-        assert_eq!(d, (-100, 0).into());
-        // The axis that is not dragged stays as it is.
-        let d = snap(
-            &r,
-            [Edge::Start, Edge::None],
-            &fixed(&[other]),
-            (-110, 7).into(),
-            15,
-        );
-        assert_eq!(d, (-100, 7).into());
     }
 
     #[test]
@@ -492,5 +426,56 @@ mod tests {
         let rects = vec![rect(0, 0, 100, 100), rect(0, 100, 100, 100)];
         let follow = plan(&rects, 0, [Edge::End, Edge::None], false, 0);
         assert_eq!(follow[1], [Follow::None, Follow::None]);
+    }
+
+    /// Screen 1030×630 with 10 px gaps: half 500×300, full 1010×610.
+    fn screen() -> Size<i32, Logical> {
+        (1030, 630).into()
+    }
+
+    /// A and B side by side, full height, `a` and `b` wide.
+    fn pair(a: i32, b: i32) -> Vec<Rect> {
+        vec![rect(10, 10, a, 610), rect(20 + a, 10, b, 610)]
+    }
+
+    fn toggle_a(rects: &[Rect], shift: bool) -> Vec<Rect> {
+        let edges = [Edge::End, Edge::None];
+        let (follow, delta) = toggle(rects, &min()[..2], 0, edges, shift, screen(), 10).unwrap();
+        apply(rects, &follow, &min()[..2], delta)
+    }
+
+    #[test]
+    fn a_full_neighbor_gives_its_half() {
+        // A half | B full: A becomes full, B half, the cluster keeps its width.
+        assert_eq!(toggle_a(&pair(500, 1010), false), pair(1010, 500));
+        // A full | B half: A becomes half, B full.
+        assert_eq!(toggle_a(&pair(1010, 500), false), pair(500, 1010));
+    }
+
+    #[test]
+    fn a_neighbor_that_cannot_moves_aside() {
+        // A half | B half: B cannot get smaller, so it moves aside.
+        assert_eq!(toggle_a(&pair(500, 500), false), pair(1010, 500));
+        // A full | B full: B cannot get larger, so it moves closer.
+        assert_eq!(toggle_a(&pair(1010, 1010), false), pair(500, 1010));
+        // With Shift, B always moves.
+        assert_eq!(toggle_a(&pair(500, 1010), true), pair(1010, 1010));
+    }
+
+    #[test]
+    fn toggles_once_past_half_and_only_if_it_can() {
+        // Full height, the bottom edge: it can only shrink, by 310, so from 155 px upwards.
+        let rects = pair(500, 500);
+        let edges = [Edge::None, Edge::End];
+        let (_, delta) = toggle(&rects, &min()[..2], 0, edges, false, screen(), 10).unwrap();
+        assert_eq!(delta, (0, -310).into());
+        assert_eq!(toggled(delta, (0, -150).into()), (0, 0).into());
+        assert_eq!(toggled(delta, (0, -160).into()), (0, -310).into());
+        assert_eq!(toggled(delta, (0, 400).into()), (0, 0).into());
+        // A window that must stay taller than half cannot shrink, not even a bit.
+        for h in [400, 610] {
+            let min: [Size<i32, Logical>; 2] = [(20, h).into(), (20, 20).into()];
+            assert_eq!(toggle(&rects, &min, 0, edges, false, screen(), 10), None);
+        }
     }
 }

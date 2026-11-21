@@ -11,12 +11,9 @@ use smithay::{
 use crate::{
     InfinityDesk,
     cluster::{Rect, TOUCH_TOLERANCE},
-    grabs::min_size,
-    resize::{self, Edge},
+    resize::Edge,
 };
 
-/// Keyboard resizing changes a size by this part of the screen.
-const RESIZE_STEP: i32 = 10;
 /// Keyboard panning moves the view by this part of the screen.
 const PAN_STEP: f64 = 4.0;
 /// Zoom change per key press.
@@ -107,7 +104,7 @@ pub struct Overview {
 
 impl InfinityDesk {
     /// The windows of `window`'s cluster and where they are (or are about to be).
-    fn cluster_rects(&self, window: &Window) -> (Vec<Window>, Vec<Rect>) {
+    pub fn cluster_rects(&self, window: &Window) -> (Vec<Window>, Vec<Rect>) {
         (self.clusters.members(window).into_iter())
             .filter_map(|w| Some((w.clone(), self.target_rect(&w)?)))
             .unzip()
@@ -161,32 +158,26 @@ impl InfinityDesk {
         self.apply_viewport();
     }
 
-    /// Mod+Shift+arrow: the right (bottom) edge of the active window moves towards the arrow by
-    /// a tenth of the screen, so right/down make it bigger, left/up smaller. Neighbors follow like
+    /// Mod+Shift+arrow: the right (bottom) edge of the active window moves towards the arrow, so
+    /// right/down make a half window full, left/up a full window half. Neighbors follow like
     /// when dragging that edge.
     pub fn resize_in(&mut self, dir: Dir) {
         let Some(active) = self.active.clone() else {
             return;
         };
-        let (windows, rects) = self.cluster_rects(&active);
-        let Some(i) = windows.iter().position(|w| w == &active) else {
-            return;
-        };
         let (axis, forward) = dir.axis();
-        let screen = self.canvas.screen_size();
-        let step = [screen.w, screen.h][axis] / RESIZE_STEP;
-        let step = if forward { step } else { -step };
         let mut edges = [Edge::None; 2];
         edges[axis] = Edge::End;
-        let mut delta = [0, 0];
-        delta[axis] = step;
-        let follow = resize::plan(&rects, i, edges, false, self.config.gaps);
-        let min: Vec<_> = windows.iter().map(min_size).collect();
-        let new = resize::apply(&rects, &follow, &min, (delta[0], delta[1]).into());
-        let rect = new[i];
-        self.resize_windows(&windows, &follow, new);
-        self.canvas.reveal(rect, self.config.gaps);
-        self.apply_viewport();
+        let toggle = self.plan_toggle(&active, edges, false);
+        let delta = [toggle.delta.x, toggle.delta.y][axis];
+        if delta == 0 || (delta > 0) != forward {
+            return;
+        }
+        self.apply_toggle(&toggle, toggle.delta);
+        if let Some(rect) = self.target_rect(&active) {
+            self.canvas.reveal(rect, self.config.gaps);
+            self.apply_viewport();
+        }
     }
 
     /// Mod+Ctrl+Shift+arrow: moves the view by a quarter of the screen.

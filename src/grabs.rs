@@ -102,7 +102,7 @@ fn set_resizing(windows: &[Window], follow: &[[Follow; 2]], on: bool) {
 }
 
 /// The smallest size a window may get.
-pub fn min_size(window: &Window) -> Size<i32, Logical> {
+fn min_size(window: &Window) -> Size<i32, Logical> {
     let surface = window.toplevel().unwrap().wl_surface();
     let min = with_states(surface, |states| {
         states
@@ -114,7 +114,44 @@ pub fn min_size(window: &Window) -> Size<i32, Logical> {
     (min.w.max(MIN_WINDOW_SIZE), min.h.max(MIN_WINDOW_SIZE)).into()
 }
 
+/// Toggling the size of a window between half and full (see `resize::toggle`).
+pub struct Toggle {
+    /// The window's cluster: where its windows are and how small they may get.
+    pub windows: Vec<Window>,
+    rects: Vec<Rect>,
+    min: Vec<Size<i32, Logical>>,
+    /// How each window follows (empty if the size cannot change).
+    pub follow: Vec<[Follow; 2]>,
+    /// The movement of the dragged edges that toggles them.
+    pub delta: Point<i32, Logical>,
+}
+
 impl InfinityDesk {
+    /// Plans toggling the size of `window` at `edges` (with `shift`: the rest of the cluster
+    /// beyond the edges moves instead of the neighbors changing size).
+    pub fn plan_toggle(&self, window: &Window, edges: [Edge; 2], shift: bool) -> Toggle {
+        let (windows, rects) = self.cluster_rects(window);
+        let dragged = windows.iter().position(|w| w == window).unwrap_or(0);
+        let min: Vec<_> = windows.iter().map(min_size).collect();
+        let screen = self.canvas.screen_size();
+        let gap = self.config.gaps;
+        let (follow, delta) =
+            resize::toggle(&rects, &min, dragged, edges, shift, screen, gap).unwrap_or_default();
+        Toggle {
+            windows,
+            rects,
+            min,
+            follow,
+            delta,
+        }
+    }
+
+    /// Resizes the windows as planned in `toggle`, with the dragged edges moved by `delta`.
+    pub fn apply_toggle(&mut self, toggle: &Toggle, delta: Point<i32, Logical>) {
+        let new = resize::apply(&toggle.rects, &toggle.follow, &toggle.min, delta);
+        self.resize_windows(&toggle.windows, &toggle.follow, new);
+    }
+
     /// Gives the windows of a cluster their new places from `resize::apply`.
     pub fn resize_windows(&mut self, windows: &[Window], follow: &[[Follow; 2]], new: Vec<Rect>) {
         for ((window, f), rect) in windows.iter().zip(follow).zip(new) {
@@ -147,19 +184,8 @@ enum DragKind {
         last: (Point<f64, Logical>, Instant),
         speed: f64,
     },
-    /// A window is resized; its cluster neighbors follow (see `resize`).
-    Resize {
-        windows: Vec<Window>,
-        initial: Vec<Rect>,
-        follow: Vec<[Follow; 2]>,
-        min: Vec<Size<i32, Logical>>,
-        /// The window whose edges are dragged (index into `windows`), and which edges.
-        dragged: usize,
-        edges: [Edge; 2],
-        /// Edges of visible windows that stay where they are, per axis; the dragged edges snap
-        /// to them.
-        snap_targets: [Vec<i32>; 2],
-    },
+    /// A window's size toggles between half and full; its cluster neighbors follow.
+    Resize(Toggle),
     /// A selection box is dragged open (Alt+Shift on empty space); windows inside get marked.
     Select {
         /// Windows marked before, they stay marked.
@@ -220,8 +246,8 @@ impl DragGrab {
         }
     }
 
-    /// Resizes `window` at `edges`; with `shift`, the cluster beyond the edge moves instead of
-    /// the neighbors shrinking.
+    /// Toggles the size of `window` at `edges` once the pointer moved far enough; with `shift`,
+    /// the cluster beyond the edge moves instead of the neighbors changing size.
     pub fn resize(
         state: &mut InfinityDesk,
         start_data: GrabStartData<InfinityDesk>,
@@ -229,41 +255,15 @@ impl DragGrab {
         edges: [Edge; 2],
         shift: bool,
     ) -> Self {
-        let (windows, initial): (Vec<Window>, Vec<Rect>) = (state.clusters.members(&window))
-            .into_iter()
-            .filter_map(|w| Some((w.clone(), state.space.element_geometry(&w)?)))
-            .unzip();
-        let dragged = windows.iter().position(|w| w == &window).unwrap_or(0);
-        let follow = resize::plan(&initial, dragged, edges, shift, state.config.gaps);
-        set_resizing(&windows, &follow, true);
-        state.resize_hint = windows
-            .iter()
-            .cloned()
-            .zip(follow.iter().copied())
+        let toggle = state.plan_toggle(&window, edges, shift);
+        set_resizing(&toggle.windows, &toggle.follow, true);
+        state.resize_hint = (toggle.windows.iter().cloned())
+            .zip(toggle.follow.iter().copied())
             .collect();
         state.set_cursor_for(edges);
-        let min = windows.iter().map(min_size).collect();
-        let viewport = state.canvas.viewport().to_i32_round();
-        let visible = (state.space.elements()).filter_map(|w| {
-            let geo = state
-                .space
-                .element_geometry(w)
-                .filter(|g| g.overlaps(viewport))?;
-            let i = windows.iter().position(|c| c == w);
-            Some((geo, i.map_or([Follow::None; 2], |i| follow[i])))
-        });
-        let snap_targets = resize::snap_targets(visible);
         Self {
             start_data,
-            kind: DragKind::Resize {
-                windows,
-                initial,
-                follow,
-                min,
-                dragged,
-                edges,
-                snap_targets,
-            },
+            kind: DragKind::Resize(toggle),
         }
     }
 
@@ -339,23 +339,9 @@ impl PointerGrab<InfinityDesk> for DragGrab {
                         .map_element(m.window.clone(), m.initial_loc + delta, false);
                 }
             }
-            DragKind::Resize {
-                windows,
-                initial,
-                follow,
-                min,
-                dragged,
-                edges,
-                snap_targets,
-            } => {
-                let mut delta = pointer_delta.to_i32_round();
-                if let Some(rect) = initial.get(*dragged) {
-                    let threshold =
-                        (data.config.snap_threshold / data.canvas.zoom()).round() as i32;
-                    delta = resize::snap(rect, *edges, snap_targets, delta, threshold);
-                }
-                let new = resize::apply(initial, follow, min, delta);
-                data.resize_windows(windows, follow, new);
+            DragKind::Resize(toggle) => {
+                let delta = resize::toggled(toggle.delta, pointer_delta.to_i32_round());
+                data.apply_toggle(toggle, delta);
             }
             DragKind::Select { initial } => {
                 let corners = [self.start_data.location, event.location];
@@ -500,11 +486,8 @@ impl PointerGrab<InfinityDesk> for DragGrab {
     /// Button released: if the cluster now touches other windows, they get docked.
     fn unset(&mut self, data: &mut InfinityDesk) {
         data.selection_box = None;
-        if let DragKind::Resize {
-            windows, follow, ..
-        } = &self.kind
-        {
-            set_resizing(windows, follow, false);
+        if let DragKind::Resize(toggle) = &self.kind {
+            set_resizing(&toggle.windows, &toggle.follow, false);
             data.set_resize_hint(None, false);
         }
         let DragKind::MoveWindows {

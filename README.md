@@ -121,12 +121,14 @@ cargo run --release -- -c firefox    # with another program inside
   it out of its cluster
 - **Marking:** mark several windows (single clicks or a selection box) and pull them out of
   their cluster together; they stay connected among themselves
-- **Cluster resize:** resizing a window takes its neighbors along, so the cluster stays closed.
-  With Shift, the rest of the cluster moves instead. Grab any window border (a generous zone
-  around it shows resize arrows and lights up the edges that will move), or use Mod + right-drag.
-  The dragged edge snaps to the edges of other visible windows, so they line up exactly.
-- **Layout templates:** Mod + R opens a menu of templates (half | half, a half and two
-  quarters, three columns, four quarters, ...). Picking one arranges the active window's
+- **Cluster resize:** a window is half or full the screen's width and height, and resizing
+  toggles between the two once the edge is dragged halfway. Neighbors give or take the space, so
+  the cluster stays closed; if they cannot (they would get smaller than half or larger than
+  full), or with Shift, the rest of the cluster moves instead. Grab any window border (a generous
+  zone around it shows resize arrows and lights up the edges that will move), or use Mod +
+  right-drag.
+- **Layout templates:** Mod + R opens a menu of templates (whole screen, half | half, a half
+  and two quarters, four quarters). Picking one arranges the active window's
   cluster so it fills exactly one screen, shown at 1:1. Click the slot the active window should
   go to (the other windows take the slots closest to where they are), or press the template's
   number. Slots left over are filled by the next windows you open.
@@ -137,9 +139,10 @@ cargo run --release -- -c firefox    # with another program inside
 - **Fullscreen:** Mod + F (or the app itself, e.g. F11 in a browser) lets a window cover the
   screen; its place in the cluster and the view are restored afterwards
 - **Keyboard navigation:** move the focus to the next window in a direction (also into the
-  next cluster, the view follows), swap a window with its neighbor, resize in steps (the
-  cluster stays closed), pan and zoom the view, center the active cluster, an overview
-  that zooms out until all windows fit, and Alt + Tab through the recently used windows
+  next cluster, the view follows), swap a window with its neighbor, toggle its size between
+  half and full (the cluster stays closed), pan and zoom the view, center the active cluster,
+  an overview that zooms out until all windows fit, and Alt + Tab through the recently used
+  windows
 - **Touchpad gestures:** pinch to zoom, three fingers to pan, four fingers for the overview
 - **Lua configuration** with live reload: keyboard, touchpad, canvas, gaps, snapping, colors
   and shortcuts
@@ -171,8 +174,9 @@ will follow.
 | Resize, rest of cluster moves   | The same with Shift                                |
 | Focus the next window           | Mod + arrow keys                                   |
 | Swap with the neighbor          | Mod + Ctrl + arrow keys                            |
-| Move the right / bottom edge    | Mod + Shift + arrow keys (a tenth of the screen;   |
-|                                 | right and down grow, left and up shrink)           |
+| Half / full width or height     | Mod + Shift + arrow keys (moves the right or       |
+|                                 | bottom edge: right and down grow, left and up      |
+|                                 | shrink)                                            |
 | Pan the view                    | Mod + Ctrl + Shift + arrow keys                    |
 | Zoom in / out (screen middle)   | Mod + Plus / Mod + Minus                           |
 | Center the active cluster       | Mod + C                                            |
@@ -183,7 +187,7 @@ will follow.
 | Open a terminal (kitty)         | Mod + Enter or Mod + T                             |
 | App launcher (fuzzel)           | Mod + Space                                        |
 | Close the focused window        | Mod + Q                                            |
-| Arrange the cluster (templates) | Mod + R, then click a slot or press 1–8 (Esc)      |
+| Arrange the cluster (templates) | Mod + R, then click a slot or press 1–5 (Esc)      |
 | Fullscreen on / off             | Mod + F                                            |
 | Switch to a text console        | Ctrl + Alt + F1 … F12 (standalone)                 |
 | Quit InfinityDesk               | Mod + Shift + E                                    |
