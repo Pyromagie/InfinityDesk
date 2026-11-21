@@ -1,8 +1,12 @@
 //! X11 programs (Steam, older games and tools) run through xwayland-satellite, like in niri.
 //!
-//! InfinityDesk claims a free X display `:N` itself (its lock file and socket) and hands the socket
-//! to xwayland-satellite. Programs started right away (autostart) can connect at once: their
-//! connection waits in the socket until Xwayland is up.
+//! InfinityDesk claims a free X display `:N` itself (its lock file and sockets) and hands the
+//! sockets to xwayland-satellite. Programs started right away (autostart) can connect at once:
+//! their connection waits in the socket until Xwayland is up.
+//!
+//! X11 programs connect to the abstract socket `@/tmp/.X11-unix/XN` first, which any user can
+//! create. So a display only counts as free if we get that one too; otherwise another user could
+//! listen in on our programs.
 
 use std::{
     ffi::OsStr,
@@ -10,7 +14,12 @@ use std::{
     io::Write,
     os::{
         fd::{AsRawFd, BorrowedFd},
-        unix::{net::UnixListener, process::CommandExt},
+        linux::net::SocketAddrExt,
+        unix::{
+            fs::MetadataExt,
+            net::{SocketAddr, UnixListener},
+            process::CommandExt,
+        },
     },
     path::PathBuf,
     process::Command,
@@ -24,12 +33,19 @@ pub struct XDisplay {
     pub name: String,
     lock: PathBuf,
     socket: PathBuf,
-    listener: UnixListener,
+    /// The abstract socket and the one in `/tmp/.X11-unix`.
+    listeners: [UnixListener; 2],
 }
 
 impl XDisplay {
     /// `None`: xwayland-satellite is missing or there is no free display (logged).
     pub fn start(wayland_socket: &OsStr) -> Option<Self> {
+        // Others cannot replace our socket file only in root's directory with the sticky bit.
+        let dir = fs::metadata("/tmp/.X11-unix");
+        if !dir.is_ok_and(|d| d.is_dir() && d.uid() == 0 && d.mode() & 0o1000 != 0) {
+            tracing::warn!("No X11 programs: /tmp/.X11-unix is not root's with the sticky bit");
+            return None;
+        }
         for n in 0..64 {
             let lock = PathBuf::from(format!("/tmp/.X{n}-lock"));
             // A lock left behind by a process that is gone does not count.
@@ -44,8 +60,13 @@ impl XDisplay {
                 continue; // taken
             };
             let _ = writeln!(file, "{:>10}", std::process::id());
-            // The display is ours now; a socket file still there is left over.
             let socket = PathBuf::from(format!("/tmp/.X11-unix/X{n}"));
+            let name = SocketAddr::from_abstract_name(socket.as_os_str().as_encoded_bytes());
+            let Ok(abstract_listener) = name.and_then(|name| UnixListener::bind_addr(&name)) else {
+                let _ = fs::remove_file(&lock);
+                continue; // taken by someone without a lock file
+            };
+            // The display is ours now; a socket file still there is left over.
             let _ = fs::remove_file(&socket);
             let listener = match UnixListener::bind(&socket) {
                 Ok(listener) => listener,
@@ -59,7 +80,7 @@ impl XDisplay {
                 name: format!(":{n}"),
                 lock,
                 socket,
-                listener,
+                listeners: [abstract_listener, listener],
             };
             return display.spawn_satellite(wayland_socket).then_some(display);
         }
@@ -68,15 +89,22 @@ impl XDisplay {
     }
 
     fn spawn_satellite(&self, wayland_socket: &OsStr) -> bool {
-        let fd = self.listener.as_raw_fd();
+        let fds = self.listeners.each_ref().map(|l| l.as_raw_fd());
         let mut command = Command::new("xwayland-satellite");
-        command.args([&self.name, "-listenfd", &fd.to_string()]);
+        command.arg(&self.name);
+        for fd in fds {
+            command.args(["-listenfd", &fd.to_string()]);
+        }
         command.env("WAYLAND_DISPLAY", wayland_socket);
-        // The socket must stay open in xwayland-satellite (Rust closes it on exec by default).
-        // SAFETY: only an fcntl call between fork and exec.
+        // The sockets must stay open in xwayland-satellite (Rust closes them on exec by default).
+        // SAFETY: only fcntl calls between fork and exec.
         unsafe {
-            command
-                .pre_exec(move || Ok(fcntl_setfd(BorrowedFd::borrow_raw(fd), FdFlags::empty())?));
+            command.pre_exec(move || {
+                for fd in fds {
+                    fcntl_setfd(BorrowedFd::borrow_raw(fd), FdFlags::empty())?;
+                }
+                Ok(())
+            });
         }
         match command.spawn() {
             Ok(mut child) => {
