@@ -107,7 +107,7 @@ impl XdgShellHandler for InfinityDesk {
         }
     }
 
-    /// The client asks to be moved (e.g. dragging its own title bar).
+    /// The client asks to be resized (e.g. dragging its own window border).
     fn resize_request(
         &mut self,
         surface: ToplevelSurface,
@@ -143,6 +143,7 @@ impl XdgShellHandler for InfinityDesk {
             .set_grab(self, grab, serial, Focus::Clear);
     }
 
+    /// The client asks to be moved (e.g. dragging its own title bar).
     fn move_request(&mut self, surface: ToplevelSurface, seat: wl_seat::WlSeat, serial: Serial) {
         let seat = Seat::from_resource(&seat).unwrap();
         let Some(start_data) = check_grab(&seat, surface.wl_surface(), serial) else {

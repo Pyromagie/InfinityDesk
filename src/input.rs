@@ -275,7 +275,6 @@ impl InfinityDesk {
                 pointer.frame(self);
             }
 
-            // Mod + scroll zooms around the pointer (not while a window is fullscreen).
             InputEvent::GestureSwipeBegin { event, .. } => match event.fingers() {
                 3 => self.gesture_begins(Gesture::Pan),
                 4 => self.gesture_begins(Gesture::Overview(0.0)),
@@ -310,6 +309,7 @@ impl InfinityDesk {
                 }
             }
             InputEvent::GesturePinchEnd { .. } => self.gesture = None,
+            // Mod + scroll zooms around the pointer (not while a window is fullscreen).
             InputEvent::PointerAxis { event, .. }
                 if mod_held(&self.seat.get_keyboard().unwrap().modifier_state())
                     && !self.seat.get_pointer().unwrap().is_grabbed()
@@ -400,7 +400,6 @@ impl InfinityDesk {
         }
     }
 
-    /// Moves the pointer to a canvas position and updates what is under it.
     /// The pointer is over nothing but the canvas (no window, no bar), and nothing else is going on.
     fn on_empty_canvas(&self) -> bool {
         let pointer = self.seat.get_pointer().unwrap();
@@ -427,6 +426,7 @@ impl InfinityDesk {
         self.gesture = (!busy).then_some(gesture);
     }
 
+    /// Moves the pointer to a canvas position and updates what is under it.
     pub fn pointer_moved(&mut self, pos: Point<f64, Logical>, time: InputTime) {
         self.pointer_screen = self.canvas.canvas_to_screen(pos);
         let pointer = self.seat.get_pointer().unwrap();
