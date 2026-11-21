@@ -3,7 +3,7 @@
 use smithay::{
     desktop::{LayerSurface, WindowSurfaceType, layer_map_for_output},
     reexports::wayland_server::protocol::{wl_output::WlOutput, wl_surface::WlSurface},
-    utils::SERIAL_COUNTER,
+    utils::{IsAlive, SERIAL_COUNTER},
     wayland::{
         compositor::with_states,
         shell::wlr_layer::{
@@ -47,13 +47,16 @@ impl WlrLayerShellHandler for InfinityDesk {
         }
         drop(map);
 
-        // Give the keyboard back to the window that was active (e.g. after the launcher closed).
+        // Give the keyboard back to the window that was active (e.g. after the launcher closed),
+        // unless another surface has it (e.g. a wallpaper tool restarted while the launcher is open).
+        let keyboard = self.seat.get_keyboard().unwrap();
+        let focus = keyboard.current_focus();
+        if focus.is_some_and(|f| f.alive() && &f != surface.wl_surface()) {
+            return;
+        }
         match self.active.clone() {
             Some(window) => self.focus_window(&window),
-            None => {
-                let keyboard = self.seat.get_keyboard().unwrap();
-                keyboard.set_focus(self, None, SERIAL_COUNTER.next_serial());
-            }
+            None => keyboard.set_focus(self, None, SERIAL_COUNTER.next_serial()),
         }
     }
 }
