@@ -33,6 +33,42 @@ pub fn slots(template: usize, area: Rect, gap: i32) -> Vec<Rect> {
         .collect()
 }
 
+/// How far each of the `clusters` (bounding boxes) moves to make room for `area`: a cluster in
+/// the way moves right or down, whichever is shorter, until its windows lie `gap` beyond the edge
+/// (like the windows in `area`). A moved cluster pushes the clusters in its way along.
+pub fn push_aside(area: Rect, clusters: &[Rect], gap: i32) -> Vec<Point<i32, Logical>> {
+    let mut shift = vec![Point::default(); clusters.len()];
+    let at = |shift: &[Point<i32, Logical>], j: usize| {
+        Rect::new(clusters[j].loc + shift[j], clusters[j].size)
+    };
+    // Each round, a cluster can push the next one in a chain.
+    for _ in 0..=clusters.len() {
+        let mut changed = false;
+        for i in 0..clusters.len() {
+            let r = at(&shift, i);
+            let moved = (0..clusters.len()).filter(|&j| j != i && shift[j] != Point::default());
+            let mut blockers = std::iter::once(area).chain(moved.map(|j| at(&shift, j)));
+            let in_way = |b: &Rect| {
+                let grown = Rect::new(
+                    b.loc - Point::from((gap, gap)),
+                    b.size + Size::from((2 * gap, 2 * gap)),
+                );
+                grown.overlaps(r)
+            };
+            if let Some(b) = blockers.find(in_way) {
+                let right = b.loc.x + b.size.w + gap - r.loc.x;
+                let down = b.loc.y + b.size.h + gap - r.loc.y;
+                shift[i] += Point::from(if right <= down { (right, 0) } else { (0, down) });
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    shift
+}
+
 /// Which slot each window goes into: `active` into `active_slot` (if given), every other window
 /// into the free slot closest to where it lies within the cluster now. Needs at least as many
 /// slots as windows.
@@ -157,6 +193,22 @@ mod tests {
         assert_eq!(s[0], rect(16, 16, 1696, 1408));
         assert_eq!(s[1], rect(1728, 16, 1696, 696));
         assert_eq!(s[2], rect(1728, 728, 1696, 696));
+    }
+
+    #[test]
+    fn clusters_in_the_way_move_aside() {
+        let area = rect(0, 0, 1000, 600);
+        let clusters = [
+            rect(900, 100, 400, 300), // A: into the area from the right, right is shorter
+            rect(1300, 100, 300, 300), // B: in the way of A once A moved
+            rect(100, 500, 300, 400), // C: into the area from below, down is shorter
+            rect(3000, 3000, 100, 100), // D: far away
+        ];
+        let shift = push_aside(area, &clusters, 16);
+        assert_eq!(shift[0], (116, 0).into()); // A at 1016: 16 px beyond the area
+        assert_eq!(shift[1], (132, 0).into()); // B at 1432: 16 px beyond A
+        assert_eq!(shift[2], (0, 116).into());
+        assert_eq!(shift[3], (0, 0).into());
     }
 
     #[test]

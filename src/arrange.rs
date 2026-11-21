@@ -179,6 +179,21 @@ impl InfinityDesk {
         for (w, &s) in windows.iter().zip(&slot_of) {
             self.resize_to(w, slots[s], None);
         }
+        // Other clusters in the way move aside. Dialogs float and stay.
+        let others: Vec<_> = (self.all_clusters().into_iter())
+            .filter(|(geos, _)| !geos.iter().any(|(w, _)| windows.contains(w)))
+            .filter(|(geos, _)| {
+                geos.iter()
+                    .any(|(w, _)| w.toplevel().unwrap().parent().is_none())
+            })
+            .collect();
+        let boxes: Vec<Rect> = others.iter().map(|(_, bbox)| *bbox).collect();
+        let shifts = layout::push_aside(area, &boxes, gap);
+        for ((geos, bbox), shift) in others.into_iter().zip(shifts) {
+            // Never off the canvas.
+            let to = self.canvas.clamp_window_loc(bbox.loc + shift, bbox.size);
+            self.shift_windows(geos, to - bbox.loc);
+        }
         self.free_slots = Some(FreeSlots {
             anchor: window.clone(),
             anchor_loc: slots[slot_of[active]].loc,

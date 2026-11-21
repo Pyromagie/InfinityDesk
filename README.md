@@ -132,7 +132,8 @@ cargo run --release -- -c firefox    # with another program inside
   and two quarters, four quarters). Picking one arranges the active window's
   cluster so it fills exactly one screen, shown at 1:1. Click the slot the active window should
   go to (the other windows take the slots closest to where they are), or press the template's
-  number. Slots left over are filled by the next windows you open.
+  number. Slots left over are filled by the next windows you open. Other clusters in the way
+  move aside (right or down, whichever is shorter), together with what they push along.
 - **New windows** open half the screen wide and as high as the screen, and dock to the active
   window (right of it, else below, left, above; the view follows if there is no room on the
   screen). Click empty space first for a free window: it goes into the left half of the screen.

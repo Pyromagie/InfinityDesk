@@ -19,7 +19,7 @@ const BORDER_INSIDE: f64 = 5.0;
 use crate::{
     arrange::{FreeSlots, Fullscreen, LayoutMenu},
     canvas::Canvas,
-    cluster::Clusters,
+    cluster::{Clusters, Rect},
     config::Config,
     navigate::Overview,
     render::{OUTLINE_WIDTH, Outline, outline_bars},
@@ -288,26 +288,42 @@ impl InfinityDesk {
 
     /// Moves clusters that lie (partly) outside the canvas back in, each as a whole.
     fn fit_clusters_into_canvas(&mut self) {
+        for (geos, bbox) in self.all_clusters() {
+            let shift = self.canvas.clamp_window_loc(bbox.loc, bbox.size) - bbox.loc;
+            self.shift_windows(geos, shift);
+        }
+    }
+
+    /// Every cluster: its windows with their places, and its bounding box.
+    pub fn all_clusters(&self) -> Vec<(Vec<(Window, Rect)>, Rect)> {
         let mut done: Vec<Window> = Vec::new();
-        let windows: Vec<Window> = self.space.elements().cloned().collect();
-        for window in windows {
-            if done.contains(&window) {
+        let mut clusters = Vec::new();
+        for window in self.space.elements() {
+            if done.contains(window) {
                 continue;
             }
-            let members = self.clusters.members(&window);
-            let geos: Vec<(Window, Rectangle<i32, Logical>)> = (members.iter())
+            let members = self.clusters.members(window);
+            let geos: Vec<(Window, Rect)> = (members.iter())
                 .filter_map(|w| Some((w.clone(), self.space.element_geometry(w)?)))
                 .collect();
             if let Some(bbox) = geos.iter().map(|(_, g)| *g).reduce(|a, b| a.merge(b)) {
-                let shift = self.canvas.clamp_window_loc(bbox.loc, bbox.size) - bbox.loc;
-                for (w, geo) in geos.into_iter().filter(|_| shift != (0, 0).into()) {
-                    if let Some(r) = self.resizing.get_mut(&w) {
-                        r.rect.loc += shift;
-                    }
-                    self.space.map_element(w, geo.loc + shift, false);
-                }
+                clusters.push((geos, bbox));
             }
             done.extend(members);
+        }
+        clusters
+    }
+
+    /// Moves windows from the places given by `shift` (also where they are about to be resized).
+    pub fn shift_windows(&mut self, geos: Vec<(Window, Rect)>, shift: Point<i32, Logical>) {
+        if shift == Point::default() {
+            return;
+        }
+        for (w, geo) in geos {
+            if let Some(r) = self.resizing.get_mut(&w) {
+                r.rect.loc += shift;
+            }
+            self.space.map_element(w, geo.loc + shift, false);
         }
     }
 
