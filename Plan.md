@@ -65,6 +65,18 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
 - ✅ **Mehrere Fenster gemeinsam lösen:** Fenster markieren (blauer Rahmen) mit Alt+Shift+Klick oder per Auswahlrahmen (Alt+Shift+Ziehen auf leerer Fläche). Halten + Ziehen auf ein markiertes Fenster löst alle markierten Fenster dieses Clusters zusammen heraus; sie bleiben untereinander verbunden. Klick auf leere Fläche hebt die Markierung auf.
 - ✅ Orangener Punkt in der Skizze: ohne Bedeutung (Artefakt vom Zeichenprogramm).
 
+## 5b. Feste Fenstergrößen im 2×2-Raster (entschieden 21.11.2026)
+
+Ersetzt die freien Fenstergrößen aus Punkt 5 (`match_size`, freies Resize, Ausrichten unterschiedlich großer Fenster). Ziel: Fenster sitzen immer genau im Bildschirm, nichts ragt angeschnitten heraus.
+
+- ✅ Ein Bildschirm ist ein 2×2-Raster. Breite und Höhe eines Fensters sind je **halb oder ganz** (für jeden Monitor berechnet): Viertel, linke/rechte Hälfte, obere/untere Hälfte, ganzer Bildschirm.
+- ✅ **Lücken** zwischen den Fenstern und zum Bildschirmrand wie in niri, einstellbar (`desk.layout { gaps = 16 }`). Die Größen ziehen die Lücken ab, sodass 2×2 Fenster mit Lücken genau einen Bildschirm füllen.
+- ✅ **Freie Cluster:** Cluster schweben weiter frei auf der Fläche, innerhalb eines Clusters liegen die Fenster im Raster. Bewusst **kein** großes Raster über die ganze Fläche: die Freiheit, Cluster überall hinzulegen, bleibt (Pyro).
+- ✅ **Ansicht rastet ein, wenn sie schon fast passt** (wie das Andocken, nur für die "Kamera"): Beim Loslassen (Maus, Touchpad), nur bei 1:1, rutscht sie das letzte Stück, wenn ein Cluster schon beinahe genau im Bildschirm sitzt (Stellen in halben Bildschirm-Schritten des Clusters, höchstens etwa ein Zehntel des Bildschirms entfernt). Weiter weg bleibt sie, wo sie losgelassen wurde; herausgezoomt immer frei. Verworfen: immer einrasten (nimmt die Freiheit).
+- ✅ Größe ändern (Rand ziehen, Mod+Shift+Pfeile) wechselt zwischen halb und ganz.
+- ✅ Vorlagen (Mod+R) nur noch die, die ins 2×2-Raster passen; Drittel-Vorlagen fallen weg.
+- ✅ Dialoge bleiben frei schwebend in der Mitte.
+
 ## 6. Navigation
 
 - ✅ Pan **und** Zoom, damit man sich schnell einen Überblick über die ganze Fläche verschaffen kann.
