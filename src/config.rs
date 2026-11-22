@@ -10,10 +10,11 @@
 //!              mod_key = "Super", mod_key_nested = "Alt" }
 //! desk.canvas { width = 20000, height = 12000, grid = { spacing = 100 },
 //!               zoom_speed = 1.0, wheel_pan = 60 }
-//! desk.layout { gaps = 16, titlebars = false }
+//! desk.layout { gaps = 16, titlebars = false, border = 3, corner_radius = 0 }
 //! desk.snapping { threshold = 15, hold_ms = 300, view = true }
 //! desk.animation { duration_ms = 250 }
-//! desk.colors { background = "#1a1a1f", grid = "#474752", accent = "#59a6ff" }
+//! desk.colors { background = "#1a1a1f", grid = "#474752", accent = "#59a6ff",
+//!               border = "#b8bcc8" }
 //! desk.bind("Mod+B", desk.spawn("firefox"))
 //! desk.unbind("Mod+Space")
 //! desk.bind("Mod+MouseMiddle", desk.drag_resize)
@@ -83,6 +84,10 @@ pub struct Config {
     pub gaps: i32,
     /// Programs draw their own titlebar (false: those that can leave it out).
     pub titlebars: bool,
+    /// Width of the frame around the active window, in screen pixels (0: none).
+    pub border: i32,
+    /// How round the corners of windows are, in canvas pixels (0: square).
+    pub corner_radius: i32,
     /// Edges closer than this (in screen pixels) snap together.
     pub snap_threshold: f64,
     /// How long a window is held still before it can be pulled out of its cluster.
@@ -94,6 +99,8 @@ pub struct Config {
     pub grid_color: [f32; 4],
     /// Frames, lit edges, the chosen slot in the template menu.
     pub accent: [f32; 4],
+    /// The frame around the active window.
+    pub border_color: [f32; 4],
     /// Command lines started once when InfinityDesk starts (not again when the config changes).
     pub startup: Vec<String>,
     /// Environment variables for every program started from InfinityDesk.
@@ -332,12 +339,15 @@ impl Default for Config {
             snap_view: true,
             gaps: 16,
             titlebars: false,
+            border: 3,
+            corner_radius: 0,
             snap_threshold: 15.0,
             hold_time: Duration::from_millis(300),
             animation: Duration::from_millis(250),
             background: [0.1, 0.1, 0.12, 1.0],
             grid_color: [0.28, 0.28, 0.32, 1.0],
             accent: [0.35, 0.65, 1.0, 1.0],
+            border_color: [184.0 / 255.0, 188.0 / 255.0, 200.0 / 255.0, 1.0],
             startup: Vec::new(),
             env: Vec::new(),
             cursor_theme: None,
@@ -952,8 +962,15 @@ fn canvas(config: &mut Config, t: &Table) -> mlua::Result<()> {
 }
 
 fn layout(config: &mut Config, t: &Table) -> mlua::Result<()> {
-    check_keys(t, "layout", &["gaps", "titlebars"])?;
+    check_keys(
+        t,
+        "layout",
+        &["gaps", "titlebars", "border", "corner_radius"],
+    )?;
     config.gaps = get_in(t, "layout", "gaps", 0..=200)?.unwrap_or(config.gaps);
+    config.border = get_in(t, "layout", "border", 0..=50)?.unwrap_or(config.border);
+    let radius = get_in(t, "layout", "corner_radius", 0..=500)?;
+    config.corner_radius = radius.unwrap_or(config.corner_radius);
     config.titlebars = get::<bool>(t, "layout", "titlebars")?.unwrap_or(config.titlebars);
     Ok(())
 }
@@ -979,11 +996,12 @@ fn animation(config: &mut Config, t: &Table) -> mlua::Result<()> {
 }
 
 fn colors(config: &mut Config, t: &Table) -> mlua::Result<()> {
-    check_keys(t, "colors", &["background", "grid", "accent"])?;
+    check_keys(t, "colors", &["background", "grid", "accent", "border"])?;
     for (key, field) in [
         ("background", &mut config.background),
         ("grid", &mut config.grid_color),
         ("accent", &mut config.accent),
+        ("border", &mut config.border_color),
     ] {
         if let Some(text) = get::<String>(t, "colors", key)? {
             *field = parse_color(&text).ok_or_else(|| {
@@ -1193,10 +1211,10 @@ mod tests {
                          mod_key = "ctrl", mod_key_nested = "Super" }
             desk.canvas { width = 30000, height = 15000, grid = { spacing = 200 },
                           zoom_speed = 2.5, wheel_pan = 120 }
-            desk.layout { gaps = 8, titlebars = true }
+            desk.layout { gaps = 8, titlebars = true, border = 0, corner_radius = 12 }
             desk.snapping { threshold = 20, hold_ms = 500, view = false }
             desk.animation { duration_ms = 0 }
-            desk.colors { background = "#000000", accent = "#ff8000" }
+            desk.colors { background = "#000000", accent = "#ff8000", border = "#ffffff" }
             desk.spawn_at_startup("awww-daemon")
             desk.spawn_at_startup("waybar -c ~/bar.json")
             desk.env { QT_QPA_PLATFORM = "wayland", XCURSOR_SIZE = "32" }
@@ -1232,6 +1250,8 @@ mod tests {
         assert!(!config.snap_view);
         assert_eq!(config.gaps, 8);
         assert!(config.titlebars);
+        assert_eq!((config.border, config.corner_radius), (0, 12));
+        assert_eq!(config.border_color, [1.0; 4]);
         assert_eq!(config.snap_threshold, 20.0);
         assert_eq!(config.hold_time, Duration::from_millis(500));
         assert_eq!(config.animation, Duration::ZERO);

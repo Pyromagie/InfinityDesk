@@ -22,7 +22,7 @@ use smithay::{
 
 use crate::{
     InfinityDesk,
-    render::{Grid, bar_elements, desk_elements},
+    render::{Scene, bar_elements, desk_elements},
 };
 
 /// How long to wait before looking again when nothing changed: one frame at 60 Hz.
@@ -62,7 +62,7 @@ pub fn init_winit(
     state.set_output(output.clone());
 
     let mut damage_tracker = OutputDamageTracker::from_output(&output);
-    let mut grid = Grid::new(backend.renderer());
+    let mut scene = Scene::new(backend.renderer());
     // Shared with the timer that looks again when nothing changed (see `Redraw`).
     let shared = Rc::new(RefCell::new(backend));
     let look_again_planned = Rc::new(Cell::new(false));
@@ -99,7 +99,12 @@ pub fn init_winit(
                 first_frame = false;
                 state.step_animations();
                 let bars = state.bars();
+                let outlines = state.outlines();
                 let offsets = state.window_offsets();
+                if state.redraw_all {
+                    state.redraw_all = false;
+                    damage_tracker = OutputDamageTracker::from_output(&output);
+                }
                 // Ours (resize arrows), else what the app asks for (as far as the host can show it).
                 let wanted = match &state.client_cursor {
                     CursorImageStatus::Named(icon) if state.cursor == CursorIcon::Default => *icon,
@@ -118,10 +123,12 @@ pub fn init_winit(
                             &output,
                             &state.space,
                             &state.canvas,
-                            &mut grid,
+                            &mut scene,
                             &state.config,
                             state.upper_layers(),
                             &offsets,
+                            &outlines,
+                            state.fullscreen_window(),
                         ));
                         damage_tracker
                             .render_output(

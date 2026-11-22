@@ -22,7 +22,7 @@ use crate::{
     cluster::{Clusters, Rect},
     config::Config,
     navigate::Overview,
-    render::{OUTLINE_WIDTH, Outline, outline_bars},
+    render::{OUTLINE_WIDTH, Outline},
     resize::{self, Edge, Follow},
     xwayland::XDisplay,
 };
@@ -109,6 +109,8 @@ pub struct InfinityDesk {
     pub udev: Option<crate::udev::Udev>,
     /// The fullscreen window (Mod+F).
     pub fullscreen: Option<Fullscreen>,
+    /// The next frame is drawn whole (after the config changed: e.g. other corners).
+    pub redraw_all: bool,
     /// The open template menu (Mod+R).
     pub layout_menu: Option<LayoutMenu>,
     /// What happened since the last turn of the event loop, for scripts (see `script.rs`).
@@ -214,6 +216,7 @@ impl InfinityDesk {
             client_cursor: CursorImageStatus::default_named(),
             udev: None,
             fullscreen: None,
+            redraw_all: false,
             layout_menu: None,
             events: Vec::new(),
             event_streams: Vec::new(),
@@ -316,6 +319,7 @@ impl InfinityDesk {
             .as_ref()
             .map(|o| (self.config.output(&o.name()), config.output(&o.name())));
         self.config = config;
+        self.redraw_all = true;
         self.emit("config.reloaded", &[], None);
         if let (Some(output), Some((old, new))) = (output, settings)
             && old != new
@@ -532,23 +536,46 @@ impl InfinityDesk {
         self.space.raise_element(window, true);
     }
 
-    /// Blue frames to draw: the "unlocked" pulse, selected windows and the selection box.
-    fn outlines(&mut self) -> Vec<Outline> {
-        let mut outlines: Vec<Outline> = self
-            .selected
-            .iter()
-            .filter_map(|w| self.space.element_geometry(w))
-            .map(|geo| Outline {
-                rect: self.screen_rect(geo),
+    /// Frames to draw, front to back: selected windows (blue), the active window, the selection
+    /// box and the "unlocked" pulse. A fullscreen window hides them.
+    pub fn outlines(&mut self) -> Vec<Outline> {
+        if self.fullscreen.is_some() {
+            return Vec::new();
+        }
+        let accent = self.config.accent;
+        let radius = self.config.corner_radius as f64 * self.canvas.zoom();
+        // Where a window is drawn (gliding ones on their way), on the screen.
+        let shown = |w: &Window| {
+            let geo = self.space.element_geometry(w)?;
+            let offset = self.window_offset(w).to_i32_round();
+            Some(self.screen_rect(Rectangle::new(geo.loc + offset, geo.size)))
+        };
+        let frame = |w: &Window, width, color| {
+            Some(Outline {
+                rect: shown(w)?,
                 grow: 0,
-                alpha: 1.0,
+                width,
+                radius,
+                color,
+                window: Some(w.clone()),
             })
+        };
+        let mut outlines: Vec<Outline> = (self.selected.iter())
+            .filter_map(|w| frame(w, OUTLINE_WIDTH, accent))
             .collect();
+        if let Some(w) = &self.active
+            && self.config.border > 0
+        {
+            outlines.extend(frame(w, self.config.border, self.config.border_color));
+        }
         if let Some(rect) = self.selection_box {
             outlines.push(Outline {
                 rect: self.screen_rect(rect),
                 grow: -OUTLINE_WIDTH,
-                alpha: 1.0,
+                width: OUTLINE_WIDTH,
+                radius: 0.0,
+                color: accent,
+                window: None,
             });
         }
         // The pulse grows outward around the held window(s) and fades once they are unlocked.
@@ -562,7 +589,10 @@ impl InfinityDesk {
                 (Some(t), Some(geo)) if t < 1.0 => outlines.push(Outline {
                     rect: self.screen_rect(geo),
                     grow: (t * PULSE_GROW) as i32,
-                    alpha: (1.0 - t) as f32,
+                    width: OUTLINE_WIDTH,
+                    radius,
+                    color: accent.map(|c| c * (1.0 - t) as f32),
+                    window: None,
                 }),
                 (None, Some(_)) => {} // Not unlocked yet.
                 _ => self.pulse = None,
@@ -751,15 +781,19 @@ impl InfinityDesk {
     }
 
     /// Everything drawn as solid rectangles on top (screen coordinates, front to back): the
-    /// template menu, blue frames and lit edges. A fullscreen window hides the frames and edges.
-    pub fn bars(&mut self) -> Vec<(Rectangle<i32, Logical>, [f32; 4])> {
+    /// template menu and lit edges. A fullscreen window hides the edges.
+    pub fn bars(&self) -> Vec<(Rectangle<i32, Logical>, [f32; 4])> {
         let mut bars = self.menu_bars();
         if self.fullscreen.is_none() {
             let accent = self.config.accent;
-            bars.extend(self.outlines().iter().flat_map(|o| outline_bars(o, accent)));
             bars.extend(self.edge_highlights().into_iter().map(|r| (r, accent)));
         }
         bars
+    }
+
+    /// The fullscreen window, if there is one.
+    pub fn fullscreen_window(&self) -> Option<&Window> {
+        self.fullscreen.as_ref().map(|f| &f.window)
     }
 
     /// Layer surfaces are placed on the screen, so convert canvas <-> screen coordinates around the lookup.

@@ -252,9 +252,12 @@ desk.canvas {
   wheel_pan = 60,   -- screen pixels a mouse wheel notch moves the view on empty space
 }
 
--- gaps: space between windows and around the screen. titlebars = true lets programs draw their
--- own titlebar; by default those that can (kitty, alacritty, Qt, most others) leave it out.
-desk.layout { gaps = 16, titlebars = false }
+desk.layout {
+  gaps = 16,          -- space between windows and around the screen
+  titlebars = false,  -- true: programs draw their own titlebar; else those that can leave it out
+  border = 3,         -- frame around the active window in screen pixels (0: none)
+  corner_radius = 0,  -- how round window corners are, in canvas pixels (0: square)
+}
 
 desk.snapping {
   threshold = 15, -- screen pixels within which edges snap together
@@ -267,8 +270,9 @@ desk.snapping {
 -- Panning, zooming and dragging by hand always follow at once.
 desk.animation { duration_ms = 250 }
 
--- "#rrggbb" or "#rrggbbaa"; accent is used for frames, lit edges and the template menu
-desk.colors { background = "#1a1a1f", grid = "#474752", accent = "#59a6ff" }
+-- "#rrggbb" or "#rrggbbaa"; accent is used for selected windows, lit edges and the template
+-- menu, border for the frame around the active window
+desk.colors { background = "#1a1a1f", grid = "#474752", accent = "#59a6ff", border = "#b8bcc8" }
 
 -- Shortcuts: the built-in ones (see Controls) stay unless you change or remove them. If two
 -- bindings fit a key press (e.g. "Alt+F" and "Mod+F" with Mod = Alt), the later one wins.

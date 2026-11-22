@@ -42,7 +42,7 @@ use crate::{
     InfinityDesk,
     config::{Config, OutputMode, OutputSettings},
     cursor::Cursors,
-    render::{Grid, bar_elements, desk_elements},
+    render::{Scene, bar_elements, desk_elements},
 };
 
 type Compositor =
@@ -57,7 +57,7 @@ pub struct Udev {
     drm: DrmDevice,
     pub renderer: GlesRenderer,
     compositor: Compositor,
-    grid: Grid,
+    scene: Scene,
     /// Buffers of the solid bars, kept so that unchanged outlines are not redrawn.
     bar_buffers: Vec<SolidColorBuffer>,
     cursors: Cursors,
@@ -350,7 +350,7 @@ pub fn init_udev(
         DrmEvent::Error(err) => tracing::warn!("Screen error: {err}"),
     })?;
 
-    let grid = Grid::new(&mut renderer);
+    let scene = Scene::new(&mut renderer);
     state.udev = Some(Udev {
         session,
         libinput,
@@ -358,7 +358,7 @@ pub fn init_udev(
         drm,
         renderer,
         compositor,
-        grid,
+        scene,
         bar_buffers: Vec::new(),
         cursors: Cursors::load(
             state.config.cursor_theme.as_deref(),
@@ -387,6 +387,7 @@ impl InfinityDesk {
         };
         self.step_animations();
         let bars = self.bars();
+        let outlines = self.outlines();
         let offsets = self.window_offsets();
         let upper_layers = self.upper_layers();
         let pointer = self.pointer_screen;
@@ -395,6 +396,10 @@ impl InfinityDesk {
         };
         if udev.frame_pending || !udev.session.is_active() {
             return;
+        }
+        if self.redraw_all {
+            self.redraw_all = false;
+            udev.compositor.reset_buffers();
         }
         let mut elements = (udev.cursors).elements(
             &mut udev.renderer,
@@ -409,10 +414,12 @@ impl InfinityDesk {
             &output,
             &self.space,
             &self.canvas,
-            &mut udev.grid,
+            &mut udev.scene,
             &self.config,
             upper_layers,
             &offsets,
+            &outlines,
+            self.fullscreen.as_ref().map(|f| &f.window),
         ));
         let rendered = udev.compositor.render_frame(
             &mut udev.renderer,
