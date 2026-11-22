@@ -1,5 +1,11 @@
 //! Nested backend: InfinityDesk runs as a window inside the current session.
 
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+    time::Duration,
+};
+
 use smithay::{
     backend::{
         renderer::damage::OutputDamageTracker,
@@ -7,7 +13,10 @@ use smithay::{
     },
     input::pointer::{CursorIcon, CursorImageStatus},
     output::{Mode, Output, PhysicalProperties, Scale, Subpixel},
-    reexports::calloop::EventLoop,
+    reexports::calloop::{
+        EventLoop,
+        timer::{TimeoutAction, Timer},
+    },
     utils::Transform,
 };
 
@@ -15,6 +24,9 @@ use crate::{
     InfinityDesk,
     render::{Grid, bar_elements, desk_elements},
 };
+
+/// How long to wait before looking again when nothing changed: one frame at 60 Hz.
+const FRAME: Duration = Duration::from_micros(16_667);
 
 pub fn init_winit(
     event_loop: &mut EventLoop<InfinityDesk>,
@@ -51,6 +63,10 @@ pub fn init_winit(
 
     let mut damage_tracker = OutputDamageTracker::from_output(&output);
     let mut grid = Grid::new(backend.renderer());
+    // Shared with the timer that looks again when nothing changed (see `Redraw`).
+    let shared = Rc::new(RefCell::new(backend));
+    let look_again_planned = Rc::new(Cell::new(false));
+    let handle = event_loop.handle();
     let mut bar_buffers = Vec::new();
     // The back buffer has no age before the first frame (asking EGL then logs an error).
     let mut first_frame = true;
@@ -74,6 +90,7 @@ pub fn init_winit(
             }
             WinitEvent::Input(event) => state.process_input_event(event),
             WinitEvent::Redraw => {
+                let mut backend = shared.borrow_mut();
                 // Only redraw what changed since this back buffer was last used.
                 let age = match first_frame {
                     true => 0,
@@ -125,6 +142,7 @@ pub fn init_winit(
                         None
                     }
                 };
+                let changed = damage.is_some();
                 // Nothing changed: nothing to show.
                 if let Some(damage) = damage
                     && let Err(err) = backend.submit(Some(&damage))
@@ -133,7 +151,26 @@ pub fn init_winit(
                 }
 
                 state.send_frames(&output);
-                backend.window().request_redraw();
+                if changed {
+                    // Showing the frame waits for the host's next one, so this does not spin.
+                    backend.window().request_redraw();
+                } else if !look_again_planned.get() {
+                    // Nothing changed: look again after about one frame instead of right away,
+                    // like the standalone session. Otherwise the loop spins, and programs get
+                    // more frame callbacks than frames (niri does the same).
+                    look_again_planned.set(true);
+                    let (shared, planned) = (shared.clone(), look_again_planned.clone());
+                    let timer = Timer::from_duration(FRAME);
+                    let inserted = handle.insert_source(timer, move |_, _, _| {
+                        planned.set(false);
+                        shared.borrow().window().request_redraw();
+                        TimeoutAction::Drop
+                    });
+                    if inserted.is_err() {
+                        look_again_planned.set(false);
+                        backend.window().request_redraw();
+                    }
+                }
             }
             WinitEvent::CloseRequested => state.loop_signal.stop(),
             _ => (),
