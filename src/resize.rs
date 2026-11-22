@@ -40,7 +40,8 @@ pub type Plan = Vec<[Follow; 2]>;
 /// Toggling the size of `rects[dragged]` at `edges`: on each dragged axis, a window closer to
 /// half the `screen` (with gaps) becomes full, else half. Returns how the windows follow (see
 /// `plan`) and the pointer movement that toggles the dragged edges, or `None` if the windows
-/// cannot take the new size (`min`, or neighbors beyond half or full even with `shift`).
+/// cannot take the new size (`min`, or neighbors beyond half or full even with `shift`, or
+/// windows would end up on each other).
 pub fn toggle(
     rects: &[Rect],
     min: &[Size<i32, Logical>],
@@ -77,10 +78,20 @@ pub fn toggle(
             })
         })
     };
+    // Windows moving along per axis can land on others (one beyond both dragged edges moves
+    // twice). Also checked with only one axis toggled, as while dragging (`toggled`).
+    let apart = |follow: &Plan| {
+        [(delta.x, 0), (0, delta.y), (delta.x, delta.y)]
+            .into_iter()
+            .all(|d| {
+                let new = apply(rects, follow, min, d.into());
+                (new.iter().enumerate()).all(|(i, a)| new[i + 1..].iter().all(|b| !a.overlaps(*b)))
+            })
+    };
     let follow = [shift, true]
         .map(|shift| plan(rects, dragged, edges, shift, gap))
         .into_iter()
-        .find(fits)?;
+        .find(|follow| fits(follow) && apart(follow))?;
     Some((follow, delta))
 }
 
@@ -272,6 +283,100 @@ mod tests {
 
     fn min() -> [Size<i32, Logical>; 3] {
         [(20, 20).into(); 3]
+    }
+
+    /// A small random number generator (xorshift), so the random tests need no extra crate and
+    /// give the same cases every run.
+    struct Random(u64);
+
+    impl Random {
+        fn below(&mut self, n: usize) -> usize {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            (self.0 % n as u64) as usize
+        }
+    }
+
+    const SCREEN: (i32, i32) = (1920, 1080);
+    const GAP: i32 = 16;
+
+    /// A random cluster of up to 6 windows, each half or full screen size per axis (with gaps),
+    /// docked one by one to a side of an earlier one with flush edges, like the user builds them.
+    fn random_cluster(random: &mut Random) -> Vec<Rect> {
+        let half = ((SCREEN.0 - GAP) / 2 - GAP, (SCREEN.1 - GAP) / 2 - GAP);
+        let full = (SCREEN.0 - 2 * GAP, SCREEN.1 - 2 * GAP);
+        let size = |r: &mut Random| {
+            let w = [half.0, full.0][r.below(2)];
+            (w, [half.1, full.1][r.below(2)])
+        };
+        let (w, h) = size(random);
+        let mut rects = vec![rect(0, 0, w, h)];
+        for _ in 0..20 {
+            let n = rects[random.below(rects.len())];
+            let (w, h) = size(random);
+            let (x, y) = match random.below(4) {
+                0 => (n.loc.x + n.size.w + GAP, n.loc.y),
+                1 => (n.loc.x, n.loc.y + n.size.h + GAP),
+                2 => (n.loc.x - GAP - w, n.loc.y + n.size.h - h),
+                _ => (n.loc.x + n.size.w - w, n.loc.y - GAP - h),
+            };
+            let new = rect(x, y, w, h);
+            if rects.len() < 6 && rects.iter().all(|r| !r.overlaps(new)) {
+                rects.push(new);
+            }
+        }
+        rects
+    }
+
+    /// Two windows that lie on each other.
+    fn overlapping(rects: &[Rect]) -> Option<(usize, usize)> {
+        (0..rects.len())
+            .flat_map(|i| (i + 1..rects.len()).map(move |j| (i, j)))
+            .find(|&(i, j)| rects[i].overlaps(rects[j]))
+    }
+
+    /// Clusters can still come apart (windows that only touch at a corner afterwards); they stay
+    /// one cluster, as it is stored, not derived from the places.
+    #[test]
+    fn random_resizes_never_put_windows_on_each_other() {
+        let mut random = Random(0x9e37_79b9_7f4a_7c15);
+        let edges = [Edge::None, Edge::Start, Edge::End];
+        let (mut resized, mut steps) = (0, 0);
+        for case in 0..3000 {
+            let mut rects = random_cluster(&mut random);
+            let min = vec![Size::from((100, 100)); rects.len()];
+            assert_eq!(overlapping(&rects), None);
+            for step in 0..8 {
+                let dragged = random.below(rects.len());
+                let grabbed = [edges[random.below(3)], edges[random.below(3)]];
+                let shift = random.below(2) == 0;
+                let before = rects.clone();
+                steps += 1;
+                let Some((follow, delta)) =
+                    toggle(&rects, &min, dragged, grabbed, shift, SCREEN.into(), GAP)
+                else {
+                    continue;
+                };
+                resized += 1;
+                // While dragging, one axis may toggle before the other.
+                for d in [(delta.x, 0), (0, delta.y), (delta.x, delta.y)] {
+                    rects = apply(&before, &follow, &min, d.into());
+                    if let Some((i, j)) = overlapping(&rects) {
+                        panic!(
+                            "case {case}, step {step}: window {dragged} at {grabbed:?} (Shift: \
+                             {shift}), moved {d:?}: windows {i} and {j} overlap\n\
+                             before: {before:?}\nafter: {rects:?}"
+                        );
+                    }
+                }
+            }
+        }
+        // Most steps must really resize, else the test checks little.
+        assert!(
+            resized * 2 > steps,
+            "only {resized} of {steps} steps resized"
+        );
     }
 
     #[test]
