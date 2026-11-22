@@ -157,7 +157,8 @@ cargo run --release -- -c firefox    # with another program inside
 
 ## Controls (provisional)
 
-Mod is **Super** in the standalone session and **Alt** while running nested (like niri does).
+Mod is **Super** in the standalone session and **Alt** while running nested (like niri does);
+both can be changed in the config (`mod_key`, `mod_key_nested`).
 Keyboard shortcuts and the mouse controls marked with * can be changed in the config (see
 [Settings](#settings)).
 
@@ -234,6 +235,9 @@ desk.input {
     accel_speed = 0.0,       -- -1 (slow) to 1 (fast)
     accel_profile = "adaptive", -- or "flat" (the pointer moves as far as the mouse)
   },
+  -- What Mod means in shortcuts and mouse bindings: "Super", "Alt" or "Ctrl"
+  mod_key = "Super",
+  mod_key_nested = "Alt", -- inside another session, where Super belongs to it
 }
 
 desk.canvas {
@@ -253,7 +257,8 @@ desk.snapping {
 -- "#rrggbb" or "#rrggbbaa"; accent is used for frames, lit edges and the template menu
 desk.colors { background = "#1a1a1f", grid = "#474752", accent = "#59a6ff" }
 
--- Shortcuts: the built-in ones (see Controls) stay unless you change or remove them.
+-- Shortcuts: the built-in ones (see Controls) stay unless you change or remove them. If two
+-- bindings fit a key press (e.g. "Alt+F" and "Mod+F" with Mod = Alt), the later one wins.
 -- Modifiers: Mod (Super, or Alt while nested), Super, Alt, Ctrl, Shift. Keys are xkb names
 -- in any case ("T", "Return", "F11", "space", "Print", ...). Shift+Q means the Q key.
 -- Actions: desk.spawn("command line"), desk.close_window, desk.fullscreen, desk.layout_menu,

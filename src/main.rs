@@ -28,10 +28,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut event_loop: EventLoop<InfinityDesk> = EventLoop::try_new()?;
     let display: Display<InfinityDesk> = Display::new()?;
-    // Inside another session: a window there. Otherwise: the screen is ours, and Mod is Super.
+    // Inside another session: a window there. Otherwise: the screen is ours. (Mod is Alt or
+    // Super by default, see `Config::mod_key`.)
     let nested =
         std::env::var_os("WAYLAND_DISPLAY").is_some() || std::env::var_os("DISPLAY").is_some();
-    config::set_mod_super(!nested);
+    config::set_nested(nested);
     let mut state = InfinityDesk::new(&mut event_loop, display);
 
     if nested {

@@ -6,7 +6,8 @@
 //!              touchpad = { tap = true, natural_scroll = true, dwt = true,
 //!                           accel_speed = 0.0, accel_profile = "adaptive" },
 //!              mouse = { natural_scroll = false, left_handed = false,
-//!                        accel_speed = 0.0, accel_profile = "adaptive" } }
+//!                        accel_speed = 0.0, accel_profile = "adaptive" },
+//!              mod_key = "Super", mod_key_nested = "Alt" }
 //! desk.canvas { width = 20000, height = 12000, grid = { spacing = 100 },
 //!               zoom_speed = 1.0, wheel_pan = 60 }
 //! desk.layout { gaps = 16 }
@@ -46,6 +47,10 @@ pub struct Config {
     pub keyboard: Keyboard,
     pub touchpad: Touchpad,
     pub mouse: Mouse,
+    /// What "Mod" means in shortcuts and mouse bindings: standalone, and while running nested
+    /// (where Super usually belongs to the host compositor).
+    pub mod_key: Modifier,
+    pub mod_key_nested: Modifier,
     /// Keyboard shortcuts: the built-in ones, changed by `desk.bind` and `desk.unbind`.
     pub binds: Vec<Bind>,
     /// Canvas size in logical pixels.
@@ -254,6 +259,8 @@ impl Default for Config {
                 accel_speed: 0.0,
                 accel_flat: false,
             },
+            mod_key: Modifier::Super,
+            mod_key_nested: Modifier::Alt,
             canvas_size: (20_000, 12_000),
             grid_spacing: 100.0,
             zoom_speed: 1.0,
@@ -329,7 +336,27 @@ pub struct Keys {
     pub alt: bool,
     pub ctrl: bool,
     pub shift: bool,
+    /// "Mod" was given: the configured mod key, looked up when matching.
+    pub mod_key: bool,
     pub key: Key,
+}
+
+/// A key that "Mod" can stand for.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Modifier {
+    Super,
+    Alt,
+    Ctrl,
+}
+
+impl Modifier {
+    pub fn held(self, mods: &ModifiersState) -> bool {
+        match self {
+            Modifier::Super => mods.logo,
+            Modifier::Alt => mods.alt,
+            Modifier::Ctrl => mods.ctrl,
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -352,11 +379,17 @@ const BUTTONS: [(&str, u32); 5] = [
 ];
 
 impl Keys {
-    /// Does a key press, mouse button or scrolling (and the modifiers held) match?
-    pub fn matches(&self, key: Key, mods: &ModifiersState) -> bool {
+    /// Does a key press, mouse button or scrolling (and the modifiers held) match? `mod_key`:
+    /// what "Mod" stands for.
+    pub fn matches(&self, key: Key, mods: &ModifiersState, mod_key: Modifier) -> bool {
+        let is_mod = |m| self.mod_key && mod_key == m;
         self.key == key
-            && (self.logo, self.alt, self.ctrl, self.shift)
-                == (mods.logo, mods.alt, mods.ctrl, mods.shift)
+            && (
+                self.logo || is_mod(Modifier::Super),
+                self.alt || is_mod(Modifier::Alt),
+                self.ctrl || is_mod(Modifier::Ctrl),
+                self.shift,
+            ) == (mods.logo, mods.alt, mods.ctrl, mods.shift)
     }
 }
 
@@ -440,25 +473,35 @@ const DIR_ACTIONS: [(&str, DirAction); 4] = [
     ("pan", Action::Pan),
 ];
 
-/// Is Mod the Super key (standalone)? Otherwise it is Alt (nested: Super belongs to the host).
-static MOD_IS_SUPER: AtomicBool = AtomicBool::new(false);
+/// Running nested (inside another compositor)? Set once at startup.
+static NESTED: AtomicBool = AtomicBool::new(false);
 
-/// Chooses what Mod means; set once at startup, before the config is read.
-pub fn set_mod_super(on: bool) {
-    MOD_IS_SUPER.store(on, Ordering::Relaxed);
+pub fn set_nested(on: bool) {
+    NESTED.store(on, Ordering::Relaxed);
 }
 
-/// Is Mod held (for the mouse controls, e.g. Mod + drag)?
-pub fn mod_held(mods: &ModifiersState) -> bool {
-    match MOD_IS_SUPER.load(Ordering::Relaxed) {
-        true => mods.logo,
-        false => mods.alt,
+impl Config {
+    /// What "Mod" stands for right now (standalone or nested).
+    pub fn mod_key(&self) -> Modifier {
+        match NESTED.load(Ordering::Relaxed) {
+            true => self.mod_key_nested,
+            false => self.mod_key,
+        }
+    }
+
+    /// The action bound to a key press, mouse button or scrolling with these modifiers. Later
+    /// bindings win, so the config's own (e.g. "Alt+F") beat built-in ones ("Mod+F", Mod = Alt).
+    pub fn bound(&self, key: Key, mods: &ModifiersState) -> Option<&Action> {
+        let m = self.mod_key();
+        let mut binds = self.binds.iter().rev();
+        binds
+            .find(|b| b.keys.matches(key, mods, m))
+            .map(|b| &b.action)
     }
 }
 
-/// "Mod+Shift+Return" -> modifiers and key. Mod is Super standalone and Alt while running nested
-/// (Super is taken by the host compositor); key names are xkb names (any case): "T", "Return",
-/// "F11", "space", ...
+/// "Mod+Shift+Return" -> modifiers and key. Mod stays "Mod" (see `Config::mod_key`); key names
+/// are xkb names (any case): "T", "Return", "F11", "space", ..., or mouse buttons and "Scroll".
 fn parse_keys(text: &str) -> Result<Keys, String> {
     let mut parts: Vec<&str> = text.split('+').map(str::trim).collect();
     let name = parts.pop().filter(|n| !n.is_empty());
@@ -477,12 +520,13 @@ fn parse_keys(text: &str) -> Result<Keys, String> {
         alt: false,
         ctrl: false,
         shift: false,
+        mod_key: false,
         key,
     };
     for m in parts {
         let flag = match m.to_ascii_lowercase().as_str() {
-            "mod" if MOD_IS_SUPER.load(Ordering::Relaxed) => &mut keys.logo,
-            "mod" | "alt" => &mut keys.alt,
+            "mod" => &mut keys.mod_key,
+            "alt" => &mut keys.alt,
             "super" => &mut keys.logo,
             "ctrl" | "control" => &mut keys.ctrl,
             "shift" => &mut keys.shift,
@@ -625,7 +669,24 @@ impl Config {
 type Section = fn(&mut Config, &Table) -> mlua::Result<()>;
 
 fn input(config: &mut Config, t: &Table) -> mlua::Result<()> {
-    check_keys(t, "input", &["keyboard", "touchpad", "mouse"])?;
+    let known = ["keyboard", "touchpad", "mouse", "mod_key", "mod_key_nested"];
+    check_keys(t, "input", &known)?;
+    for (key, field) in [
+        ("mod_key", &mut config.mod_key),
+        ("mod_key_nested", &mut config.mod_key_nested),
+    ] {
+        if let Some(name) = get::<String>(t, "input", key)? {
+            *field = match name.to_ascii_lowercase().as_str() {
+                "super" => Modifier::Super,
+                "alt" => Modifier::Alt,
+                "ctrl" => Modifier::Ctrl,
+                _ => {
+                    let message = r#"expected "Super", "Alt" or "Ctrl""#;
+                    return Err(setting_error("input", key, message));
+                }
+            };
+        }
+    }
     if let Some(tp) = get::<Table>(t, "input", "touchpad")? {
         touchpad(&mut config.touchpad, &tp)?;
     }
@@ -934,7 +995,8 @@ mod tests {
             desk.input { keyboard = { xkb = { layout = "de", options = "caps:escape" },
                                       repeat_delay = 300, repeat_rate = 40 } }
             desk.input { touchpad = { tap = false, accel_speed = -0.5, accel_profile = "flat" },
-                         mouse = { left_handed = true, accel_speed = 0.45, accel_profile = "flat" } }
+                         mouse = { left_handed = true, accel_speed = 0.45, accel_profile = "flat" },
+                         mod_key = "ctrl", mod_key_nested = "Super" }
             desk.canvas { width = 30000, height = 15000, grid = { spacing = 200 },
                           zoom_speed = 2.5, wheel_pan = 120 }
             desk.layout { gaps = 8 }
@@ -967,6 +1029,10 @@ mod tests {
         assert!(tp.natural_scroll && tp.dwt);
         assert_eq!(config.canvas_size, (30_000, 15_000));
         assert_eq!(config.grid_spacing, 200.0);
+        assert_eq!(
+            (config.mod_key, config.mod_key_nested),
+            (Modifier::Ctrl, Modifier::Super)
+        );
         assert_eq!((config.zoom_speed, config.wheel_pan), (2.5, 120.0));
         assert!(!config.snap_view);
         assert_eq!(config.gaps, 8);
@@ -1053,6 +1119,11 @@ mod tests {
             err.contains(r#"input.touchpad.accel_profile: expected "adaptive""#),
             "{err}"
         );
+        let err = error(r#"require("infinitydesk").input { mod_key = "Hyper" }"#);
+        assert!(
+            err.contains(r#"input.mod_key: expected "Super", "Alt" or "Ctrl""#),
+            "{err}"
+        );
         let err = error(r#"require("infinitydesk").canvas { zoom_speed = 0 }"#);
         assert!(
             err.contains("canvas.zoom_speed: must be between 0.1 and 10"),
@@ -1099,7 +1170,7 @@ mod tests {
             1
         );
         assert_eq!(
-            action(&config, "Shift+Ctrl+Mod+f11"),
+            action(&config, "Shift+Ctrl+Alt+f11"),
             Some(Action::Fullscreen)
         );
         assert_eq!(action(&config, "Mod+Space"), None);
@@ -1183,13 +1254,47 @@ mod tests {
     }
 
     #[test]
+    fn own_bindings_beat_built_in_ones() {
+        let config = load(
+            r#"
+            local desk = require("infinitydesk")
+            desk.input { mod_key = "Alt" }
+            desk.bind("Alt+F", desk.center)
+            "#,
+        )
+        .unwrap();
+        let alt = ModifiersState {
+            alt: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            config.bound(Key::Sym(Keysym::f), &alt),
+            Some(&Action::Center)
+        );
+        // Mod is Alt now, also for the built-in ones.
+        assert_eq!(
+            config.bound(Key::Sym(Keysym::q), &alt),
+            Some(&Action::CloseWindow)
+        );
+    }
+
+    #[test]
     fn keys_match_presses() {
         let keys = parse_keys("Mod+Shift+Q").unwrap();
+        let q = Key::Sym(Keysym::q);
         let mut mods = ModifiersState::default();
         (mods.alt, mods.shift) = (true, true);
-        assert!(keys.matches(Key::Sym(Keysym::q), &mods));
+        assert!(keys.matches(q, &mods, Modifier::Alt));
+        assert!(!keys.matches(q, &mods, Modifier::Super));
         mods.ctrl = true;
-        assert!(!keys.matches(Key::Sym(Keysym::q), &mods));
+        assert!(!keys.matches(q, &mods, Modifier::Alt));
+        // Mod as Ctrl: Ctrl+Shift+Q.
+        mods.alt = false;
+        assert!(keys.matches(q, &mods, Modifier::Ctrl));
+        // A modifier given twice (Mod is Alt) still matches.
+        let twice = parse_keys("Mod+Alt+Q").unwrap();
+        (mods.alt, mods.ctrl, mods.shift) = (true, false, false);
+        assert!(twice.matches(q, &mods, Modifier::Alt));
         assert_eq!(parse_keys("Super+1").unwrap().key, Key::Sym(Keysym::_1));
     }
 

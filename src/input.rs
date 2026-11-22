@@ -17,7 +17,7 @@ use smithay::{
 
 use crate::{
     InfinityDesk,
-    config::{Action, Key, mod_held},
+    config::{Action, Key},
     grabs::DragGrab,
     layout,
     resize::Edge,
@@ -77,9 +77,8 @@ impl InfinityDesk {
                         }
                         let sym = keysym.modified_sym();
                         let raw = keysym.raw_syms().first().copied();
-                        let bound = (state.config.binds.iter())
-                            .find(|b| raw.is_some_and(|raw| b.keys.matches(Key::Sym(raw), mods)))
-                            .map(|b| b.action.clone());
+                        let bound = raw.and_then(|raw| state.config.bound(Key::Sym(raw), mods));
+                        let bound = bound.cloned();
                         let digit = sym.raw().wrapping_sub(Keysym::_1.raw()) as usize;
                         let vt = sym.raw().wrapping_sub(Keysym::XF86_Switch_VT_1.raw());
                         if vt < 12 {
@@ -184,7 +183,8 @@ impl InfinityDesk {
                 let on_layer = (self.layer_surface_under(location, self.upper_layers())).is_some();
                 // In the overview, a click on a window chooses it (and is not passed on).
                 let clicked = self.space.element_under(location).map(|(w, _)| w.clone());
-                let plain = !mod_held(&keyboard.modifier_state()) && button == BTN_LEFT;
+                let plain =
+                    !(self.config.mod_key()).held(&keyboard.modifier_state()) && button == BTN_LEFT;
                 if let Some(window) = (clicked.as_ref())
                     .filter(|_| self.overview.is_some() && plain && !on_layer)
                     .filter(|_| button_state == ButtonState::Pressed && !pointer.is_grabbed())
@@ -202,7 +202,7 @@ impl InfinityDesk {
                     && !fullscreen
                 {
                     let mods = keyboard.modifier_state();
-                    let alt = mod_held(&mods);
+                    let alt = self.config.mod_key().held(&mods);
                     let bound = self.mouse_bind(Key::Button(button), &mods, clicked.is_none());
                     let start_data = GrabStartData {
                         focus: None,
@@ -426,8 +426,8 @@ impl InfinityDesk {
     /// only act on empty canvas: over a window, the program gets the click.
     fn mouse_bind(&self, key: Key, mods: &ModifiersState, empty: bool) -> Option<Action> {
         let any_mod = mods.logo || mods.alt || mods.ctrl || mods.shift;
-        let bind = (self.config.binds.iter()).find(|b| b.keys.matches(key, mods))?;
-        (any_mod || empty).then(|| bind.action.clone())
+        let action = self.config.bound(key, mods)?;
+        (any_mod || empty).then(|| action.clone())
     }
 
     /// The pointer is over nothing but the canvas (no window, no bar), and nothing else is going on.
@@ -480,7 +480,7 @@ impl InfinityDesk {
             let mods = self.seat.get_keyboard().unwrap().modifier_state();
             let on_layer = (self.layer_surface_under(pos, self.upper_layers())).is_some();
             let free = self.layout_menu.is_none() && self.fullscreen.is_none();
-            let hint = (!mod_held(&mods) && !on_layer && free)
+            let hint = (!self.config.mod_key().held(&mods) && !on_layer && free)
                 .then(|| self.border_under(pos))
                 .flatten();
             self.set_resize_hint(hint, mods.shift);
