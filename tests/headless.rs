@@ -142,6 +142,22 @@ impl Desk {
         ))
     }
 
+    /// Replaces the config file (InfinityDesk looks for changes once a second) and waits until
+    /// the new one is read: it must set the global `version` to `version`.
+    fn rewrite_config(&self, config: &str, version: i64) {
+        let path = self.dir.join("init.lua");
+        std::fs::write(&path, format!("{HELPERS}\n{config}\nversion = {version}")).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while self.numbers("return version or 0") != [version] {
+            assert!(
+                Instant::now() < deadline,
+                "the new config was not read:\n{}",
+                self.log()
+            );
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+
     /// `infinitydesk msg events`, read line by line.
     fn watch(&self) -> Events {
         let mut child = Command::new(BIN)
@@ -236,6 +252,11 @@ impl Client {
 
     /// Opens a window and waits until it is drawn and placed.
     fn open(&mut self, app_id: &str, title: &str) {
+        self.open_with(app_id, title, None);
+    }
+
+    /// The same, as a dialog of window `parent`.
+    fn open_with(&mut self, app_id: &str, title: &str, parent: Option<usize>) {
         let qh = self.queue.handle();
         let w = &mut self.windows;
         let index = w.list.len();
@@ -244,6 +265,7 @@ impl Client {
         let toplevel = xdg.get_toplevel(&qh, index);
         toplevel.set_app_id(app_id.into());
         toplevel.set_title(title.into());
+        toplevel.set_parent(parent.map(|p| &w.list[p].toplevel));
         surface.commit();
         w.list.push(TestWindow {
             surface,
@@ -258,6 +280,16 @@ impl Client {
     /// Closes a window from the program's side, like quitting it.
     fn close(&mut self, index: usize) {
         self.windows.list[index].close();
+        self.sync();
+    }
+
+    /// The program asks for fullscreen or to leave it (like F11 in a browser).
+    fn fullscreen(&mut self, index: usize, on: bool) {
+        let toplevel = &self.windows.list[index].toplevel;
+        match on {
+            true => toplevel.set_fullscreen(None),
+            false => toplevel.unset_fullscreen(),
+        }
         self.sync();
     }
 
@@ -514,4 +546,87 @@ fn the_event_stream_starts_with_the_state() {
         "{open}"
     );
     assert!(open.contains(r#""app_id":"two""#), "{open}");
+}
+
+#[test]
+fn window_rules_set_the_size_fullscreen_or_a_free_place() {
+    let desk = Desk::start(
+        r#"
+        desk.window_rule { match = { app_id = "^wide$" }, width = "full" }
+        desk.window_rule { match = { app_id = "^tool$" }, dock = false }
+        desk.window_rule { match = { app_id = "^video$" }, open_fullscreen = true }
+        "#,
+    );
+    let mut client = Client::connect(&desk);
+    client.open("wide", "Wide");
+    let wide = desk.rect("wide");
+    assert_eq!((wide[2], wide[3]), (1920 - 2 * 16, HALF.1));
+    // The screen's corner, a gap away from the first window.
+    let (left, top) = (wide[0] - 16, wide[1] - 16);
+    // Free in the middle of the screen, in its own size (the test program's 640 × 480).
+    client.open("tool", "Tool");
+    assert_eq!(desk.rect("tool"), [left + 640, top + 300, 640, 480]);
+    // It docks next to the active window first (the view follows), then covers the screen.
+    client.open("video", "Video");
+    assert_eq!(desk.rect("video")[2..], [1920, 1080]);
+    assert_eq!(desk.eval("return find('video').fullscreen"), ["true"]);
+}
+
+#[test]
+fn a_program_can_ask_for_fullscreen_and_leave_it() {
+    let desk = Desk::start("");
+    let mut client = Client::connect(&desk);
+    client.open("one", "One");
+    let before = desk.rect("one");
+    client.fullscreen(0, true);
+    assert_eq!(desk.rect("one")[2..], [1920, 1080]);
+    assert_eq!(client.windows.list[0].size, (1920, 1080));
+    client.fullscreen(0, false);
+    assert_eq!(desk.rect("one"), before);
+}
+
+#[test]
+fn dialogs_open_in_the_middle_and_do_not_dock() {
+    let desk = Desk::start("");
+    let mut client = Client::connect(&desk);
+    client.open("main", "Main");
+    client.open_with("dialog", "Save as", Some(0));
+    let (main, dialog) = (desk.rect("main"), desk.rect("dialog"));
+    assert_eq!(dialog, [main[0] - 16 + 640, main[1] - 16 + 300, 640, 480]);
+    // Not part of the main window's cluster: it stays when that moves.
+    desk.eval("local w = find('main') desk.move(w.id, w.x + 500, w.y)");
+    assert_eq!(desk.rect("dialog"), dialog);
+}
+
+#[test]
+fn a_changed_config_is_read_while_running_and_a_broken_one_keeps_the_old() {
+    let desk = Desk::start("version = 1");
+    desk.rewrite_config("desk.layout { gaps = 40 }", 2);
+    let mut client = Client::connect(&desk);
+    client.open("one", "One");
+    assert_eq!(desk.rect("one")[2..], [(1920 - 3 * 40) / 2, 1080 - 2 * 40]);
+    // A mistake: the old settings (and Lua state) stay.
+    std::fs::write(desk.dir.join("init.lua"), "desk.layout { gaps = ").unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !desk
+        .log()
+        .contains("Error in the config, keeping the settings")
+    {
+        assert!(Instant::now() < deadline, "no warning:\n{}", desk.log());
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    assert_eq!(desk.numbers("return version"), [2]);
+    client.open("two", "Two");
+    assert_eq!(desk.rect("two")[2..], [(1920 - 3 * 40) / 2, 1080 - 2 * 40]);
+}
+
+#[test]
+fn with_a_scale_of_two_windows_get_half_the_size() {
+    let desk = Desk::start(r#"desk.output { name = "headless", scale = 2 }"#);
+    let mut client = Client::connect(&desk);
+    client.open("one", "One");
+    // The screen counts as 960 × 540 then.
+    let half = ((960 - 3 * 16) / 2, 540 - 2 * 16);
+    assert_eq!(desk.rect("one")[2..], [half.0, half.1]);
+    assert_eq!(client.windows.list[0].size, (half.0 as i32, half.1 as i32));
 }
