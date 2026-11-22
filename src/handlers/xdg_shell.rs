@@ -14,7 +14,7 @@ use smithay::{
             protocol::{wl_output::WlOutput, wl_seat, wl_surface::WlSurface},
         },
     },
-    utils::Serial,
+    utils::{Logical, Serial, Size},
     wayland::{
         compositor::with_states,
         shell::xdg::{
@@ -24,7 +24,7 @@ use smithay::{
     },
 };
 
-use crate::{InfinityDesk, grabs::DragGrab, resize::Edge, state::Resizing};
+use crate::{InfinityDesk, config::Rules, grabs::DragGrab, resize::Edge, state::Resizing};
 
 /// Checks that a client move request belongs to a real, currently pressed pointer button.
 fn check_grab(
@@ -209,6 +209,42 @@ impl XdgShellHandler for InfinityDesk {
 }
 
 impl InfinityDesk {
+    /// What the window rules from the config say for a window (by its app id and title).
+    pub fn rules(&self, toplevel: &ToplevelSurface) -> Rules {
+        let (app_id, title) = with_states(toplevel.wl_surface(), |states| {
+            let data = states.data_map.get::<XdgToplevelSurfaceData>().unwrap();
+            let data = data.lock().unwrap();
+            (data.app_id.clone(), data.title.clone())
+        });
+        (self.config).rules_for(&app_id.unwrap_or_default(), &title.unwrap_or_default())
+    }
+
+    /// The size of a new window: half the screen wide and full high, or as its rules say.
+    /// Windows that do not dock choose their own size, unless a rule gives one.
+    fn new_window_size(&self, rules: &Rules) -> Option<Size<i32, Logical>> {
+        let (screen, gap) = (self.canvas.screen_size(), self.config.gaps);
+        match (rules.full_width, rules.full_height) {
+            (None, None) if !rules.dock => None,
+            (None, None) => Some(self.free_slot().size),
+            (w, h) => {
+                let len = |s: i32, full| {
+                    if full {
+                        s - 2 * gap
+                    } else {
+                        (s - gap) / 2 - gap
+                    }
+                };
+                Some(
+                    (
+                        len(screen.w, w.unwrap_or(false)),
+                        len(screen.h, h.unwrap_or(true)),
+                    )
+                        .into(),
+                )
+            }
+        }
+    }
+
     /// Must be called on every commit: sends the initial configure to new windows/popups.
     pub fn handle_xdg_commit(&mut self, surface: &WlSurface) {
         if let Some(window) = self.window_for_surface(surface) {
@@ -223,13 +259,16 @@ impl InfinityDesk {
             });
             if !initial_configure_sent {
                 // The window gets its size right away: a free slot of the last template (it is
-                // placed there by `place_if_pending`), else half the screen. Dialogs choose
-                // their own size.
+                // placed there by `place_if_pending`), else half the screen or what its window
+                // rules say. Dialogs choose their own size.
                 let toplevel = window.toplevel().unwrap();
                 if toplevel.parent().is_none() {
-                    let slot = self.take_free_slot();
-                    let size = slot.unwrap_or_else(|| self.free_slot()).size;
-                    toplevel.with_pending_state(|s| s.size = Some(size));
+                    let rules = self.rules(toplevel);
+                    let slot = rules.dock.then(|| self.take_free_slot()).flatten();
+                    let size = slot
+                        .map(|r| r.size)
+                        .or_else(|| self.new_window_size(&rules));
+                    toplevel.with_pending_state(|s| s.size = size);
                     if let Some(rect) = slot {
                         let anchor_end = [false; 2];
                         self.resizing

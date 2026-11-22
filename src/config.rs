@@ -18,6 +18,8 @@
 //! desk.spawn_at_startup("awww-daemon")
 //! desk.env { QT_QPA_PLATFORM = "wayland" }
 //! desk.cursor { theme = "Adwaita", size = 24 }
+//! desk.window_rule { match = { app_id = "^firefox$" }, width = "full", height = "full",
+//!                    open_fullscreen = false, dock = true }
 //! ```
 //!
 //! Everything is optional. Without the file the defaults apply; if the file has an error, it is
@@ -32,6 +34,7 @@ use std::{
 };
 
 use mlua::{AnyUserData, FromLua, Lua, Table, UserData, Value};
+use regex::Regex;
 
 use crate::navigate::Dir;
 use smithay::input::keyboard::{
@@ -73,6 +76,52 @@ pub struct Config {
     /// Pointer theme and size; `None`: `XCURSOR_THEME` / `XCURSOR_SIZE`, else the defaults.
     pub cursor_theme: Option<String>,
     pub cursor_size: Option<u32>,
+    pub window_rules: Vec<WindowRule>,
+}
+
+/// What happens to the windows of certain programs when they open (`desk.window_rule`).
+pub struct WindowRule {
+    /// A window matches if both match; a missing one matches every window.
+    app_id: Option<Regex>,
+    title: Option<Regex>,
+    /// `None`: no change by this rule.
+    full_width: Option<bool>,
+    full_height: Option<bool>,
+    open_fullscreen: Option<bool>,
+    dock: Option<bool>,
+}
+
+/// What the window rules say for one window.
+pub struct Rules {
+    /// Full (true) or half (false) the screen; `None`: as usual (half wide, full high).
+    pub full_width: Option<bool>,
+    pub full_height: Option<bool>,
+    pub open_fullscreen: bool,
+    /// Docks next to the active window (or into a free template slot); otherwise it opens
+    /// free in the middle of the screen, like a dialog.
+    pub dock: bool,
+}
+
+impl Config {
+    /// The rules for a window: every matching window rule counts, later ones win.
+    pub fn rules_for(&self, app_id: &str, title: &str) -> Rules {
+        let mut rules = Rules {
+            full_width: None,
+            full_height: None,
+            open_fullscreen: false,
+            dock: true,
+        };
+        let fits = |re: &Option<Regex>, text: &str| re.as_ref().is_none_or(|re| re.is_match(text));
+        let matching =
+            (self.window_rules.iter()).filter(|r| fits(&r.app_id, app_id) && fits(&r.title, title));
+        for r in matching {
+            rules.full_width = r.full_width.or(rules.full_width);
+            rules.full_height = r.full_height.or(rules.full_height);
+            rules.open_fullscreen = r.open_fullscreen.unwrap_or(rules.open_fullscreen);
+            rules.dock = r.dock.unwrap_or(rules.dock);
+        }
+        rules
+    }
 }
 
 /// Keyboard layout and key repeat.
@@ -220,6 +269,7 @@ impl Default for Config {
             env: Vec::new(),
             cursor_theme: None,
             cursor_size: None,
+            window_rules: Vec::new(),
             binds: [
                 ("Mod+T".to_string(), Action::Spawn("kitty".into())),
                 ("Mod+Return".to_string(), Action::Spawn("kitty".into())),
@@ -498,7 +548,7 @@ impl Config {
         let lua = Lua::new();
         lua.set_app_data(Config::default());
         let desk = lua.create_table()?;
-        let sections: [(&str, Section); 7] = [
+        let sections: [(&str, Section); 8] = [
             ("input", input),
             ("canvas", canvas),
             ("layout", layout),
@@ -506,6 +556,7 @@ impl Config {
             ("colors", colors),
             ("env", env),
             ("cursor", cursor),
+            ("window_rule", window_rule),
         ];
         for (name, section) in sections {
             let f = lua.create_function(move |lua, t: Table| {
@@ -815,6 +866,45 @@ fn cursor(config: &mut Config, t: &Table) -> mlua::Result<()> {
     Ok(())
 }
 
+fn window_rule(config: &mut Config, t: &Table) -> mlua::Result<()> {
+    let known = ["match", "width", "height", "open_fullscreen", "dock"];
+    check_keys(t, "window_rule", &known)?;
+    let mut rule = WindowRule {
+        app_id: None,
+        title: None,
+        full_width: None,
+        full_height: None,
+        open_fullscreen: get(t, "window_rule", "open_fullscreen")?,
+        dock: get(t, "window_rule", "dock")?,
+    };
+    if let Some(m) = get::<Table>(t, "window_rule", "match")? {
+        check_keys(&m, "window_rule.match", &["app_id", "title"])?;
+        let regex = |key| -> mlua::Result<Option<Regex>> {
+            let text = get::<String>(&m, "window_rule.match", key)?;
+            let error = |e: regex::Error| setting_error("window_rule.match", key, &e.to_string());
+            text.map(|text| Regex::new(&text).map_err(error))
+                .transpose()
+        };
+        (rule.app_id, rule.title) = (regex("app_id")?, regex("title")?);
+    }
+    for (key, full) in [
+        ("width", &mut rule.full_width),
+        ("height", &mut rule.full_height),
+    ] {
+        *full = match get::<String>(t, "window_rule", key)?.as_deref() {
+            None => None,
+            Some("half") => Some(false),
+            Some("full") => Some(true),
+            Some(_) => {
+                let message = r#"expected "half" or "full""#;
+                return Err(setting_error("window_rule", key, message));
+            }
+        };
+    }
+    config.window_rules.push(rule);
+    Ok(())
+}
+
 fn set_env(config: &mut Config, name: String, value: String) {
     config.env.retain(|(n, _)| n != &name);
     config.env.push((name, value));
@@ -1015,6 +1105,48 @@ mod tests {
         assert_eq!(action(&config, "Mod+Space"), None);
         // Built-in ones stay.
         assert_eq!(action(&config, "Mod+Q"), Some(Action::CloseWindow));
+    }
+
+    #[test]
+    fn window_rules_match_and_add_up() {
+        let config = load(
+            r#"
+            local desk = require("infinitydesk")
+            desk.window_rule { match = { app_id = "firefox" }, width = "full" }
+            desk.window_rule { match = { app_id = "^firefox$", title = "Private" },
+                               open_fullscreen = true, width = "half" }
+            desk.window_rule { match = { app_id = "pavucontrol" }, dock = false }
+            "#,
+        )
+        .unwrap();
+        let firefox = config.rules_for("firefox", "Mozilla Firefox");
+        assert_eq!(firefox.full_width, Some(true));
+        assert_eq!(firefox.full_height, None);
+        assert!(!firefox.open_fullscreen && firefox.dock);
+        // Both rules match: the later one wins where it says something.
+        let private = config.rules_for("firefox", "Private Browsing");
+        assert_eq!(private.full_width, Some(false));
+        assert!(private.open_fullscreen);
+        // A search, like in niri: "firefox" is in "org.mozilla.firefox", "^firefox$" is not.
+        let flatpak = config.rules_for("org.mozilla.firefox", "Private Browsing");
+        assert_eq!(flatpak.full_width, Some(true));
+        assert!(!flatpak.open_fullscreen);
+        assert!(!config.rules_for("pavucontrol", "Volume Control").dock);
+        let other = config.rules_for("kitty", "fish");
+        assert!(other.dock && other.full_width.is_none());
+
+        let err = error(r#"require("infinitydesk").window_rule { width = "wide" }"#);
+        assert!(
+            err.contains(r#"window_rule.width: expected "half" or "full""#),
+            "{err}"
+        );
+        let err = error(
+            r#"require("infinitydesk").window_rule { match = { app_id = "(" }, dock = false }"#,
+        );
+        assert!(
+            err.contains("window_rule.match.app_id: regex parse error"),
+            "{err}"
+        );
     }
 
     #[test]

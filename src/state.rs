@@ -393,9 +393,12 @@ impl InfinityDesk {
         let size = asked.unwrap_or(size);
         // A free template slot was reserved for it when it was configured the first time,
         // otherwise it docks next to the active window, or (with no room there) stands alone:
-        // dialogs in the middle of the screen, other windows in its left half.
+        // dialogs and windows that should not dock (window rules) in the middle of the screen,
+        // other windows in its left half.
+        let rules = self.rules(window.toplevel().unwrap());
         let slot = self.resizing.get(&window).map(|r| r.rect);
-        match slot.or_else(|| self.spot_next_to_active(&window, size)) {
+        let spot = (rules.dock).then(|| self.spot_next_to_active(&window, size));
+        match slot.or(spot.flatten()) {
             Some(rect) => {
                 self.space.map_element(window.clone(), rect.loc, false);
                 if rect.size != size {
@@ -411,13 +414,17 @@ impl InfinityDesk {
             }
             None => {
                 let loc = match window.toplevel().unwrap().parent() {
-                    Some(_) => self.canvas.centered_in_viewport(size),
-                    None => self.free_slot().loc,
+                    None if rules.dock => self.free_slot().loc,
+                    _ => self.canvas.centered_in_viewport(size),
                 };
                 self.space.map_element(window.clone(), loc, false);
             }
         }
         self.focus_window(&window);
+        // Leaving fullscreen, it is back at the place it got above.
+        if rules.open_fullscreen {
+            self.start_fullscreen(&window);
+        }
     }
 
     /// Raises the window with its cluster and gives it keyboard focus.

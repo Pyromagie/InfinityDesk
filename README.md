@@ -148,7 +148,8 @@ cargo run --release -- -c firefox    # with another program inside
   windows
 - **Touchpad gestures:** pinch to zoom, three fingers to pan, four fingers for the overview
 - **Lua configuration** with live reload: keyboard, touchpad, mouse, canvas, gaps, snapping,
-  colors, shortcuts, programs to start and their environment variables, pointer theme
+  colors, shortcuts, mouse bindings, programs to start and their environment variables, pointer
+  theme, window rules
 - wlr-layer-shell, so launchers like fuzzel, bars and wallpaper tools (e.g. awww, swaybg) work;
   the wallpaper stays fixed behind the moving canvas
 - **X11 programs** (Steam, older games and tools) through `xwayland-satellite`, if it is
@@ -281,6 +282,15 @@ desk.env { QT_QPA_PLATFORM = "wayland", MOZ_ENABLE_WAYLAND = "1" }
 
 -- Pointer theme and size (also passed to programs as XCURSOR_THEME / XCURSOR_SIZE)
 desk.cursor { theme = "Adwaita", size = 24 }
+
+-- Window rules: for windows whose app id and/or title match (regular expressions, searched like
+-- in niri), when they open. Every matching rule counts, later ones win.
+-- width / height: "half" or "full" the screen (usual: half wide, full high)
+-- open_fullscreen: open in fullscreen (Mod+F leaves it, back to its place)
+-- dock = false: open free in the middle of the screen (its own size) instead of docking
+desk.window_rule { match = { app_id = "^firefox$" }, width = "full" }
+desk.window_rule { match = { app_id = "^mpv$" }, open_fullscreen = true }
+desk.window_rule { match = { app_id = "pavucontrol" }, dock = false }
 ```
 
 A mistake (a typo in a setting name, a wrong type, a value out of range) is logged with the

@@ -6,6 +6,8 @@ edition = "2024"
 [dependencies]
 mlua = { version = "0.12", features = ["lua54", "vendored"] }
 tracing = "0.1"
+# Window rules match app ids and titles like niri does.
+regex = "1"
 # Pointer images from the cursor theme (standalone, where nobody else draws the pointer).
 xcursor = "0.3"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
