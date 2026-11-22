@@ -27,7 +27,6 @@ use crate::{
     xwayland::XDisplay,
 };
 use smithay::{
-    backend::input::InputTime,
     desktop::{PopupManager, Space, Window, WindowSurfaceType, layer_map_for_output},
     input::{
         Seat, SeatState,
@@ -459,10 +458,7 @@ impl InfinityDesk {
                 self.dock_into_slot(&window, rect);
                 self.place_resized(&window);
                 // Docked off the screen: the view follows. The pointer stays put on the screen.
-                let screen = self.pointer_screen;
-                self.canvas.reveal(rect, self.config.gaps);
-                self.apply_viewport();
-                self.pointer_moved(self.canvas.screen_to_canvas(screen), InputTime::now());
+                self.reveal(rect);
             }
             None => {
                 let loc = match window.toplevel().unwrap().parent() {

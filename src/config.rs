@@ -12,6 +12,7 @@
 //!               zoom_speed = 1.0, wheel_pan = 60 }
 //! desk.layout { gaps = 16 }
 //! desk.snapping { threshold = 15, hold_ms = 300, view = true }
+//! desk.animation { duration_ms = 250 }
 //! desk.colors { background = "#1a1a1f", grid = "#474752", accent = "#59a6ff" }
 //! desk.bind("Mod+B", desk.spawn("firefox"))
 //! desk.unbind("Mod+Space")
@@ -71,6 +72,8 @@ pub struct Config {
     pub snap_threshold: f64,
     /// How long a window is held still before it can be pulled out of its cluster.
     pub hold_time: Duration,
+    /// How long the view takes to glide somewhere (zero: it jumps).
+    pub animation: Duration,
     /// Colors as premultiplied RGBA.
     pub background: [f32; 4],
     pub grid_color: [f32; 4],
@@ -313,6 +316,7 @@ impl Default for Config {
             gaps: 16,
             snap_threshold: 15.0,
             hold_time: Duration::from_millis(300),
+            animation: Duration::from_millis(250),
             background: [0.1, 0.1, 0.12, 1.0],
             grid_color: [0.28, 0.28, 0.32, 1.0],
             accent: [0.35, 0.65, 1.0, 1.0],
@@ -637,7 +641,7 @@ impl Config {
         let lua = Lua::new();
         lua.set_app_data(Config::default());
         let desk = lua.create_table()?;
-        let sections: [(&str, Section); 9] = [
+        let sections: [(&str, Section); 10] = [
             ("input", input),
             ("canvas", canvas),
             ("layout", layout),
@@ -647,6 +651,7 @@ impl Config {
             ("cursor", cursor),
             ("window_rule", window_rule),
             ("output", output),
+            ("animation", animation),
         ];
         for (name, section) in sections {
             let f = lua.create_function(move |lua, t: Table| {
@@ -888,6 +893,14 @@ fn snapping(config: &mut Config, t: &Table) -> mlua::Result<()> {
     Ok(())
 }
 
+fn animation(config: &mut Config, t: &Table) -> mlua::Result<()> {
+    check_keys(t, "animation", &["duration_ms"])?;
+    if let Some(v) = get_in(t, "animation", "duration_ms", 0..=5000)? {
+        config.animation = Duration::from_millis(v as u64);
+    }
+    Ok(())
+}
+
 fn colors(config: &mut Config, t: &Table) -> mlua::Result<()> {
     check_keys(t, "colors", &["background", "grid", "accent"])?;
     for (key, field) in [
@@ -1105,6 +1118,7 @@ mod tests {
                           zoom_speed = 2.5, wheel_pan = 120 }
             desk.layout { gaps = 8 }
             desk.snapping { threshold = 20, hold_ms = 500, view = false }
+            desk.animation { duration_ms = 0 }
             desk.colors { background = "#000000", accent = "#ff8000" }
             desk.spawn_at_startup("awww-daemon")
             desk.spawn_at_startup("waybar -c ~/bar.json")
@@ -1142,6 +1156,7 @@ mod tests {
         assert_eq!(config.gaps, 8);
         assert_eq!(config.snap_threshold, 20.0);
         assert_eq!(config.hold_time, Duration::from_millis(500));
+        assert_eq!(config.animation, Duration::ZERO);
         assert_eq!(config.background, [0.0, 0.0, 0.0, 1.0]);
         assert_eq!(config.accent, [1.0, 128.0 / 255.0, 0.0, 1.0]);
         // Not set: default.

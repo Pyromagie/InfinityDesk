@@ -6,16 +6,31 @@
 //!
 //! This module is pure logic without Wayland, so it is easy to test.
 
+use std::time::{Duration, Instant};
+
 use smithay::utils::{Logical, Point, Rectangle, Size};
+
+/// A view: the viewport's top-left corner and the zoom.
+pub type View = (Point<f64, Logical>, f64);
 
 #[derive(Debug, Clone)]
 pub struct Canvas {
     size: Size<i32, Logical>,
     screen: Size<i32, Logical>,
-    /// Top-left corner of the viewport in canvas coordinates.
+    /// Top-left corner of the viewport in canvas coordinates (as shown right now).
     viewport_loc: Point<f64, Logical>,
     /// 1.0 = windows at their real size; smaller = zoomed out.
     zoom: f64,
+    /// The view on its way somewhere a command sent it (see `glide`).
+    glide: Option<Glide>,
+}
+
+#[derive(Debug, Clone)]
+struct Glide {
+    from: View,
+    to: View,
+    start: Instant,
+    duration: Duration,
 }
 
 impl Canvas {
@@ -25,6 +40,7 @@ impl Canvas {
             screen: (0, 0).into(),
             viewport_loc: (0.0, 0.0).into(),
             zoom: 1.0,
+            glide: None,
         }
     }
 
@@ -52,6 +68,58 @@ impl Canvas {
         Rectangle::new(self.viewport_loc, size.into())
     }
 
+    pub fn view(&self) -> View {
+        (self.viewport_loc, self.zoom)
+    }
+
+    /// Where the view is going: the end of a glide, else where it is.
+    pub fn target(&self) -> View {
+        self.glide.as_ref().map_or(self.view(), |g| g.to)
+    }
+
+    /// Changes the view with `change` (worked out from where it is going) and lets it glide
+    /// there in `duration` from where it is shown now, instead of jumping (see `step`). Every
+    /// other change (the user pans or zooms) stops a glide where it is.
+    pub fn glide(&mut self, duration: Duration, change: impl FnOnce(&mut Self)) {
+        let shown = self.view();
+        self.put(self.target());
+        self.glide = None;
+        change(self);
+        let to = self.view();
+        if !duration.is_zero() && to != shown {
+            self.put(shown);
+            let start = Instant::now();
+            self.glide = Some(Glide {
+                from: shown,
+                to,
+                start,
+                duration,
+            });
+        }
+    }
+
+    /// Before each frame: a glide moves the view on (slowing down towards its end). False if
+    /// the view is not gliding.
+    pub fn step(&mut self) -> bool {
+        let Some(glide) = self.glide.clone() else {
+            return false;
+        };
+        let t = glide.start.elapsed().as_secs_f64() / glide.duration.as_secs_f64();
+        if t >= 1.0 {
+            self.glide = None;
+            self.put(glide.to);
+        } else {
+            self.put(between(glide.from, glide.to, 1.0 - (1.0 - t).powi(3)));
+        }
+        true
+    }
+
+    /// Shows `view` (kept within bounds) without stopping a glide.
+    fn put(&mut self, (loc, zoom): View) {
+        self.zoom = zoom.clamp(self.min_zoom(), 1.0);
+        self.move_to(loc);
+    }
+
     pub fn viewport_center(&self) -> Point<f64, Logical> {
         let vp = self.viewport();
         vp.loc + Point::from((vp.size.w / 2.0, vp.size.h / 2.0))
@@ -76,6 +144,11 @@ impl Canvas {
     /// Moves the viewport; it stays inside the canvas (or centered on it when zoomed out
     /// further than the canvas) and on whole pixels.
     pub fn set_viewport_loc(&mut self, loc: Point<f64, Logical>) {
+        self.glide = None;
+        self.move_to(loc);
+    }
+
+    fn move_to(&mut self, loc: Point<f64, Logical>) {
         let vp = self.viewport().size;
         self.viewport_loc = (
             clamp_axis(loc.x, vp.w, self.size.w as f64).round(),
@@ -220,6 +293,14 @@ impl Canvas {
 
 /// Keeps an object of length `len` at position `pos` within `0..max`.
 /// If the object is larger than the area, it is centered on it.
+/// The view at `t` (0 to 1) on the way from `from` to `to`. The shown area grows or shrinks
+/// evenly, so a zoom does not swing sideways.
+fn between(from: View, to: View, t: f64) -> View {
+    let lerp = |a: f64, b: f64| a + (b - a) * t;
+    let loc = (lerp(from.0.x, to.0.x), lerp(from.0.y, to.0.y));
+    (loc.into(), 1.0 / lerp(1.0 / from.1, 1.0 / to.1))
+}
+
 fn clamp_axis(pos: f64, len: f64, max: f64) -> f64 {
     if len >= max {
         (max - len) / 2.0
@@ -248,6 +329,50 @@ mod tests {
             c.viewport_loc(),
             ((10_000 - 1920) as f64, (6_000 - 1080) as f64).into()
         );
+    }
+
+    #[test]
+    fn view_glides_to_its_target() {
+        let mut c = canvas();
+        c.set_viewport_loc((1_000.0, 1_000.0).into());
+        let slow = Duration::from_secs(60);
+        c.glide(slow, |c| c.set_viewport_loc((2_000.0, 1_000.0).into()));
+        // Still where it was, on its way.
+        assert_eq!(c.view(), ((1_000.0, 1_000.0).into(), 1.0));
+        assert_eq!(c.target(), ((2_000.0, 1_000.0).into(), 1.0));
+        // A second command starts from where the first one goes.
+        c.glide(slow, |c| {
+            c.reveal(Rectangle::new((3_900, 1_100).into(), (200, 200).into()), 0)
+        });
+        assert_eq!(c.target().0, (2_180.0, 1_000.0).into());
+        // The user takes over: the glide stops where the view is.
+        c.set_viewport_loc((1_500.0, 1_000.0).into());
+        assert_eq!(c.target(), c.view());
+        assert!(!c.step());
+
+        // Without a duration it jumps; a short glide arrives.
+        c.glide(Duration::ZERO, |c| {
+            c.set_viewport_loc((500.0, 500.0).into())
+        });
+        assert_eq!(c.view().0, (500.0, 500.0).into());
+        c.glide(Duration::from_millis(1), |c| {
+            c.show(Rectangle::from_size((3_840, 2_160).into()))
+        });
+        std::thread::sleep(Duration::from_millis(2));
+        assert!(c.step());
+        assert_eq!(c.view(), ((0.0, 0.0).into(), 0.5));
+        assert!(!c.step());
+    }
+
+    #[test]
+    fn zooming_glide_changes_the_shown_area_evenly() {
+        let from = ((0.0, 0.0).into(), 1.0);
+        let to = ((1_000.0, 500.0).into(), 0.25);
+        // Halfway, the shown area is halfway between 1 and 4 times the screen.
+        let (loc, zoom) = between(from, to, 0.5);
+        assert_eq!(loc, (500.0, 250.0).into());
+        assert_eq!(zoom, 1.0 / 2.5);
+        assert_eq!(between(from, to, 1.0), to);
     }
 
     #[test]

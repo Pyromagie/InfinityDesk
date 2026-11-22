@@ -4,12 +4,14 @@
 //! Which window lies in a direction is pure geometry (`next_in`, tested below).
 
 use smithay::{
+    backend::input::InputTime,
     desktop::Window,
     utils::{Logical, Point},
 };
 
 use crate::{
     InfinityDesk,
+    canvas::Canvas,
     cluster::{Rect, TOUCH_TOLERANCE},
     resize::Edge,
 };
@@ -129,8 +131,7 @@ impl InfinityDesk {
         };
         if let Some(i) = next {
             self.focus_window(&windows[i]);
-            self.canvas.reveal(rects[i], self.config.gaps);
-            self.apply_viewport();
+            self.reveal(rects[i]);
         }
     }
 
@@ -154,8 +155,7 @@ impl InfinityDesk {
         self.resize_to(&windows[a], rects[b], None);
         self.resize_to(&windows[b], rects[a], None);
         self.focus_window(&active);
-        self.canvas.reveal(rects[b], self.config.gaps);
-        self.apply_viewport();
+        self.reveal(rects[b]);
     }
 
     /// Mod+Shift+arrow: the right (bottom) edge of the active window moves towards the arrow, so
@@ -175,8 +175,7 @@ impl InfinityDesk {
         }
         self.apply_toggle(&toggle, toggle.delta);
         if let Some(rect) = self.target_rect(&active) {
-            self.canvas.reveal(rect, self.config.gaps);
-            self.apply_viewport();
+            self.reveal(rect);
         }
     }
 
@@ -184,12 +183,12 @@ impl InfinityDesk {
     pub fn pan(&mut self, dir: Dir) {
         let (axis, forward) = dir.axis();
         let screen = self.canvas.screen_size();
-        let step = [screen.w, screen.h][axis] as f64 / PAN_STEP / self.canvas.zoom();
-        let mut d = [0.0, 0.0];
-        d[axis] = if forward { step } else { -step };
-        let loc = self.canvas.viewport_loc() + Point::from((d[0], d[1]));
-        self.canvas.set_viewport_loc(loc);
-        self.apply_viewport();
+        let step = [screen.w, screen.h][axis] as f64 / PAN_STEP;
+        self.glide_view(|c| {
+            let mut d = [0.0, 0.0];
+            d[axis] = if forward { step } else { -step } / c.zoom();
+            c.set_viewport_loc(c.viewport_loc() + Point::from((d[0], d[1])));
+        });
     }
 
     /// Mod+Plus / Mod+Minus: zooms around the middle of the screen.
@@ -197,8 +196,7 @@ impl InfinityDesk {
         let screen = self.canvas.screen_size().to_f64();
         let middle = Point::from((screen.w / 2.0, screen.h / 2.0));
         let factor = if zoom_in { ZOOM_STEP } else { 1.0 / ZOOM_STEP };
-        self.canvas.zoom_at(middle, factor);
-        self.apply_viewport();
+        self.glide_view(|c| c.zoom_at(middle, factor));
     }
 
     /// After panning by hand: the view snaps into the grid of a window on the screen if it is
@@ -213,8 +211,8 @@ impl InfinityDesk {
             .filter_map(|w| self.space.element_geometry(w))
             .filter(|r| r.overlaps(viewport))
             .collect();
-        self.canvas.snap_to_grid(&rects, self.config.gaps);
-        self.apply_viewport();
+        let gaps = self.config.gaps;
+        self.glide_view(|c| c.snap_to_grid(&rects, gaps));
     }
 
     /// Mod+C: the active window's cluster goes to the middle of the screen.
@@ -225,8 +223,7 @@ impl InfinityDesk {
         let (_, rects) = self.cluster_rects(&active);
         if let Some(bbox) = rects.into_iter().reduce(|a, b| a.merge(b)) {
             let middle = bbox.loc + bbox.size.downscale(2).to_point();
-            self.canvas.center_viewport_on(middle.to_f64());
-            self.apply_viewport();
+            self.glide_view(|c| c.center_viewport_on(middle.to_f64()));
         }
     }
 
@@ -240,9 +237,8 @@ impl InfinityDesk {
                 .filter(|a| overview.active.as_ref() != Some(a))
             {
                 Some(chosen) => self.show_cluster(&chosen),
-                None => self.canvas.set_view(overview.view.0, overview.view.1),
+                None => self.glide_view(|c| c.set_view(overview.view.0, overview.view.1)),
             }
-            self.apply_viewport();
             return;
         }
         let all = (self.space.elements())
@@ -252,14 +248,14 @@ impl InfinityDesk {
         let margin = (area.size.w / OVERVIEW_MARGIN, area.size.h / OVERVIEW_MARGIN);
         let margin = margin.0.max(margin.1);
         self.overview = Some(Overview {
-            view: (self.canvas.viewport_loc(), self.canvas.zoom()),
+            view: self.canvas.target(),
             active: self.active.clone(),
         });
-        self.canvas.show(Rect::new(
+        let area = Rect::new(
             area.loc - Point::from((margin, margin)),
             area.size + (2 * margin, 2 * margin).into(),
-        ));
-        self.apply_viewport();
+        );
+        self.glide_view(|c| c.show(area));
     }
 
     /// Alt+Tab: goes one window further back in the order they were used; the view follows.
@@ -273,8 +269,7 @@ impl InfinityDesk {
         let window = self.recent[next].clone();
         self.focus_window(&window);
         if let Some(rect) = self.target_rect(&window) {
-            self.canvas.reveal(rect, self.config.gaps);
-            self.apply_viewport();
+            self.reveal(rect);
         }
     }
 
@@ -299,14 +294,34 @@ impl InfinityDesk {
         self.overview = None;
         self.focus_window(window);
         self.show_cluster(window);
-        self.apply_viewport();
     }
 
     /// Shows a window's cluster in the middle of the screen, at 1:1 if it fits.
     fn show_cluster(&mut self, window: &Window) {
         let (_, rects) = self.cluster_rects(window);
         if let Some(bbox) = rects.into_iter().reduce(|a, b| a.merge(b)) {
-            self.canvas.show(bbox);
+            self.glide_view(|c| c.show(bbox));
+        }
+    }
+
+    /// Changes the view with `change` and lets it glide there (see `Canvas::glide`).
+    pub fn glide_view(&mut self, change: impl FnOnce(&mut Canvas)) {
+        self.canvas.glide(self.config.animation, change);
+        self.apply_viewport();
+    }
+
+    /// The view glides just far enough that `rect` is on the screen (see `Canvas::reveal`).
+    pub fn reveal(&mut self, rect: Rect) {
+        let gaps = self.config.gaps;
+        self.glide_view(|c| c.reveal(rect, gaps));
+    }
+
+    /// Before each frame: a gliding view moves on; the pointer stays put on the screen.
+    pub fn step_view(&mut self) {
+        if self.canvas.step() {
+            self.apply_viewport();
+            let screen = self.pointer_screen;
+            self.pointer_moved(self.canvas.screen_to_canvas(screen), InputTime::now());
         }
     }
 }

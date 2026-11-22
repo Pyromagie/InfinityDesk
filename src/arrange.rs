@@ -65,7 +65,7 @@ impl InfinityDesk {
         let Some(rect) = self.space.element_geometry(window) else {
             return;
         };
-        let view = (self.canvas.viewport_loc(), self.canvas.zoom());
+        let view = self.canvas.target();
         self.fullscreen = Some(Fullscreen {
             window: window.clone(),
             rect,
@@ -84,9 +84,8 @@ impl InfinityDesk {
             return;
         };
         let screen = self.canvas.screen_size();
-        self.canvas.focus_on(Rect::new(rect.loc, screen));
-        self.apply_viewport();
-        let target = Rect::new(self.canvas.viewport_loc().to_i32_round(), screen);
+        self.glide_view(|c| c.focus_on(Rect::new(rect.loc, screen)));
+        let target = Rect::new(self.canvas.target().0.to_i32_round(), screen);
         self.resize_to(&window, target, Some(true));
     }
 
@@ -95,8 +94,7 @@ impl InfinityDesk {
         let Some(Fullscreen { window, rect, view }) = self.fullscreen.take() else {
             return;
         };
-        self.canvas.set_view(view.0, view.1);
-        self.apply_viewport();
+        self.glide_view(|c| c.set_view(view.0, view.1));
         if window.alive() {
             self.resize_to(&window, rect, Some(false));
         }
@@ -202,8 +200,7 @@ impl InfinityDesk {
                 .map(|(_, r)| *r)
                 .collect(),
         });
-        self.canvas.focus_on(area);
-        self.apply_viewport();
+        self.glide_view(|c| c.focus_on(area));
         self.focus_window(window);
     }
 

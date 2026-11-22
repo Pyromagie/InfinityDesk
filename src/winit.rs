@@ -80,6 +80,7 @@ pub fn init_winit(
                     false => backend.buffer_age().unwrap_or(0),
                 };
                 first_frame = false;
+                state.step_view();
                 let bars = state.bars();
                 // Ours (resize arrows), else what the app asks for (as far as the host can show it).
                 let wanted = match &state.client_cursor {

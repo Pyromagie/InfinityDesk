@@ -385,6 +385,7 @@ impl InfinityDesk {
         let Some(output) = self.output.clone() else {
             return;
         };
+        self.step_view();
         let bars = self.bars();
         let upper_layers = self.upper_layers();
         let pointer = self.pointer_screen;
