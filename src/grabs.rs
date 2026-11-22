@@ -163,16 +163,19 @@ impl InfinityDesk {
 
     /// Decides a resize grabbed at `borders` once the pointer moved by `moved` (canvas pixels):
     /// the first window whose edges can change the way the pointer moves (between two windows,
-    /// pulling decides which one), at a corner both axes or else one (see `resize::tries`).
-    /// Lights up its moving edges.
+    /// pulling decides which one), at a corner both axes or else one (see `resize::tries`; all
+    /// borders with both axes come first). Lights up its moving edges.
     fn choose_resize(
         &mut self,
         borders: &[(Window, [Edge; 2])],
         shift: bool,
         moved: Point<f64, Logical>,
     ) -> Option<(Toggle, Point<i32, Logical>)> {
-        for (window, edges) in borders {
-            for edges in resize::tries(*edges, moved) {
+        for round in 0..3 {
+            for (window, edges) in borders {
+                let Some(&edges) = resize::tries(*edges, moved).get(round) else {
+                    continue;
+                };
                 let toggle = self.plan_toggle(window, edges, shift);
                 if !toggle.follow.is_empty() && resize::goes_along(toggle.delta, toggle.sign, moved)
                 {

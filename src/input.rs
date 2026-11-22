@@ -227,18 +227,21 @@ impl InfinityDesk {
                             let grab = DragGrab::move_window(self, start_data, window);
                             pointer.set_grab(self, grab, serial, Focus::Clear);
                         } else if bound == Some(Action::DragResize) {
-                            // Resize at the edges nearest to the pointer (like a corner).
+                            // Anywhere in the window: the pulling direction decides which edges
+                            // move (see `choose_resize`), the nearest corner first.
                             let geo = self.space.element_geometry(&window).unwrap();
-                            let edge =
-                                |p: f64, start: i32, len: i32| match p < (start + len / 2) as f64 {
-                                    true => Edge::Start,
-                                    false => Edge::End,
-                                };
-                            let edges = [
-                                edge(location.x, geo.loc.x, geo.size.w),
-                                edge(location.y, geo.loc.y, geo.size.h),
+                            let near = |p: f64, start: i32, len: i32| p < (start + len / 2) as f64;
+                            let near = [
+                                near(location.x, geo.loc.x, geo.size.w),
+                                near(location.y, geo.loc.y, geo.size.h),
                             ];
-                            let borders = vec![(window, edges)];
+                            let edge = |start: bool| if start { Edge::Start } else { Edge::End };
+                            let borders =
+                                [(true, true), (false, true), (true, false), (false, false)]
+                                    .map(|(x, y)| {
+                                        (window.clone(), [edge(near[0] == x), edge(near[1] == y)])
+                                    })
+                                    .to_vec();
                             let grab = DragGrab::resize(self, start_data, borders, mods.shift);
                             pointer.set_grab(self, grab, serial, Focus::Clear);
                         }
