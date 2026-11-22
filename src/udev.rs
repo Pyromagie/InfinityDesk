@@ -24,23 +24,23 @@ use smithay::{
         session::{Event as SessionEvent, Session, libseat::LibSeatSession},
         udev::all_gpus,
     },
-    output::{Mode as WlMode, Output, PhysicalProperties, Subpixel},
+    output::{Mode as WlMode, Output, PhysicalProperties, Scale, Subpixel},
     reexports::{
         calloop::{
             EventLoop, LoopHandle,
             timer::{TimeoutAction, Timer},
         },
-        drm::control::{Device as _, ModeTypeFlags, connector, crtc},
+        drm::control::{Device as _, Mode as DrmMode, ModeTypeFlags, connector, crtc},
         input::{AccelProfile, Device as InputDevice, DeviceCapability, Libinput},
         rustix::fs::OFlags,
     },
-    utils::{DeviceFd, Transform},
+    utils::DeviceFd,
     wayland::dmabuf::DmabufFeedbackBuilder,
 };
 
 use crate::{
     InfinityDesk,
-    config::Config,
+    config::{Config, OutputMode, OutputSettings},
     cursor::Cursors,
     render::{Grid, bar_elements, desk_elements},
 };
@@ -61,6 +61,8 @@ pub struct Udev {
     /// Buffers of the solid bars, kept so that unchanged outlines are not redrawn.
     bar_buffers: Vec<SolidColorBuffer>,
     cursors: Cursors,
+    /// What the monitor can show (resolutions and refresh rates).
+    modes: Vec<DrmMode>,
     handle: LoopHandle<'static, InfinityDesk>,
     /// A frame is on its way to the screen; the next one is drawn when it got there.
     frame_pending: bool,
@@ -79,7 +81,30 @@ impl Udev {
 
     /// Another pointer theme or size from the config.
     pub fn set_cursor_theme(&mut self, config: &Config) {
-        self.cursors = Cursors::load(config.cursor_theme.as_deref(), config.cursor_size);
+        let scale = self.cursors.scale();
+        self.cursors = Cursors::load(config.cursor_theme.as_deref(), config.cursor_size, scale);
+    }
+
+    /// Changed `desk.output` settings: resolution and refresh rate, scale, orientation.
+    pub fn apply_output_settings(
+        &mut self,
+        output: &Output,
+        new: &OutputSettings,
+        config: &Config,
+    ) {
+        let mode = choose_mode(&self.modes, new.mode);
+        let wl_mode = WlMode::from(mode);
+        if output.current_mode() != Some(wl_mode) {
+            match self.compositor.use_mode(mode) {
+                Ok(()) => self.frame_time = frame_time(wl_mode),
+                Err(err) => tracing::warn!("Cannot switch the screen's mode: {err:?}"),
+            }
+        }
+        let mode = self.compositor.pending_mode();
+        let scale = Scale::Fractional(new.scale);
+        output.change_current_state(Some(mode.into()), Some(new.transform), Some(scale), None);
+        let theme = config.cursor_theme.as_deref();
+        self.cursors = Cursors::load(theme, config.cursor_size, new.scale);
     }
 
     /// Applies the touchpad and mouse settings to every connected device.
@@ -195,21 +220,15 @@ pub fn init_udev(
         .and_then(|d| d.try_get_render_node().ok().flatten());
     let mut renderer = unsafe { GlesRenderer::new(EGLContext::new(&egl)?)? };
 
-    // The monitor's own resolution, at the highest refresh rate it offers there.
-    let modes = connector.modes();
-    let preferred = (modes.iter())
-        .find(|m| m.mode_type().contains(ModeTypeFlags::PREFERRED))
-        .unwrap_or(&modes[0]);
-    let mode = *(modes.iter())
-        .filter(|m| m.size() == preferred.size())
-        .max_by_key(|m| WlMode::from(**m).refresh)
-        .unwrap_or(preferred);
-    let wl_mode = WlMode::from(mode);
     let name = format!(
         "{}-{}",
         connector.interface().as_str(),
         connector.interface_id()
     );
+    let settings = state.config.output(&name);
+    let modes = connector.modes().to_vec();
+    let mode = choose_mode(&modes, settings.mode);
+    let wl_mode = WlMode::from(mode);
     tracing::info!(
         "Screen {name}: {}x{} at {:.2} Hz",
         wl_mode.size.w,
@@ -230,8 +249,8 @@ pub fn init_udev(
     let _global = output.create_global::<InfinityDesk>(&state.display_handle);
     output.change_current_state(
         Some(wl_mode),
-        Some(Transform::Normal),
-        None,
+        Some(settings.transform),
+        Some(Scale::Fractional(settings.scale)),
         Some((0, 0).into()),
     );
     output.set_preferred(wl_mode);
@@ -344,11 +363,13 @@ pub fn init_udev(
         cursors: Cursors::load(
             state.config.cursor_theme.as_deref(),
             state.config.cursor_size,
+            settings.scale,
         ),
+        modes,
         handle,
         frame_pending: false,
         redraw_planned: false,
-        frame_time: Duration::from_secs_f64(1000.0 / wl_mode.refresh as f64),
+        frame_time: frame_time(wl_mode),
     });
     state.set_output(output);
     // The pointer starts in the middle of the screen.
@@ -379,7 +400,8 @@ impl InfinityDesk {
             self.cursor,
             &self.client_cursor,
         );
-        elements.extend(bar_elements(&mut udev.bar_buffers, &bars));
+        let scale = output.current_scale().fractional_scale();
+        elements.extend(bar_elements(&mut udev.bar_buffers, &bars, scale));
         elements.extend(desk_elements(
             &mut udev.renderer,
             &output,
@@ -436,4 +458,35 @@ impl InfinityDesk {
         }
         self.render_screen();
     }
+}
+
+/// The mode from the config (at its resolution, the refresh rate closest to the wanted one, or
+/// the highest), else the monitor's own resolution at the highest refresh rate it offers there.
+fn choose_mode(modes: &[DrmMode], wanted: Option<OutputMode>) -> DrmMode {
+    let preferred = (modes.iter())
+        .find(|m| m.mode_type().contains(ModeTypeFlags::PREFERRED))
+        .unwrap_or(&modes[0]);
+    let size = wanted.map_or(preferred.size(), |w| (w.width as u16, w.height as u16));
+    let refresh = |m: &&DrmMode| WlMode::from(**m).refresh;
+    let at_size = modes.iter().filter(|m| m.size() == size);
+    let best = match wanted.and_then(|w| w.refresh) {
+        Some(hz) => at_size.min_by_key(|m| (refresh(m) - (hz * 1000.0).round() as i32).abs()),
+        None => at_size.max_by_key(refresh),
+    };
+    match best {
+        Some(mode) => *mode,
+        None => {
+            tracing::warn!(
+                "The monitor has no mode {}x{}, using its own",
+                size.0,
+                size.1
+            );
+            choose_mode(modes, None)
+        }
+    }
+}
+
+/// How long a frame is shown at this refresh rate.
+fn frame_time(mode: WlMode) -> Duration {
+    Duration::from_secs_f64(1000.0 / mode.refresh as f64)
 }

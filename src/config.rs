@@ -21,6 +21,7 @@
 //! desk.cursor { theme = "Adwaita", size = 24 }
 //! desk.window_rule { match = { app_id = "^firefox$" }, width = "full", height = "full",
 //!                    open_fullscreen = false, dock = true }
+//! desk.output { name = "DP-2", mode = "3440x1440@175", scale = 1.0, transform = "normal" }
 //! ```
 //!
 //! Everything is optional. Without the file the defaults apply; if the file has an error, it is
@@ -42,6 +43,7 @@ use smithay::input::keyboard::{
     Keysym, ModifiersState, XkbConfig,
     xkb::{self, KEYSYM_CASE_INSENSITIVE},
 };
+use smithay::utils::Transform;
 
 pub struct Config {
     pub keyboard: Keyboard,
@@ -82,6 +84,32 @@ pub struct Config {
     pub cursor_theme: Option<String>,
     pub cursor_size: Option<u32>,
     pub window_rules: Vec<WindowRule>,
+    pub outputs: Vec<OutputConfig>,
+}
+
+/// Settings for a monitor (`desk.output`); without a name for every monitor.
+pub struct OutputConfig {
+    name: Option<String>,
+    mode: Option<OutputMode>,
+    scale: Option<f64>,
+    transform: Option<Transform>,
+}
+
+/// A resolution, and a refresh rate in Hz (`None`: the highest there is).
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct OutputMode {
+    pub width: i32,
+    pub height: i32,
+    pub refresh: Option<f64>,
+}
+
+/// What the `desk.output` settings say for one monitor.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct OutputSettings {
+    /// `None`: the monitor's own resolution at the highest refresh rate.
+    pub mode: Option<OutputMode>,
+    pub scale: f64,
+    pub transform: Transform,
 }
 
 /// What happens to the windows of certain programs when they open (`desk.window_rule`).
@@ -108,6 +136,22 @@ pub struct Rules {
 }
 
 impl Config {
+    /// The settings for the monitor `name` (e.g. "DP-2"): every matching `desk.output` counts,
+    /// later ones win.
+    pub fn output(&self, name: &str) -> OutputSettings {
+        let mut settings = OutputSettings {
+            mode: None,
+            scale: 1.0,
+            transform: Transform::Normal,
+        };
+        for o in (self.outputs.iter()).filter(|o| o.name.as_ref().is_none_or(|n| n == name)) {
+            settings.mode = o.mode.or(settings.mode);
+            settings.scale = o.scale.unwrap_or(settings.scale);
+            settings.transform = o.transform.unwrap_or(settings.transform);
+        }
+        settings
+    }
+
     /// The rules for a window: every matching window rule counts, later ones win.
     pub fn rules_for(&self, app_id: &str, title: &str) -> Rules {
         let mut rules = Rules {
@@ -277,6 +321,7 @@ impl Default for Config {
             cursor_theme: None,
             cursor_size: None,
             window_rules: Vec::new(),
+            outputs: Vec::new(),
             binds: [
                 ("Mod+T".to_string(), Action::Spawn("kitty".into())),
                 ("Mod+Return".to_string(), Action::Spawn("kitty".into())),
@@ -592,7 +637,7 @@ impl Config {
         let lua = Lua::new();
         lua.set_app_data(Config::default());
         let desk = lua.create_table()?;
-        let sections: [(&str, Section); 8] = [
+        let sections: [(&str, Section); 9] = [
             ("input", input),
             ("canvas", canvas),
             ("layout", layout),
@@ -601,6 +646,7 @@ impl Config {
             ("env", env),
             ("cursor", cursor),
             ("window_rule", window_rule),
+            ("output", output),
         ];
         for (name, section) in sections {
             let f = lua.create_function(move |lua, t: Table| {
@@ -966,6 +1012,64 @@ fn window_rule(config: &mut Config, t: &Table) -> mlua::Result<()> {
     Ok(())
 }
 
+fn output(config: &mut Config, t: &Table) -> mlua::Result<()> {
+    check_keys(t, "output", &["name", "mode", "scale", "transform"])?;
+    let mode = match get::<String>(t, "output", "mode")? {
+        None => None,
+        Some(text) => Some(parse_mode(&text).ok_or_else(|| {
+            let message = format!(r#"expected e.g. "1920x1080" or "1920x1080@60", not "{text}""#);
+            setting_error("output", "mode", &message)
+        })?),
+    };
+    let scale = get::<f64>(t, "output", "scale")?;
+    if scale.is_some_and(|s| !(0.5..=4.0).contains(&s)) {
+        return Err(setting_error(
+            "output",
+            "scale",
+            "must be between 0.5 and 4",
+        ));
+    }
+    let transform = match get::<String>(t, "output", "transform")?.as_deref() {
+        None => None,
+        Some("normal") => Some(Transform::Normal),
+        Some("90") => Some(Transform::_90),
+        Some("180") => Some(Transform::_180),
+        Some("270") => Some(Transform::_270),
+        Some("flipped") => Some(Transform::Flipped),
+        Some("flipped-90") => Some(Transform::Flipped90),
+        Some("flipped-180") => Some(Transform::Flipped180),
+        Some("flipped-270") => Some(Transform::Flipped270),
+        Some(_) => {
+            let message =
+                r#"expected "normal", "90", "180", "270", "flipped" or "flipped-90" .. "-270""#;
+            return Err(setting_error("output", "transform", message));
+        }
+    };
+    config.outputs.push(OutputConfig {
+        name: get(t, "output", "name")?,
+        mode,
+        // Clients get scales in 120ths.
+        scale: scale.map(|s| (s * 120.0).round() / 120.0),
+        transform,
+    });
+    Ok(())
+}
+
+/// "1920x1080" or "1920x1080@60" (refresh rate in Hz).
+fn parse_mode(text: &str) -> Option<OutputMode> {
+    let (size, refresh) = match text.split_once('@') {
+        Some((size, refresh)) => (size, Some(refresh.trim().parse().ok()?)),
+        None => (text, None),
+    };
+    let (w, h) = size.split_once('x')?;
+    let (width, height) = (w.trim().parse().ok()?, h.trim().parse().ok()?);
+    (width > 0 && height > 0).then_some(OutputMode {
+        width,
+        height,
+        refresh,
+    })
+}
+
 fn set_env(config: &mut Config, name: String, value: String) {
     config.env.retain(|(n, _)| n != &name);
     config.env.push((name, value));
@@ -1218,6 +1322,58 @@ mod tests {
             err.contains("window_rule.match.app_id: regex parse error"),
             "{err}"
         );
+    }
+
+    #[test]
+    fn output_settings() {
+        let config = load(
+            r#"
+            local desk = require("infinitydesk")
+            desk.output { scale = 1.25 }
+            desk.output { name = "DP-2", mode = "2560x1440@143.9", transform = "90" }
+            desk.output { name = "HDMI-A-1", mode = "1920x1080", scale = 2 }
+            "#,
+        )
+        .unwrap();
+        let dp = config.output("DP-2");
+        assert_eq!(dp.scale, 1.25);
+        assert_eq!(dp.transform, Transform::_90);
+        let mode = |width, height, refresh| {
+            Some(OutputMode {
+                width,
+                height,
+                refresh,
+            })
+        };
+        assert_eq!(dp.mode, mode(2560, 1440, Some(143.9)));
+        let hdmi = config.output("HDMI-A-1");
+        assert_eq!((hdmi.scale, hdmi.mode), (2.0, mode(1920, 1080, None)));
+        let other = config.output("eDP-1");
+        assert_eq!(
+            (other.scale, other.mode, other.transform),
+            (1.25, None, Transform::Normal)
+        );
+
+        for (setting, message) in [
+            (
+                r#"mode = "1920""#,
+                r#"output.mode: expected e.g. "1920x1080""#,
+            ),
+            (
+                r#"mode = "1920x1080@fast""#,
+                r#"output.mode: expected e.g."#,
+            ),
+            ("scale = 5", "output.scale: must be between 0.5 and 4"),
+            (
+                r#"transform = "45""#,
+                r#"output.transform: expected "normal""#,
+            ),
+        ] {
+            let err = error(&format!(
+                r#"require("infinitydesk").output {{ {setting} }}"#
+            ));
+            assert!(err.contains(message), "{err}");
+        }
     }
 
     #[test]

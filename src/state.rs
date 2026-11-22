@@ -33,7 +33,7 @@ use smithay::{
         Seat, SeatState,
         pointer::{CursorIcon, CursorImageStatus},
     },
-    output::Output,
+    output::{Output, Scale},
     reexports::{
         calloop::{
             EventLoop, Interest, LoopSignal, Mode, PostAction,
@@ -44,10 +44,13 @@ use smithay::{
             Display, DisplayHandle, backend::ClientData, protocol::wl_surface::WlSurface,
         },
     },
-    utils::{Logical, Point, Rectangle, SERIAL_COUNTER},
+    utils::{Logical, Point, Rectangle, SERIAL_COUNTER, Size},
     wayland::{
-        compositor::{CompositorClientState, CompositorState},
+        compositor::{
+            CompositorClientState, CompositorState, TraversalAction, with_surface_tree_downward,
+        },
         dmabuf::DmabufState,
+        fractional_scale::{FractionalScaleManagerState, with_fractional_scale},
         output::OutputManagerState,
         selection::data_device::DataDeviceState,
         shell::{
@@ -130,6 +133,8 @@ pub struct InfinityDesk {
     pub data_device_state: DataDeviceState,
     /// Lets clients scale their buffers (wallpaper tools like awww need it, video players use it).
     pub viewporter_state: ViewporterState,
+    /// Tells apps the screen's scale (e.g. 1.5), so they draw crisp at it.
+    pub fractional_scale_state: FractionalScaleManagerState,
     /// Apps hand over GPU buffers directly (standalone only; offered by `udev`).
     pub dmabuf_state: DmabufState,
     pub seat: Seat<Self>,
@@ -146,6 +151,7 @@ impl InfinityDesk {
         let output_manager_state = OutputManagerState::new_with_xdg_output::<Self>(&dh);
         let data_device_state = DataDeviceState::new::<Self>(&dh);
         let viewporter_state = ViewporterState::new::<Self>(&dh);
+        let fractional_scale_state = FractionalScaleManagerState::new::<Self>(&dh);
 
         let config = Config::load();
         let mut seat_state = SeatState::new();
@@ -215,6 +221,7 @@ impl InfinityDesk {
             seat_state,
             data_device_state,
             viewporter_state,
+            fractional_scale_state,
             dmabuf_state: DmabufState::new(),
             seat,
         }
@@ -293,7 +300,26 @@ impl InfinityDesk {
         {
             udev.set_cursor_theme(&config);
         }
+        let output = self.output.clone();
+        let settings = output
+            .as_ref()
+            .map(|o| (self.config.output(&o.name()), config.output(&o.name())));
         self.config = config;
+        if let (Some(output), Some((old, new))) = (output, settings)
+            && old != new
+        {
+            match &mut self.udev {
+                Some(udev) => udev.apply_output_settings(&output, &new, &self.config),
+                // Nested, only the scale: the host decides size and orientation.
+                None => output.change_current_state(
+                    None,
+                    None,
+                    Some(Scale::Fractional(new.scale)),
+                    None,
+                ),
+            }
+            self.output_changed();
+        }
     }
 
     /// Moves clusters that lie (partly) outside the canvas back in, each as a whole.
@@ -340,12 +366,38 @@ impl InfinityDesk {
     /// The screen is ready: the viewport starts in the middle of the canvas, leaving room in
     /// every direction.
     pub fn set_output(&mut self, output: Output) {
-        let size = output.current_mode().unwrap().size.to_logical(1);
+        self.canvas.set_screen_size(screen_size(&output));
         self.output = Some(output);
-        self.canvas.set_screen_size(size);
         let canvas = self.canvas.size().to_f64();
         (self.canvas).center_viewport_on((canvas.w / 2.0, canvas.h / 2.0).into());
         self.apply_viewport();
+    }
+
+    /// The screen changed size or scale (nested window resized, monitor settings): bars,
+    /// the view and a fullscreen window follow, and apps learn the new scale.
+    pub fn output_changed(&mut self) {
+        let Some(output) = self.output.clone() else {
+            return;
+        };
+        layer_map_for_output(&output).arrange();
+        self.canvas.set_screen_size(screen_size(&output));
+        self.apply_viewport();
+        self.fit_fullscreen();
+        let scale = output.current_scale().fractional_scale();
+        let layers: Vec<WlSurface> = (layer_map_for_output(&output).layers())
+            .map(|l| l.wl_surface().clone())
+            .collect();
+        let windows =
+            (self.space.elements()).filter_map(|w| Some(w.toplevel()?.wl_surface().clone()));
+        for surface in windows.chain(layers) {
+            with_surface_tree_downward(
+                &surface,
+                (),
+                |_, _, _| TraversalAction::DoChildren(()),
+                |_, states, _| with_fractional_scale(states, |f| f.set_preferred_scale(scale)),
+                |_, _, _| true,
+            );
+        }
     }
 
     /// After a frame: tells apps they may draw their next one, and tidies up.
@@ -690,4 +742,12 @@ pub struct Resizing {
     pub rect: Rectangle<i32, Logical>,
     /// Per axis: the right/bottom edge stays in place (the left/top one is dragged).
     pub anchor_end: [bool; 2],
+}
+
+/// The screen's size in logical pixels: its resolution, turned and divided by its scale.
+pub fn screen_size(output: &Output) -> Size<i32, Logical> {
+    let mode = output.current_mode().unwrap();
+    let scale = output.current_scale().fractional_scale();
+    let size = output.current_transform().transform_size(mode.size);
+    size.to_f64().to_logical(scale).to_i32_round()
 }

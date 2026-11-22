@@ -15,6 +15,8 @@ use smithay::{
     utils::Serial,
     wayland::dmabuf::{DmabufGlobal, DmabufHandler, DmabufState, ImportNotifier},
     wayland::{
+        compositor::with_states,
+        fractional_scale::{FractionalScaleHandler, with_fractional_scale},
         output::OutputHandler,
         pointer_constraints::PointerConstraintsHandler,
         selection::{
@@ -113,5 +115,17 @@ impl DmabufHandler for InfinityDesk {
 // --- Outputs (monitors) ---
 
 impl OutputHandler for InfinityDesk {}
+
+/// An app asks for the screen's scale for one of its surfaces.
+impl FractionalScaleHandler for InfinityDesk {
+    fn new_fractional_scale(&mut self, surface: WlSurface) {
+        if let Some(output) = &self.output {
+            let scale = output.current_scale().fractional_scale();
+            with_states(&surface, |states| {
+                with_fractional_scale(states, |f| f.set_preferred_scale(scale))
+            });
+        }
+    }
+}
 
 smithay::delegate_dispatch2!(InfinityDesk);

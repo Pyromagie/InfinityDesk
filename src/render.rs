@@ -156,6 +156,7 @@ pub fn outline_bars(
 pub fn bar_elements(
     buffers: &mut Vec<SolidColorBuffer>,
     bars: &[(Rectangle<i32, Logical>, [f32; 4])],
+    scale: f64,
 ) -> Vec<DeskElement> {
     if buffers.len() < bars.len() {
         buffers.resize_with(bars.len(), SolidColorBuffer::default);
@@ -163,9 +164,9 @@ pub fn bar_elements(
     (bars.iter().zip(buffers.iter_mut()))
         .map(|((rect, color), buffer)| {
             buffer.update(rect.size, *color);
-            let loc = (rect.loc.x, rect.loc.y);
+            let loc = rect.loc.to_f64().to_physical(scale).to_i32_round();
             let element =
-                SolidColorRenderElement::from_buffer(buffer, loc, 1.0, 1.0, Kind::Unspecified);
+                SolidColorRenderElement::from_buffer(buffer, loc, scale, 1.0, Kind::Unspecified);
             DeskElement::Solid(element)
         })
         .collect()
@@ -177,12 +178,16 @@ fn layer_elements(
     output: &Output,
     layers: &[Layer],
 ) -> Vec<WaylandSurfaceRenderElement<GlesRenderer>> {
+    let scale = output.current_scale().fractional_scale();
     let map = layer_map_for_output(output);
     map.layers()
         .rev()
         .filter(|l| layers.contains(&l.layer()))
         .filter_map(|l| Some((l, map.layer_geometry(l)?.loc)))
-        .flat_map(|(l, loc)| l.render_elements(renderer, loc.to_physical(1), Scale::from(1.0), 1.0))
+        .flat_map(|(l, loc)| {
+            let loc = loc.to_physical_precise_round(scale);
+            l.render_elements(renderer, loc, Scale::from(scale), 1.0)
+        })
         .collect()
 }
 
@@ -201,7 +206,8 @@ pub fn desk_elements(
     let mut elements: Vec<DeskElement> = upper.into_iter().map(DeskElement::Surface).collect();
     // Only windows inside the viewport are rendered (culling), then shrunk by the zoom.
     let viewport = canvas.viewport().to_i32_round();
-    let windows = space.render_elements_for_region(renderer, &viewport, 1.0, 1.0);
+    let scale = output.current_scale().fractional_scale();
+    let windows = space.render_elements_for_region(renderer, &viewport, scale, 1.0);
     elements.extend(windows.into_iter().map(|e| {
         DeskElement::Zoomed(RescaleRenderElement::from_element(
             e,

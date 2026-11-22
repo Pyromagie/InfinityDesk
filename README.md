@@ -149,7 +149,7 @@ cargo run --release -- -c firefox    # with another program inside
 - **Touchpad gestures:** pinch to zoom, three fingers to pan, four fingers for the overview
 - **Lua configuration** with live reload: keyboard, touchpad, mouse, canvas, gaps, snapping,
   colors, shortcuts, mouse bindings, programs to start and their environment variables, pointer
-  theme, window rules
+  theme, window rules, monitors (resolution, refresh rate, scale, orientation)
 - wlr-layer-shell, so launchers like fuzzel, bars and wallpaper tools (e.g. awww, swaybg) work;
   the wallpaper stays fixed behind the moving canvas
 - **X11 programs** (Steam, older games and tools) through `xwayland-satellite`, if it is
@@ -296,6 +296,16 @@ desk.cursor { theme = "Adwaita", size = 24 }
 desk.window_rule { match = { app_id = "^firefox$" }, width = "full" }
 desk.window_rule { match = { app_id = "^mpv$" }, open_fullscreen = true }
 desk.window_rule { match = { app_id = "pavucontrol" }, dock = false }
+
+-- Monitors; without a name for every monitor (names like "DP-2" are in the log). Changes apply
+-- right away. Nested, only the scale counts.
+desk.output {
+  name = "DP-2",
+  mode = "2560x1440@144", -- resolution and refresh rate (Hz); usual: its own resolution at the
+                          -- highest refresh rate. Without "@...": the highest at that resolution
+  scale = 1.5,            -- 0.5 to 4, e.g. for high resolution screens
+  transform = "normal",   -- turned: "90", "180", "270", mirrored: "flipped", "flipped-90", ...
+}
 ```
 
 A mistake (a typo in a setting name, a wrong type, a value out of range) is logged with the

@@ -5,7 +5,8 @@ use smithay::{
         renderer::damage::OutputDamageTracker,
         winit::{self, WinitEvent},
     },
-    output::{Mode, Output, PhysicalProperties, Subpixel},
+    input::pointer::{CursorIcon, CursorImageStatus},
+    output::{Mode, Output, PhysicalProperties, Scale, Subpixel},
     reexports::calloop::EventLoop,
     utils::Transform,
 };
@@ -13,10 +14,6 @@ use smithay::{
 use crate::{
     InfinityDesk,
     render::{Grid, bar_elements, desk_elements},
-};
-use smithay::{
-    desktop::layer_map_for_output,
-    input::pointer::{CursorIcon, CursorImageStatus},
 };
 
 pub fn init_winit(
@@ -41,10 +38,12 @@ pub fn init_winit(
         },
     );
     let _global = output.create_global::<InfinityDesk>(&state.display_handle);
+    // Nested, only the scale from the config counts: the host decides size and orientation.
+    let scale = state.config.output(&output.name()).scale;
     output.change_current_state(
         Some(mode),
         Some(Transform::Flipped180),
-        None,
+        Some(Scale::Fractional(scale)),
         Some((0, 0).into()),
     );
     output.set_preferred(mode);
@@ -71,10 +70,7 @@ pub fn init_winit(
                     None,
                     None,
                 );
-                layer_map_for_output(&output).arrange();
-                state.canvas.set_screen_size(size.to_logical(1));
-                state.apply_viewport();
-                state.fit_fullscreen();
+                state.output_changed();
             }
             WinitEvent::Input(event) => state.process_input_event(event),
             WinitEvent::Redraw => {
@@ -96,7 +92,8 @@ pub fn init_winit(
                 }
                 let damage = match backend.bind() {
                     Ok((renderer, mut framebuffer)) => {
-                        let mut elements = bar_elements(&mut bar_buffers, &bars);
+                        let scale = output.current_scale().fractional_scale();
+                        let mut elements = bar_elements(&mut bar_buffers, &bars, scale);
                         elements.extend(desk_elements(
                             renderer,
                             &output,

@@ -18,7 +18,7 @@ use smithay::{
         },
     },
     input::pointer::{CursorIcon, CursorImageStatus, CursorImageSurfaceData},
-    utils::{IsAlive, Logical, Point, Transform},
+    utils::{IsAlive, Logical, Physical, Point, Size, Transform},
     wayland::compositor::with_states,
 };
 
@@ -27,20 +27,26 @@ use crate::render::DeskElement;
 /// Cursor size when `XCURSOR_SIZE` is not set.
 const DEFAULT_SIZE: u32 = 24;
 
-/// A picture and its hotspot (the point that clicks).
-type Image = (MemoryRenderBuffer, Point<i32, Logical>);
+/// A picture, its hotspot (the point that clicks) and its size, in the screen's pixels.
+type Image = (
+    MemoryRenderBuffer,
+    Point<i32, Physical>,
+    Size<i32, Physical>,
+);
 
 /// Images from the cursor theme (config, else `XCURSOR_THEME`, `XCURSOR_SIZE`), loaded when first
 /// needed.
 pub struct Cursors {
     theme: xcursor::CursorTheme,
     size: u32,
+    /// The screen's scale: pictures are loaded that much larger, so they stay sharp.
+    scale: f64,
     /// Per image (`None`: the theme does not have it).
     images: HashMap<CursorIcon, Option<Image>>,
 }
 
 impl Cursors {
-    pub fn load(theme: Option<&str>, size: Option<u32>) -> Self {
+    pub fn load(theme: Option<&str>, size: Option<u32>, scale: f64) -> Self {
         let name = (theme.map(String::from))
             .or_else(|| std::env::var("XCURSOR_THEME").ok())
             .unwrap_or_else(|| "default".into());
@@ -49,8 +55,13 @@ impl Cursors {
         Self {
             theme: xcursor::CursorTheme::load(&name),
             size: size.unwrap_or(DEFAULT_SIZE),
+            scale,
             images: HashMap::new(),
         }
+    }
+
+    pub fn scale(&self) -> f64 {
+        self.scale
     }
 
     /// The picture for `icon`, or the default arrow if the theme does not have it.
@@ -73,7 +84,8 @@ impl Cursors {
             .find_map(|name| self.theme.load_icon(name))?;
         let images = xcursor::parser::parse_xcursor(&std::fs::read(path).ok()?)?;
         // The size closest to the wanted one; of animated cursors, the first picture.
-        let nearest = (images.iter()).min_by_key(|i| (i.size as i64 - self.size as i64).abs())?;
+        let wanted = (self.size as f64 * self.scale).round() as i64;
+        let nearest = (images.iter()).min_by_key(|i| (i.size as i64 - wanted).abs())?;
         let image = images.iter().find(|i| i.size == nearest.size)?;
         let buffer = MemoryRenderBuffer::from_slice(
             &image.pixels_rgba,
@@ -83,7 +95,12 @@ impl Cursors {
             Transform::Normal,
             None,
         );
-        Some((buffer, (image.xhot as i32, image.yhot as i32).into()))
+        let hotspot = (image.xhot as i32, image.yhot as i32).into();
+        Some((
+            buffer,
+            hotspot,
+            (image.width as i32, image.height as i32).into(),
+        ))
     }
 
     /// The pointer at `pos` (screen coordinates): `ours` if InfinityDesk shows something
@@ -104,29 +121,33 @@ impl Cursors {
                     let data = states.data_map.get::<CursorImageSurfaceData>();
                     data.map(|d| d.lock().unwrap().hotspot).unwrap_or_default()
                 });
-                let loc = (pos - hotspot.to_f64()).to_physical(1.0).to_i32_round();
+                let loc = (pos - hotspot.to_f64())
+                    .to_physical(self.scale)
+                    .to_i32_round();
                 return render_elements_from_surface_tree(
                     renderer,
                     surface,
                     loc,
-                    1.0,
+                    self.scale,
                     1.0,
                     Kind::Cursor,
                 );
             }
             CursorImageStatus::Surface(_) => CursorIcon::Default,
         };
-        let Some((buffer, hotspot)) = self.image(icon) else {
+        let Some((buffer, hotspot, size)) = self.image(icon) else {
             return Vec::new();
         };
-        let loc = (pos - hotspot.to_f64()).to_physical(1.0);
+        let loc = pos.to_physical(self.scale) - hotspot.to_f64();
+        // The picture is already in screen pixels: shown at its own size.
+        let size = size.to_f64().to_logical(self.scale).to_i32_round();
         MemoryRenderBufferRenderElement::from_buffer(
             renderer,
             loc,
             &buffer,
             None,
             None,
-            None,
+            Some(size),
             Kind::Cursor,
         )
         .map(|e| vec![DeskElement::Cursor(e)])
