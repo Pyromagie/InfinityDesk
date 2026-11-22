@@ -4,6 +4,9 @@
 //! sockets to xwayland-satellite. Programs started right away (autostart) can connect at once:
 //! their connection waits in the socket until Xwayland is up.
 //!
+//! If xwayland-satellite stops (e.g. it crashed), it is started again with the same sockets;
+//! programs that connect meanwhile wait there.
+//!
 //! X11 programs connect to the abstract socket `@/tmp/.X11-unix/XN` first, which any user can
 //! create. So a display only counts as free if we get that one too; otherwise another user could
 //! listen in on our programs.
@@ -22,10 +25,15 @@ use std::{
         },
     },
     path::PathBuf,
-    process::Command,
+    process::{Child, Command},
+    time::{Duration, Instant},
 };
 
 use smithay::reexports::rustix::io::{FdFlags, fcntl_setfd};
+
+/// If xwayland-satellite stops sooner after starting, it is not started again (it would likely
+/// stop again right away, e.g. for a missing library).
+const MIN_RUN: Duration = Duration::from_secs(10);
 
 /// The X display of the programs started from InfinityDesk. Removes its files when dropped.
 pub struct XDisplay {
@@ -82,42 +90,68 @@ impl XDisplay {
                 socket,
                 listeners: [abstract_listener, listener],
             };
-            return display.spawn_satellite(wayland_socket).then_some(display);
+            return display.run_satellite(wayland_socket).then_some(display);
         }
         tracing::warn!("No X11 programs: no free X display");
         None
     }
 
-    fn spawn_satellite(&self, wayland_socket: &OsStr) -> bool {
+    /// Starts xwayland-satellite, and again whenever it stops (see `MIN_RUN`).
+    fn run_satellite(&self, wayland_socket: &OsStr) -> bool {
+        // The sockets stay open as long as InfinityDesk runs (`self` lives until it ends).
         let fds = self.listeners.each_ref().map(|l| l.as_raw_fd());
-        let mut command = Command::new("xwayland-satellite");
-        command.arg(&self.name);
-        for fd in fds {
-            command.args(["-listenfd", &fd.to_string()]);
-        }
-        command.env("WAYLAND_DISPLAY", wayland_socket);
-        // The sockets must stay open in xwayland-satellite (Rust closes them on exec by default).
-        // SAFETY: only fcntl calls between fork and exec.
-        unsafe {
-            command.pre_exec(move || {
-                for fd in fds {
-                    fcntl_setfd(BorrowedFd::borrow_raw(fd), FdFlags::empty())?;
-                }
-                Ok(())
-            });
-        }
-        match command.spawn() {
-            Ok(mut child) => {
-                tracing::info!("X11 programs on DISPLAY={}", self.name);
-                drop(std::thread::spawn(move || child.wait()));
-                true
-            }
+        let (name, wayland_socket) = (self.name.clone(), wayland_socket.to_owned());
+        let mut child = match spawn_satellite(&name, fds, &wayland_socket) {
+            Ok(child) => child,
             Err(err) => {
                 tracing::warn!("No X11 programs: cannot start xwayland-satellite: {err}");
-                false
+                return false;
             }
-        }
+        };
+        tracing::info!("X11 programs on DISPLAY={name}");
+        drop(std::thread::spawn(move || {
+            loop {
+                let started = Instant::now();
+                let status = (child.wait()).map_or_else(|e| e.to_string(), |s| s.to_string());
+                if started.elapsed() < MIN_RUN {
+                    tracing::warn!(
+                        "xwayland-satellite stopped right after starting ({status}), \
+                         no new X11 programs until InfinityDesk is restarted"
+                    );
+                    return;
+                }
+                tracing::warn!("xwayland-satellite stopped ({status}), starting it again");
+                child = match spawn_satellite(&name, fds, &wayland_socket) {
+                    Ok(child) => child,
+                    Err(err) => {
+                        tracing::warn!("No X11 programs: cannot start xwayland-satellite: {err}");
+                        return;
+                    }
+                };
+            }
+        }));
+        true
     }
+}
+
+fn spawn_satellite(name: &str, fds: [i32; 2], wayland_socket: &OsStr) -> std::io::Result<Child> {
+    let mut command = Command::new("xwayland-satellite");
+    command.arg(name);
+    for fd in fds {
+        command.args(["-listenfd", &fd.to_string()]);
+    }
+    command.env("WAYLAND_DISPLAY", wayland_socket);
+    // The sockets must stay open in xwayland-satellite (Rust closes them on exec by default).
+    // SAFETY: only fcntl calls between fork and exec.
+    unsafe {
+        command.pre_exec(move || {
+            for fd in fds {
+                fcntl_setfd(BorrowedFd::borrow_raw(fd), FdFlags::empty())?;
+            }
+            Ok(())
+        });
+    }
+    command.spawn()
 }
 
 impl Drop for XDisplay {
