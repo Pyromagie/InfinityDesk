@@ -74,6 +74,9 @@ impl XdgShellHandler for InfinityDesk {
             self.resizing.remove(&window);
             self.resize_hint.retain(|(w, _)| w != &window);
             self.clusters.remove(&window);
+            if (self.resize_glide.as_ref()).is_some_and(|g| g.toggle.windows.contains(&window)) {
+                self.resize_glide = None;
+            }
             if self.fullscreen.as_ref().is_some_and(|f| f.window == window) {
                 self.end_fullscreen();
             }

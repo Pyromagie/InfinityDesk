@@ -389,6 +389,7 @@ impl InfinityDesk {
     /// Runs a shortcut's action. Window actions work on the window with the keyboard focus,
     /// navigation starts from the active window (also while a launcher has the keyboard).
     pub fn run(&mut self, action: Action) {
+        self.finish_resize_glide();
         let keyboard = self.seat.get_keyboard().unwrap();
         let focused = (keyboard.current_focus()).and_then(|s| self.window_for_surface(&s));
         match action {

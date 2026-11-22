@@ -62,6 +62,7 @@ impl InfinityDesk {
     /// The window takes the size of the screen and the view goes there at 1:1. The canvas
     /// underneath stays as it is; the window's neighbors are just covered meanwhile.
     pub fn start_fullscreen(&mut self, window: &Window) {
+        self.finish_resize_glide();
         let Some(rect) = self.space.element_geometry(window) else {
             return;
         };

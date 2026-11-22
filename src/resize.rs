@@ -1,5 +1,6 @@
 //! Resizing a window inside its cluster: its size toggles between half and full screen, and the
-//! dragged edge takes its neighbors along.
+//! dragged edge takes its neighbors along. While dragging, the edge follows the pointer between
+//! the two sizes; let go, it glides to the closer one.
 //!
 //! Default: neighbors at the dragged edge (the whole seam) shrink or grow with it, the cluster
 //! stays closed. With Shift, or if the neighbors cannot (they would get smaller than half or
@@ -79,7 +80,8 @@ pub fn toggle(
         })
     };
     // Windows moving along per axis can land on others (one beyond both dragged edges moves
-    // twice). Also checked with only one axis toggled, as while dragging (`toggled`).
+    // twice). Also checked with only one axis moved: while dragging, each axis follows the
+    // pointer on its own (`following`).
     let apart = |follow: &Plan| {
         [(delta.x, 0), (0, delta.y), (delta.x, delta.y)]
             .into_iter()
@@ -95,7 +97,15 @@ pub fn toggle(
     Some((follow, delta))
 }
 
-/// The part of the movement `toggle` to apply: each axis once the pointer moved past half of it.
+/// How far the dragged edges follow the pointer: as far as it moved, but only between the size
+/// now and the other one (`toggle`).
+pub fn following(toggle: Point<i32, Logical>, pointer: Point<i32, Logical>) -> Point<i32, Logical> {
+    let clamp = |t: i32, p: i32| p.clamp(t.min(0), t.max(0));
+    (clamp(toggle.x, pointer.x), clamp(toggle.y, pointer.y)).into()
+}
+
+/// Where the edges go when the pointer lets go: per axis the other size once the pointer moved
+/// past half of the way (`toggle`), else back.
 pub fn toggled(toggle: Point<i32, Logical>, pointer: Point<i32, Logical>) -> Point<i32, Logical> {
     let past_half = |t: i32, p: i32| if 2 * p * t > t * t { t } else { 0 };
     (
@@ -359,8 +369,16 @@ mod tests {
                     continue;
                 };
                 resized += 1;
-                // While dragging, one axis may toggle before the other.
-                for d in [(delta.x, 0), (0, delta.y), (delta.x, delta.y)] {
+                // While dragging, the edges follow the pointer anywhere between the two sizes.
+                let (x, y) = (delta.x, delta.y);
+                for d in [
+                    (x, 0),
+                    (0, y),
+                    (x / 3, y),
+                    (x, y / 2),
+                    (x / 2, y / 3),
+                    (x, y),
+                ] {
                     rects = apply(&before, &follow, &min, d.into());
                     if let Some((i, j)) = overlapping(&rects) {
                         panic!(
@@ -577,6 +595,10 @@ mod tests {
         assert_eq!(toggled(delta, (0, -150).into()), (0, 0).into());
         assert_eq!(toggled(delta, (0, -160).into()), (0, -310).into());
         assert_eq!(toggled(delta, (0, 400).into()), (0, 0).into());
+        // While dragging, the edge follows, but not beyond either size.
+        assert_eq!(following(delta, (7, -150).into()), (0, -150).into());
+        assert_eq!(following(delta, (0, -500).into()), (0, -310).into());
+        assert_eq!(following(delta, (0, 400).into()), (0, 0).into());
         // A window that must stay taller than half cannot shrink, not even a bit.
         for h in [400, 610] {
             let min: [Size<i32, Logical>; 2] = [(20, h).into(), (20, 20).into()];

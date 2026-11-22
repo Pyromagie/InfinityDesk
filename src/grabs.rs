@@ -115,11 +115,12 @@ fn min_size(window: &Window) -> Size<i32, Logical> {
 }
 
 /// Toggling the size of a window between half and full (see `resize::toggle`).
+#[derive(Clone)]
 pub struct Toggle {
     /// The window's cluster: where its windows are and how small they may get.
     pub windows: Vec<Window>,
-    rects: Vec<Rect>,
-    min: Vec<Size<i32, Logical>>,
+    pub rects: Vec<Rect>,
+    pub min: Vec<Size<i32, Logical>>,
     /// How each window follows (empty if the size cannot change).
     pub follow: Vec<[Follow; 2]>,
     /// The movement of the dragged edges that toggles them.
@@ -147,14 +148,10 @@ impl InfinityDesk {
     }
 
     /// Resizes the windows as planned in `toggle`, with the dragged edges moved by `delta`.
+    /// They follow at once: a drag follows the pointer, a toggle glides in steps (`ResizeGlide`).
     pub fn apply_toggle(&mut self, toggle: &Toggle, delta: Point<i32, Logical>) {
         let new = resize::apply(&toggle.rects, &toggle.follow, &toggle.min, delta);
-        self.resize_windows(&toggle.windows, &toggle.follow, new);
-    }
-
-    /// Gives the windows of a cluster their new places from `resize::apply`.
-    pub fn resize_windows(&mut self, windows: &[Window], follow: &[[Follow; 2]], new: Vec<Rect>) {
-        for ((window, f), rect) in windows.iter().zip(follow).zip(new) {
+        for ((window, f), rect) in toggle.windows.iter().zip(&toggle.follow).zip(new) {
             if changes_size(f) {
                 let anchor_end = f.map(|f| f == Follow::Start);
                 self.resizing
@@ -162,12 +159,64 @@ impl InfinityDesk {
                 let toplevel = window.toplevel().unwrap();
                 toplevel.with_pending_state(|s| s.size = Some(rect.size));
                 toplevel.send_pending_configure();
-                self.place_resized(window, true);
+                self.place_resized(window, false);
             } else if f.contains(&Follow::Shift) {
-                self.glide_window(window, rect.loc);
+                self.space.map_element(window.clone(), rect.loc, false);
             }
         }
     }
+
+    /// Lets the dragged edges of `toggle` glide from `from` to `to` (or jump, without
+    /// animations): the windows get a new size every frame, like while dragging.
+    pub fn glide_resize(
+        &mut self,
+        toggle: Toggle,
+        from: Point<i32, Logical>,
+        to: Point<i32, Logical>,
+    ) {
+        self.finish_resize_glide();
+        if from == to || self.config.animation.is_zero() {
+            self.apply_toggle(&toggle, to);
+            return;
+        }
+        let start = Instant::now();
+        self.resize_glide = Some(ResizeGlide {
+            toggle,
+            from,
+            to,
+            start,
+        });
+    }
+
+    /// A gliding resize ends at once: before something else moves or resizes windows, which the
+    /// next frame of the glide would undo.
+    pub fn finish_resize_glide(&mut self) {
+        if let Some(glide) = self.resize_glide.take() {
+            self.apply_toggle(&glide.toggle, glide.to);
+        }
+    }
+
+    /// One frame of a gliding resize, slowing down towards the end like the other animations.
+    pub fn step_resize_glide(&mut self) {
+        let Some(glide) = self.resize_glide.take() else {
+            return;
+        };
+        let t = glide.start.elapsed().as_secs_f64() / self.config.animation.as_secs_f64();
+        let eased = 1.0 - (1.0 - t.min(1.0)).powi(3);
+        let way = (glide.to - glide.from).to_f64().upscale(eased);
+        self.apply_toggle(&glide.toggle, glide.from + way.to_i32_round());
+        if t < 1.0 {
+            self.resize_glide = Some(glide);
+        }
+    }
+}
+
+/// A window's size gliding to half or full, its neighbors with it (see `glide_resize`).
+pub struct ResizeGlide {
+    pub toggle: Toggle,
+    from: Point<i32, Logical>,
+    to: Point<i32, Logical>,
+    start: Instant,
 }
 
 enum DragKind {
@@ -184,8 +233,9 @@ enum DragKind {
         last: (Point<f64, Logical>, Instant),
         speed: f64,
     },
-    /// A window's size toggles between half and full; its cluster neighbors follow.
-    Resize(Toggle),
+    /// A window's size changes between half and full; its cluster neighbors follow. The dragged
+    /// edges follow the pointer (by the second field) and glide to a size when let go.
+    Resize(Toggle, Point<i32, Logical>),
     /// A selection box is dragged open (Alt+Shift on empty space); windows inside get marked.
     Select {
         /// Windows marked before, they stay marked.
@@ -211,6 +261,7 @@ impl DragGrab {
         start_data: GrabStartData<InfinityDesk>,
         window: Window,
     ) -> Self {
+        state.finish_resize_glide();
         let cluster = state.clusters.members(&window);
         // Moving ends any pending resize placement or glide of these windows.
         state.resizing.retain(|w, _| !cluster.contains(w));
@@ -247,7 +298,7 @@ impl DragGrab {
         }
     }
 
-    /// Toggles the size of `window` at `edges` once the pointer moved far enough; with `shift`,
+    /// Resizes `window` at `edges`, following the pointer between half and full; with `shift`,
     /// the cluster beyond the edge moves instead of the neighbors changing size.
     pub fn resize(
         state: &mut InfinityDesk,
@@ -256,6 +307,7 @@ impl DragGrab {
         edges: [Edge; 2],
         shift: bool,
     ) -> Self {
+        state.finish_resize_glide();
         let toggle = state.plan_toggle(&window, edges, shift);
         set_resizing(&toggle.windows, &toggle.follow, true);
         state.resize_hint = (toggle.windows.iter().cloned())
@@ -264,7 +316,7 @@ impl DragGrab {
         state.set_cursor_for(edges);
         Self {
             start_data,
-            kind: DragKind::Resize(toggle),
+            kind: DragKind::Resize(toggle, Point::default()),
         }
     }
 
@@ -343,9 +395,9 @@ impl PointerGrab<InfinityDesk> for DragGrab {
                         .map_element(m.window.clone(), m.initial_loc + delta, false);
                 }
             }
-            DragKind::Resize(toggle) => {
-                let delta = resize::toggled(toggle.delta, pointer_delta.to_i32_round());
-                data.apply_toggle(toggle, delta);
+            DragKind::Resize(toggle, followed) => {
+                *followed = resize::following(toggle.delta, pointer_delta.to_i32_round());
+                data.apply_toggle(toggle, *followed);
             }
             DragKind::Select { initial } => {
                 let corners = [self.start_data.location, event.location];
@@ -490,9 +542,12 @@ impl PointerGrab<InfinityDesk> for DragGrab {
     /// Button released: if the cluster now touches other windows, they get docked.
     fn unset(&mut self, data: &mut InfinityDesk) {
         data.selection_box = None;
-        if let DragKind::Resize(toggle) = &self.kind {
+        if let DragKind::Resize(toggle, followed) = &self.kind {
             set_resizing(&toggle.windows, &toggle.follow, false);
             data.set_resize_hint(None, false);
+            // On to the closer size: the other one once past half of the way.
+            let to = resize::toggled(toggle.delta, *followed);
+            data.glide_resize(toggle.clone(), *followed, to);
         }
         if let DragKind::Pan { .. } = self.kind {
             data.snap_view();

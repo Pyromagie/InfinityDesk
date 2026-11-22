@@ -13,7 +13,7 @@ use crate::{
     InfinityDesk,
     canvas::Canvas,
     cluster::{Rect, TOUCH_TOLERANCE},
-    resize::Edge,
+    resize::{self, Edge},
 };
 
 /// Keyboard panning moves the view by this part of the screen.
@@ -173,10 +173,14 @@ impl InfinityDesk {
         if delta == 0 || (delta > 0) != forward {
             return;
         }
-        self.apply_toggle(&toggle, toggle.delta);
-        if let Some(rect) = self.target_rect(&active) {
+        // The view shows where the window ends up.
+        let end = resize::apply(&toggle.rects, &toggle.follow, &toggle.min, toggle.delta);
+        let i = toggle.windows.iter().position(|w| *w == active);
+        if let Some(&rect) = i.and_then(|i| end.get(i)) {
             self.reveal(rect);
         }
+        let to = toggle.delta;
+        self.glide_resize(toggle, Point::default(), to);
     }
 
     /// Mod+Ctrl+Shift+arrow: moves the view by a quarter of the screen.
@@ -326,6 +330,7 @@ impl InfinityDesk {
         let duration = self.config.animation;
         self.window_glides
             .retain(|_, (_, start)| start.elapsed() < duration);
+        self.step_resize_glide();
         if self.canvas.step() {
             self.apply_viewport();
             let screen = self.pointer_screen;

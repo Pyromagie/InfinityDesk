@@ -123,8 +123,9 @@ cargo run --release -- -c firefox    # with another program inside
   it out of its cluster
 - **Marking:** mark several windows (single clicks or a selection box) and pull them out of
   their cluster together; they stay connected among themselves
-- **Cluster resize:** a window is half or full the screen's width and height, and resizing
-  toggles between the two once the edge is dragged halfway. Neighbors give or take the space, so
+- **Cluster resize:** a window is half or full the screen's width and height. While dragging,
+  the edge follows the pointer between the two; let go, it glides to the closer one (the other
+  size once dragged past halfway). Neighbors give or take the space, so
   the cluster stays closed; if they cannot (they would get smaller than half or larger than
   full), or with Shift, the rest of the cluster moves instead. Grab any window border (a generous
   zone around it shows resize arrows and lights up the edges that will move), or use Mod +

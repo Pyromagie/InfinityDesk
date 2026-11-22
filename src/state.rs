@@ -21,6 +21,7 @@ use crate::{
     canvas::Canvas,
     cluster::{Clusters, Rect},
     config::Config,
+    grabs::ResizeGlide,
     navigate::Overview,
     render::{OUTLINE_WIDTH, Outline},
     resize::{self, Edge, Follow},
@@ -92,6 +93,8 @@ pub struct InfinityDesk {
     /// Windows gliding to a place a command put them: how far away they were shown, and since
     /// when (see `glide_window`).
     pub window_glides: HashMap<Window, (Point<f64, Logical>, Instant)>,
+    /// A resize gliding to its end (`glide_resize`).
+    pub resize_glide: Option<ResizeGlide>,
     /// The selection box being dragged open, in canvas coordinates.
     pub selection_box: Option<Rectangle<i32, Logical>>,
     /// Window edges that move when resizing at the border under the pointer (or while resizing);
@@ -228,6 +231,7 @@ impl InfinityDesk {
             gesture: None,
             resizing: HashMap::new(),
             window_glides: HashMap::new(),
+            resize_glide: None,
             compositor_state,
             xdg_shell_state,
             layer_shell_state,

@@ -709,3 +709,36 @@ fn programs_leave_out_their_titlebar_unless_the_config_lets_them_draw_it() {
     client.prefer_titlebar(0, true);
     assert_eq!(client.windows.list[0].titlebar, Some(true));
 }
+
+#[test]
+fn a_size_change_glides_instead_of_jumping() {
+    let desk = Desk::start("");
+    let mut client = Client::connect(&desk);
+    client.open("one", "One");
+    // Mod+Shift+Up: the bottom edge moves up, the window gets half as high.
+    desk.eval("desk.run(desk.resize('up'))");
+    let mut heights = Vec::new();
+    let deadline = Instant::now() + Duration::from_millis(600);
+    while Instant::now() < deadline {
+        client.sync();
+        heights.push(desk.rect("one")[3]);
+        std::thread::sleep(Duration::from_millis(15));
+    }
+    let half = (1080 - 3 * 16) / 2;
+    assert_eq!(heights.last(), Some(&half), "{heights:?}");
+    // On the way: sizes in between, always getting smaller.
+    let between = heights.iter().filter(|&&h| half < h && h < HALF.1).count();
+    assert!(between >= 3, "{heights:?}");
+    assert!(heights.windows(2).all(|w| w[0] >= w[1]), "{heights:?}");
+    // The program drew the end size.
+    assert_eq!(client.windows.list[0].size, (HALF.0 as i32, half as i32));
+    // Moving it while it glides back: the glide ends at once, the move stays.
+    let x = desk.rect("one")[0];
+    desk.eval(
+        "desk.run(desk.resize('down')) local w = find('one') desk.move(w.id, w.x + 300, w.y)",
+    );
+    std::thread::sleep(Duration::from_millis(600));
+    client.sync();
+    assert_eq!(desk.rect("one")[0], x + 300);
+    assert_eq!(desk.rect("one")[3], HALF.1);
+}

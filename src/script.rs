@@ -232,6 +232,7 @@ impl InfinityDesk {
     /// `desk.move`: the window's cluster moves (gliding) so that the window's top-left corner
     /// ends up at `loc`, staying inside the canvas.
     fn move_cluster(&mut self, window: &Window, loc: (i32, i32)) {
+        self.finish_resize_glide();
         let members = self.clusters.members(window);
         if (self.fullscreen.as_ref()).is_some_and(|f| members.contains(&f.window)) {
             self.end_fullscreen();
