@@ -7,9 +7,10 @@
 //!                           accel_speed = 0.0, accel_profile = "adaptive" },
 //!              mouse = { natural_scroll = false, left_handed = false,
 //!                        accel_speed = 0.0, accel_profile = "adaptive" } }
-//! desk.canvas { width = 20000, height = 12000, grid = { spacing = 100 } }
+//! desk.canvas { width = 20000, height = 12000, grid = { spacing = 100 },
+//!               zoom_speed = 1.0, wheel_pan = 60 }
 //! desk.layout { gaps = 16 }
-//! desk.snapping { threshold = 15, hold_ms = 300 }
+//! desk.snapping { threshold = 15, hold_ms = 300, view = true }
 //! desk.colors { background = "#1a1a1f", grid = "#474752", accent = "#59a6ff" }
 //! desk.bind("Mod+B", desk.spawn("firefox"))
 //! desk.unbind("Mod+Space")
@@ -48,6 +49,12 @@ pub struct Config {
     pub canvas_size: (i32, i32),
     /// Distance between the grid dots on the canvas.
     pub grid_spacing: f64,
+    /// How fast scrolling zooms (1: a mouse wheel notch about 14 %).
+    pub zoom_speed: f64,
+    /// How far a mouse wheel notch moves the view on empty canvas, in screen pixels.
+    pub wheel_pan: f64,
+    /// After panning, the view snaps into the grid of the windows if it is almost aligned.
+    pub snap_view: bool,
     /// Space between windows, and between windows and the screen edge.
     pub gaps: i32,
     /// Edges closer than this (in screen pixels) snap together.
@@ -200,6 +207,9 @@ impl Default for Config {
             },
             canvas_size: (20_000, 12_000),
             grid_spacing: 100.0,
+            zoom_speed: 1.0,
+            wheel_pan: 60.0,
+            snap_view: true,
             gaps: 16,
             snap_threshold: 15.0,
             hold_time: Duration::from_millis(300),
@@ -672,7 +682,11 @@ fn accel(t: &Table, section: &str, speed: &mut f64, flat: &mut bool) -> mlua::Re
 }
 
 fn canvas(config: &mut Config, t: &Table) -> mlua::Result<()> {
-    check_keys(t, "canvas", &["width", "height", "grid"])?;
+    check_keys(
+        t,
+        "canvas",
+        &["width", "height", "grid", "zoom_speed", "wheel_pan"],
+    )?;
     let (w, h) = &mut config.canvas_size;
     *w = get_in(t, "canvas", "width", 1_000..=100_000)?.unwrap_or(*w);
     *h = get_in(t, "canvas", "height", 1_000..=100_000)?.unwrap_or(*h);
@@ -681,6 +695,19 @@ fn canvas(config: &mut Config, t: &Table) -> mlua::Result<()> {
         if let Some(v) = get_in(&grid, "canvas.grid", "spacing", 10..=10_000)? {
             config.grid_spacing = v as f64;
         }
+    }
+    if let Some(v) = get::<f64>(t, "canvas", "zoom_speed")? {
+        if !(0.1..=10.0).contains(&v) {
+            return Err(setting_error(
+                "canvas",
+                "zoom_speed",
+                "must be between 0.1 and 10",
+            ));
+        }
+        config.zoom_speed = v;
+    }
+    if let Some(v) = get_in(t, "canvas", "wheel_pan", 1..=1000)? {
+        config.wheel_pan = v as f64;
     }
     Ok(())
 }
@@ -692,13 +719,14 @@ fn layout(config: &mut Config, t: &Table) -> mlua::Result<()> {
 }
 
 fn snapping(config: &mut Config, t: &Table) -> mlua::Result<()> {
-    check_keys(t, "snapping", &["threshold", "hold_ms"])?;
+    check_keys(t, "snapping", &["threshold", "hold_ms", "view"])?;
     if let Some(v) = get_in(t, "snapping", "threshold", 0..=100)? {
         config.snap_threshold = v as f64;
     }
     if let Some(v) = get_in(t, "snapping", "hold_ms", 0..=5000)? {
         config.hold_time = Duration::from_millis(v as u64);
     }
+    config.snap_view = get::<bool>(t, "snapping", "view")?.unwrap_or(config.snap_view);
     Ok(())
 }
 
@@ -817,9 +845,10 @@ mod tests {
                                       repeat_delay = 300, repeat_rate = 40 } }
             desk.input { touchpad = { tap = false, accel_speed = -0.5, accel_profile = "flat" },
                          mouse = { left_handed = true, accel_speed = 0.45, accel_profile = "flat" } }
-            desk.canvas { width = 30000, height = 15000, grid = { spacing = 200 } }
+            desk.canvas { width = 30000, height = 15000, grid = { spacing = 200 },
+                          zoom_speed = 2.5, wheel_pan = 120 }
             desk.layout { gaps = 8 }
-            desk.snapping { threshold = 20, hold_ms = 500 }
+            desk.snapping { threshold = 20, hold_ms = 500, view = false }
             desk.colors { background = "#000000", accent = "#ff8000" }
             desk.spawn_at_startup("awww-daemon")
             desk.spawn_at_startup("waybar -c ~/bar.json")
@@ -848,6 +877,8 @@ mod tests {
         assert!(tp.natural_scroll && tp.dwt);
         assert_eq!(config.canvas_size, (30_000, 15_000));
         assert_eq!(config.grid_spacing, 200.0);
+        assert_eq!((config.zoom_speed, config.wheel_pan), (2.5, 120.0));
+        assert!(!config.snap_view);
         assert_eq!(config.gaps, 8);
         assert_eq!(config.snap_threshold, 20.0);
         assert_eq!(config.hold_time, Duration::from_millis(500));
@@ -912,7 +943,9 @@ mod tests {
     fn mistakes_name_the_setting() {
         let err = error(r#"require("infinitydesk").canvas { widht = 30000 }"#);
         assert!(
-            err.contains("canvas.widht: unknown setting (known: width, height, grid)"),
+            err.contains(
+                "canvas.widht: unknown setting (known: width, height, grid, zoom_speed, wheel_pan)"
+            ),
             "{err}"
         );
         let err = error(r#"require("infinitydesk").snapping { threshold = "big" }"#);
@@ -928,6 +961,11 @@ mod tests {
             error(r#"require("infinitydesk").input { touchpad = { accel_profile = "fast" } }"#);
         assert!(
             err.contains(r#"input.touchpad.accel_profile: expected "adaptive""#),
+            "{err}"
+        );
+        let err = error(r#"require("infinitydesk").canvas { zoom_speed = 0 }"#);
+        assert!(
+            err.contains("canvas.zoom_speed: must be between 0.1 and 10"),
             "{err}"
         );
         let err = error(r#"require("infinitydesk").input { touchpad = { accel_speed = 2 } }"#);

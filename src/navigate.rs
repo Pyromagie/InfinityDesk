@@ -204,6 +204,9 @@ impl InfinityDesk {
     /// After panning by hand: the view snaps into the grid of a window on the screen if it is
     /// almost there (see `Canvas::snap_to_grid`). Dialogs float freely and do not count.
     pub fn snap_view(&mut self) {
+        if !self.config.snap_view {
+            return;
+        }
         let viewport = self.canvas.viewport().to_i32_round();
         let rects: Vec<Rect> = (self.space.elements())
             .filter(|w| w.toplevel().is_some_and(|t| t.parent().is_none()))

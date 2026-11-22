@@ -25,10 +25,9 @@ use crate::{
 
 /// Mouse buttons (linux/input-event-codes.h).
 const BTN_LEFT: u32 = 0x110;
-/// Zoom change per scrolled pixel (a mouse wheel notch is 15 px, about 14 %).
+/// Zoom change per scrolled pixel (a mouse wheel notch is 15 px, about 14 %), times the
+/// `zoom_speed` from the config.
 const ZOOM_SPEED: f64 = 0.01;
-/// A mouse wheel notch on empty canvas moves the view this many times its 15 px.
-const WHEEL_PAN: f64 = 4.0;
 /// How far (screen pixels) four fingers swipe up or down to open or close the overview.
 const OVERVIEW_SWIPE: f64 = 100.0;
 
@@ -334,7 +333,8 @@ impl InfinityDesk {
                     event.amount_v120(Axis::Vertical).unwrap_or(0.0) * 15.0 / 120.0
                 });
                 let screen = self.pointer_screen;
-                self.canvas.zoom_at(screen, (-scroll * ZOOM_SPEED).exp());
+                let speed = ZOOM_SPEED * self.config.zoom_speed;
+                self.canvas.zoom_at(screen, (-scroll * speed).exp());
                 self.apply_viewport();
                 // The canvas moved under the pointer.
                 self.pointer_moved(self.canvas.screen_to_canvas(screen), event.time());
@@ -343,7 +343,8 @@ impl InfinityDesk {
             // Scrolling on empty canvas moves the view.
             InputEvent::PointerAxis { event, .. } if self.on_empty_canvas() => {
                 let factor = match event.source() {
-                    AxisSource::Wheel => WHEEL_PAN,
+                    // A notch counts as 15 px.
+                    AxisSource::Wheel => self.config.wheel_pan / 15.0,
                     _ => 1.0,
                 };
                 let amount = |axis| scroll_amount(&event, axis) * factor;

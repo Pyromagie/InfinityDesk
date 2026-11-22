@@ -235,13 +235,18 @@ desk.input {
   },
 }
 
-desk.canvas { width = 20000, height = 12000, grid = { spacing = 100 } }
+desk.canvas {
+  width = 20000, height = 12000, grid = { spacing = 100 },
+  zoom_speed = 1.0, -- scrolling to zoom: 1 is about 14 % per mouse wheel notch
+  wheel_pan = 60,   -- screen pixels a mouse wheel notch moves the view on empty space
+}
 
 desk.layout { gaps = 16 } -- space between windows and around the screen
 
 desk.snapping {
   threshold = 15, -- screen pixels within which edges snap together
   hold_ms = 300,  -- hold a window still this long to pull it out of its cluster
+  view = true,    -- after panning, the view snaps into the windows' grid if almost aligned
 }
 
 -- "#rrggbb" or "#rrggbbaa"; accent is used for frames, lit edges and the template menu
