@@ -14,7 +14,7 @@ use smithay::{
     },
     desktop::{Space, Window, layer_map_for_output},
     output::Output,
-    utils::{Logical, Rectangle, Scale},
+    utils::{Logical, Point, Rectangle, Scale},
     wayland::shell::wlr_layer::Layer,
 };
 
@@ -193,6 +193,7 @@ fn layer_elements(
 
 /// The elements of a frame behind the bars, front to back: the upper layers, windows, grid,
 /// bottom layers.
+#[allow(clippy::too_many_arguments)]
 pub fn desk_elements(
     renderer: &mut GlesRenderer,
     output: &Output,
@@ -201,14 +202,26 @@ pub fn desk_elements(
     grid: &mut Grid,
     config: &Config,
     upper_layers: &[Layer],
+    offsets: &[(Window, Point<i32, Logical>)],
 ) -> Vec<DeskElement> {
     let upper = layer_elements(renderer, output, upper_layers);
     let mut elements: Vec<DeskElement> = upper.into_iter().map(DeskElement::Surface).collect();
-    // Only windows inside the viewport are rendered (culling), then shrunk by the zoom.
+    // Windows front to back, gliding ones on their way (`offsets`). Only those inside the
+    // viewport are rendered (culling), then shrunk by the zoom.
     let viewport = canvas.viewport().to_i32_round();
     let scale = output.current_scale().fractional_scale();
-    let windows = space.render_elements_for_region(renderer, &viewport, scale, 1.0);
-    elements.extend(windows.into_iter().map(|e| {
+    let windows = (space.elements().rev())
+        .filter_map(|w| {
+            let offset = (offsets.iter().find(|(o, _)| o == w)).map_or_default(|(_, p)| *p);
+            let bbox = space.element_bbox(w)?;
+            let loc = space.element_location(w)? - w.geometry().loc + offset - viewport.loc;
+            (viewport.overlaps(Rectangle::new(bbox.loc + offset, bbox.size))).then_some((w, loc))
+        })
+        .flat_map(|(w, loc)| {
+            let loc = loc.to_physical_precise_round(scale);
+            w.render_elements::<WaylandSurfaceRenderElement<_>>(renderer, loc, scale.into(), 1.0)
+        });
+    elements.extend(windows.map(|e| {
         DeskElement::Zoomed(RescaleRenderElement::from_element(
             e,
             (0, 0).into(),

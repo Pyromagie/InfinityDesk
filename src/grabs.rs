@@ -162,9 +162,9 @@ impl InfinityDesk {
                 let toplevel = window.toplevel().unwrap();
                 toplevel.with_pending_state(|s| s.size = Some(rect.size));
                 toplevel.send_pending_configure();
-                self.place_resized(window);
+                self.place_resized(window, true);
             } else if f.contains(&Follow::Shift) {
-                self.space.map_element(window.clone(), rect.loc, false);
+                self.glide_window(window, rect.loc);
             }
         }
     }
@@ -212,8 +212,9 @@ impl DragGrab {
         window: Window,
     ) -> Self {
         let cluster = state.clusters.members(&window);
-        // Moving ends any pending resize placement of these windows.
+        // Moving ends any pending resize placement or glide of these windows.
         state.resizing.retain(|w, _| !cluster.contains(w));
+        state.window_glides.retain(|w, _| !cluster.contains(w));
         let pressed = (cluster.len() > 1).then(Instant::now);
         let group: Vec<Window> = if state.selected.contains(&window) {
             let marked = cluster.iter().filter(|w| state.selected.contains(w));
@@ -510,8 +511,7 @@ impl PointerGrab<InfinityDesk> for DragGrab {
                 .unwrap_or(m.initial_loc);
             let delta = cluster_delta(data, members, current - m.initial_loc, true);
             for m in members {
-                data.space
-                    .map_element(m.window.clone(), m.initial_loc + delta, false);
+                data.glide_window(&m.window, m.initial_loc + delta);
             }
         }
         let moved: Vec<(Window, Rect)> = members

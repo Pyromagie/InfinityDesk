@@ -89,6 +89,9 @@ pub struct InfinityDesk {
     pub selected: Vec<Window>,
     /// Windows whose size is being changed, with their target rectangle (see `place_resized`).
     pub resizing: HashMap<Window, Resizing>,
+    /// Windows gliding to a place a command put them: how far away they were shown, and since
+    /// when (see `glide_window`).
+    pub window_glides: HashMap<Window, (Point<f64, Logical>, Instant)>,
     /// The selection box being dragged open, in canvas coordinates.
     pub selection_box: Option<Rectangle<i32, Logical>>,
     /// Window edges that move when resizing at the border under the pointer (or while resizing);
@@ -212,6 +215,7 @@ impl InfinityDesk {
             switching: None,
             gesture: None,
             resizing: HashMap::new(),
+            window_glides: HashMap::new(),
             compositor_state,
             xdg_shell_state,
             layer_shell_state,
@@ -358,7 +362,7 @@ impl InfinityDesk {
             if let Some(r) = self.resizing.get_mut(&w) {
                 r.rect.loc += shift;
             }
-            self.space.map_element(w, geo.loc + shift, false);
+            self.glide_window(&w, geo.loc + shift);
         }
     }
 
@@ -456,7 +460,7 @@ impl InfinityDesk {
                     self.resize_to(&window, rect, None);
                 }
                 self.dock_into_slot(&window, rect);
-                self.place_resized(&window);
+                self.place_resized(&window, false);
                 // Docked off the screen: the view follows. The pointer stays put on the screen.
                 self.reveal(rect);
             }
@@ -551,7 +555,8 @@ impl InfinityDesk {
     /// Places a window that is being resized. Clients take a moment to change their size, so the
     /// edge that does not move (e.g. the right one while dragging the left) is kept in place,
     /// whatever size the window currently has. Called while dragging and on every commit.
-    pub fn place_resized(&mut self, window: &Window) {
+    /// `glide`: a new place, the window glides there; else it only keeps that edge in place.
+    pub fn place_resized(&mut self, window: &Window, glide: bool) {
         let Some(Resizing { rect, anchor_end }) = self.resizing.get(window) else {
             return;
         };
@@ -572,7 +577,39 @@ impl InfinityDesk {
         if acked == Some(rect.size) || size == rect.size {
             self.resizing.remove(window);
         }
-        self.space.map_element(window.clone(), (x, y), false);
+        match glide {
+            true => self.glide_window(window, (x, y).into()),
+            false => self.space.map_element(window.clone(), (x, y), false),
+        }
+    }
+
+    /// Puts a window somewhere by command: it glides there from where it is shown now, instead
+    /// of jumping. Logic and input already use the new place.
+    pub fn glide_window(&mut self, window: &Window, loc: Point<i32, Logical>) {
+        if let Some(old) = self.space.element_location(window)
+            && old != loc
+            && !self.config.animation.is_zero()
+        {
+            let from = old.to_f64() + self.window_offset(window) - loc.to_f64();
+            (self.window_glides).insert(window.clone(), (from, Instant::now()));
+        }
+        self.space.map_element(window.clone(), loc, false);
+    }
+
+    /// How far a gliding window is still shown away from its place (slowing down towards it).
+    fn window_offset(&self, window: &Window) -> Point<f64, Logical> {
+        let Some((from, start)) = self.window_glides.get(window) else {
+            return Point::default();
+        };
+        let t = start.elapsed().as_secs_f64() / self.config.animation.as_secs_f64();
+        from.upscale((1.0 - t.min(1.0)).powi(3))
+    }
+
+    /// Where gliding windows are drawn, away from their places.
+    pub fn window_offsets(&self) -> Vec<(Window, Point<i32, Logical>)> {
+        (self.window_glides.keys())
+            .map(|w| (w.clone(), self.window_offset(w).to_i32_round()))
+            .collect()
     }
 
     /// The window whose border is under a canvas point, and which of its edges are grabbed there.

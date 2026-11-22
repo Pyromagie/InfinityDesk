@@ -316,8 +316,12 @@ impl InfinityDesk {
         self.glide_view(|c| c.reveal(rect, gaps));
     }
 
-    /// Before each frame: a gliding view moves on; the pointer stays put on the screen.
-    pub fn step_view(&mut self) {
+    /// Before each frame: a gliding view moves on (the pointer stays put on the screen), and
+    /// windows that have arrived stop gliding.
+    pub fn step_animations(&mut self) {
+        let duration = self.config.animation;
+        self.window_glides
+            .retain(|_, (_, start)| start.elapsed() < duration);
         if self.canvas.step() {
             self.apply_viewport();
             let screen = self.pointer_screen;

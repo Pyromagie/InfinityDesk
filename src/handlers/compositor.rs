@@ -36,7 +36,7 @@ impl CompositorHandler for InfinityDesk {
             }
             if let Some(window) = self.window_for_surface(&root) {
                 window.on_commit();
-                self.place_resized(&window);
+                self.place_resized(&window, false);
             }
         }
 

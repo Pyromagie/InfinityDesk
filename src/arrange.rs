@@ -115,7 +115,7 @@ impl InfinityDesk {
             };
         });
         toplevel.send_pending_configure();
-        self.place_resized(window);
+        self.place_resized(window, true);
     }
 
     /// Mod+R: opens the template menu for the cluster of `window`, or closes it.

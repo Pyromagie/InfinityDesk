@@ -254,8 +254,9 @@ desk.snapping {
   view = true,    -- after panning, the view snaps into the windows' grid if almost aligned
 }
 
--- How long the view glides when a command moves it (focus, centering, overview, templates,
--- fullscreen, snapping); 0 = it jumps. Panning and zooming by hand always follow at once.
+-- How long the view and windows glide when a command moves them (focus, centering, overview,
+-- templates, fullscreen, snapping, swapping, neighbors making room, docking); 0 = they jump.
+-- Panning, zooming and dragging by hand always follow at once.
 desk.animation { duration_ms = 250 }
 
 -- "#rrggbb" or "#rrggbbaa"; accent is used for frames, lit edges and the template menu

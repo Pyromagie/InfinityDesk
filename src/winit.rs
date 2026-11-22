@@ -80,8 +80,9 @@ pub fn init_winit(
                     false => backend.buffer_age().unwrap_or(0),
                 };
                 first_frame = false;
-                state.step_view();
+                state.step_animations();
                 let bars = state.bars();
+                let offsets = state.window_offsets();
                 // Ours (resize arrows), else what the app asks for (as far as the host can show it).
                 let wanted = match &state.client_cursor {
                     CursorImageStatus::Named(icon) if state.cursor == CursorIcon::Default => *icon,
@@ -103,6 +104,7 @@ pub fn init_winit(
                             &mut grid,
                             &state.config,
                             state.upper_layers(),
+                            &offsets,
                         ));
                         damage_tracker
                             .render_output(
