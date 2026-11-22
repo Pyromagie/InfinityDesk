@@ -370,8 +370,7 @@ settings stay. If the canvas gets smaller, clusters outside it move back in as a
 
 ## Roadmap
 
-- **Testing without a screen:** tests that run InfinityDesk headless and steer it through
-  `infinitydesk msg`. Maybe a converter for niri configs later.
+- **More Lua:** maybe a converter for niri configs later
 - **Final default controls**, configurable gestures
 - **Standalone session:** several monitors
 - Visual polish: cluster outlines, decorations
@@ -381,8 +380,14 @@ settings stay. If the canvas gets smaller, clusters outside it move back in as a
 ```sh
 cargo run                            # nested, with a kitty terminal inside
 cargo test                           # the pure logic (canvas, clusters, resize, layouts, config,
-                                     # scripting)
+                                     # scripting) and the end-to-end tests without a screen
 ```
+
+`infinitydesk --headless` runs without a screen: one made-up 1920×1080 output, nothing is drawn.
+The end-to-end tests in `tests/headless.rs` start it like that, each in a folder of its own,
+open test windows that behave like real programs (drawn in the size they are asked for) and
+check the results through `infinitydesk msg`. They need no GPU, display or input devices, so
+they run anywhere, also on GitHub.
 
 Every push is checked on GitHub the same way as before a commit: `cargo fmt --check`,
 `cargo clippy --all-targets -- -D warnings` and `cargo test`.
@@ -412,9 +417,11 @@ from `desk.cursor` in the config, else from `XCURSOR_THEME` and `XCURSOR_SIZE`.
 | `src/ipc.rs`      | `infinitydesk msg`: commands from outside over a socket       |
 | `src/winit.rs`    | Nested backend                                                |
 | `src/udev.rs`     | Standalone backend: screen, GPU, input devices, consoles      |
+| `src/headless.rs` | Without a screen, for the end-to-end tests                    |
 | `src/cursor.rs`   | The pointer image (standalone)                                |
 | `src/xwayland.rs` | X11 programs through xwayland-satellite                       |
 | `src/handlers/`   | Wayland protocol handlers                                     |
+| `tests/headless.rs` | End-to-end tests: windows, events, scripts, `msg`           |
 
 ## License
 

@@ -1,7 +1,8 @@
 //! InfinityDesk – a Wayland compositor with a huge, bounded canvas to place windows on.
 //!
 //! Runs "nested" as a regular window when started inside a session (e.g. niri), otherwise
-//! standalone on the screen (from a console or a login manager).
+//! standalone on the screen (from a console or a login manager). With `--headless` it runs
+//! without a screen, for tests.
 
 mod arrange;
 mod canvas;
@@ -10,6 +11,7 @@ mod config;
 mod cursor;
 mod grabs;
 mod handlers;
+mod headless;
 mod input;
 mod ipc;
 mod layout;
@@ -37,19 +39,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let display: Display<InfinityDesk> = Display::new()?;
     // Inside another session: a window there. Otherwise: the screen is ours. (Mod is Alt or
     // Super by default, see `Config::mod_key`.)
-    let nested =
-        std::env::var_os("WAYLAND_DISPLAY").is_some() || std::env::var_os("DISPLAY").is_some();
+    let headless = args.iter().any(|a| a == "--headless");
+    let nested = !headless
+        && (std::env::var_os("WAYLAND_DISPLAY").is_some() || std::env::var_os("DISPLAY").is_some());
     config::set_nested(nested);
     let mut state = InfinityDesk::new(&mut event_loop, display);
 
-    if nested {
+    if headless {
+        headless::init_headless(&mut event_loop, &mut state)?;
+    } else if nested {
         winit::init_winit(&mut event_loop, &mut state)?;
     } else {
         udev::init_udev(&mut event_loop, &mut state)?;
     }
 
     tracing::info!("InfinityDesk running on {:?}", state.socket_name);
-    state.xdisplay = xwayland::XDisplay::start(&state.socket_name);
+    if !headless {
+        state.xdisplay = xwayland::XDisplay::start(&state.socket_name);
+    }
     let ipc_socket = ipc::socket_path(&state.socket_name);
     match &ipc_socket {
         Some(path) => {
@@ -60,12 +67,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         None => tracing::warn!("No commands from outside: XDG_RUNTIME_DIR is not set"),
     }
 
-    // Start a program inside: `-c <program>`, otherwise a terminal. Then the config's own.
-    let first = match args.as_slice() {
-        [c, cmd, ..] if c == "-c" || c == "--command" => cmd.clone(),
-        _ => "kitty".to_string(),
-    };
-    for command in std::iter::once(&first).chain(&state.config.startup) {
+    // Start a program inside: `-c <program>`, otherwise a terminal (not without a screen). Then
+    // the config's own.
+    let command = (args.windows(2))
+        .find(|a| a[0] == "-c" || a[0] == "--command")
+        .map(|a| a[1].clone());
+    let first = command.or_else(|| (!headless).then(|| "kitty".to_string()));
+    for command in first.iter().chain(&state.config.startup) {
         spawn(command, &state);
     }
     state.emit("desk.start", &[], None);

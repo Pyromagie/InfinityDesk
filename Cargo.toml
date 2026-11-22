@@ -30,3 +30,9 @@ features = [
     "backend_session_libseat",
     "renderer_gl",
 ]
+
+# Test windows for the tests without a screen (`tests/headless.rs`); the same versions smithay's
+# nested backend already uses.
+[dev-dependencies]
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client"] }
