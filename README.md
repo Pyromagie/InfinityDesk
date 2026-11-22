@@ -147,6 +147,8 @@ cargo run --release -- -c firefox    # with another program inside
   an overview that zooms out until all windows fit, and Alt + Tab through the recently used
   windows
 - **Touchpad gestures:** pinch to zoom, three fingers to pan, four fingers for the overview
+- **Animations:** when a command moves the view or windows (keyboard, templates, fullscreen,
+  resize), they glide there instead of jumping
 - **Lua configuration** with live reload: keyboard, touchpad, mouse, canvas, gaps, snapping,
   colors, shortcuts, mouse bindings, programs to start and their environment variables, pointer
   theme, window rules, monitors (resolution, refresh rate, scale, orientation), animations
@@ -360,24 +362,28 @@ settings stay. If the canvas gets smaller, clusters outside it move back in as a
 
 ## Roadmap
 
-- **More Lua configuration:** window rules and events, designed to feel familiar when coming
-  from niri or Hyprland. Maybe a converter for niri configs later.
-- **Final default controls**, configurable mouse bindings and gestures
-- **Standalone session:** several monitors, monitor settings
-- Visual polish: cluster outlines, decorations, animations
+- **Scripting:** an event stream for bars (`infinitydesk msg events`), then tests that run
+  InfinityDesk without a screen. Maybe a converter for niri configs later.
+- **Final default controls**, configurable gestures
+- **Standalone session:** several monitors
+- Visual polish: cluster outlines, decorations
 
 ## Development
 
 ```sh
 cargo run                            # nested, with a kitty terminal inside
-cargo test                           # the pure logic (canvas, clusters, resize, layouts, config)
+cargo test                           # the pure logic (canvas, clusters, resize, layouts, config,
+                                     # scripting)
 ```
+
+Every push is checked on GitHub the same way as before a commit: `cargo fmt --check`,
+`cargo clippy --all-targets -- -D warnings` and `cargo test`.
 
 Started inside a session (`WAYLAND_DISPLAY` or `DISPLAY` set), InfinityDesk opens as a window
 there. Started from a text console, it takes over the screen and the input devices:
 `target/release/infinitydesk 2> ~/infinitydesk.log`. It uses the first graphics card with a
 monitor connected (`INFINITYDESK_DRM_DEVICE=/dev/dri/cardN` picks one). The pointer image comes
-from `XCURSOR_THEME` and `XCURSOR_SIZE`.
+from `desk.cursor` in the config, else from `XCURSOR_THEME` and `XCURSOR_SIZE`.
 
 ## Code overview
 
@@ -394,7 +400,7 @@ from `XCURSOR_THEME` and `XCURSOR_SIZE`.
 | `src/render.rs`   | What gets drawn: windows, layers, dot grid, outlines          |
 | `src/state.rs`    | Compositor state                                              |
 | `src/config.rs`   | Settings from the Lua config (tested)                         |
-| `src/script.rs`   | Lua scripting: events, desk.run, time limits                  |
+| `src/script.rs`   | Lua scripting: events, actions, windows, time limits, JSON    |
 | `src/ipc.rs`      | `infinitydesk msg`: commands from outside over a socket       |
 | `src/winit.rs`    | Nested backend                                                |
 | `src/udev.rs`     | Standalone backend: screen, GPU, input devices, consoles      |
