@@ -182,6 +182,7 @@ impl InfinityDesk {
                     set_resizing(&toggle.windows, &toggle.follow, true);
                     self.resize_hint = (toggle.windows.iter().cloned())
                         .zip(toggle.follow.iter().copied())
+                        .filter(|(w, _)| w == window)
                         .collect();
                     self.set_cursor_for(edges);
                     return Some((toggle, Point::default()));

@@ -97,8 +97,8 @@ pub struct InfinityDesk {
     pub resize_glide: Option<ResizeGlide>,
     /// The selection box being dragged open, in canvas coordinates.
     pub selection_box: Option<Rectangle<i32, Logical>>,
-    /// Window edges that move when resizing at the border under the pointer (or while resizing);
-    /// they light up.
+    /// Edges of the window being resized that move when resizing at the border under the pointer
+    /// (or while resizing); they light up. Neighbors moving along do not.
     pub resize_hint: Vec<(Window, [Follow; 2])>,
     /// Pointer image InfinityDesk shows itself (resize arrows at window borders); `Default`
     /// leaves it to the app under the pointer.
@@ -697,7 +697,9 @@ impl InfinityDesk {
                 self.set_cursor_for(edges);
             }
             if !toggle.follow.is_empty() {
-                self.resize_hint = toggle.windows.into_iter().zip(toggle.follow).collect();
+                self.resize_hint = (toggle.windows.into_iter().zip(toggle.follow))
+                    .filter(|(w, _)| *w == window)
+                    .collect();
                 return;
             }
         }
