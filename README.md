@@ -151,7 +151,8 @@ cargo run --release -- -c firefox    # with another program inside
   colors, shortcuts, mouse bindings, programs to start and their environment variables, pointer
   theme, window rules, monitors (resolution, refresh rate, scale, orientation), animations
 - **Lua scripting:** functions on keys and on events (windows opening, closing, focus, title,
-  docking, fullscreen, overview), carrying out any action; each call has a time limit
+  docking, fullscreen, overview), carrying out any action, looking at and steering windows;
+  each call has a time limit
 - wlr-layer-shell, so launchers like fuzzel, bars and wallpaper tools (e.g. awww, swaybg) work;
   the wallpaper stays fixed behind the moving canvas
 - **X11 programs** (Steam, older games and tools) through `xwayland-satellite`, if it is
@@ -322,10 +323,20 @@ desk.bind("Mod+G", function()
   desk.run(desk.spawn("kitty"))
   desk.run(desk.center)
 end)
-local id = desk.on("window.open", function(w) -- w = { id = 1, app_id = "mpv", title = "..." }
+-- A window is a table { id, app_id, title, x, y, width, height, focused, fullscreen }
+-- (x, y: its top-left corner on the canvas).
+local id = desk.on("window.open", function(w)
   if w.app_id == "mpv" then desk.run(desk.fullscreen) end
 end)
 desk.off(id) -- stops listening again
+-- Looking at and steering windows (the functions return false if the window is gone):
+desk.bind("Mod+B", function()
+  for _, w in ipairs(desk.windows()) do print(w.id, w.app_id, w.x, w.y) end
+  local f = desk.focused() -- nothing when no window is active
+  if f then desk.move(f.id, f.x + 500, f.y) end -- moves its whole cluster, gliding
+end)
+-- desk.focus_window(id) focuses a window and brings it into view, desk.close(id) closes it.
+-- These and desk.run work only inside functions given to desk.on and desk.bind.
 -- Events and what the function gets: window.open (w), window.close (w), window.focus (w, or
 -- nothing when no window is active), window.title (w; title or app_id changed),
 -- window.fullscreen (w, on), cluster.dock (w, w), cluster.undock (w), view.overview (on),

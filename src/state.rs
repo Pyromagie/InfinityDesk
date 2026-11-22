@@ -484,10 +484,11 @@ impl InfinityDesk {
 
     /// Raises the window with its cluster and gives it keyboard focus.
     pub fn focus_window(&mut self, window: &Window) {
-        if self.active.as_ref() != Some(window) {
+        let changed = self.active.as_ref() != Some(window);
+        self.active = Some(window.clone());
+        if changed {
             self.emit("window.focus", &[window], None);
         }
-        self.active = Some(window.clone());
         // While switching with Alt+Tab, the order is kept until the choice is made.
         if self.switching.is_none() {
             self.recent.retain(|w| w != window);

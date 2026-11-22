@@ -754,9 +754,15 @@ impl Config {
                 let expected = "an action like desk.spawn(\"...\") or desk.center";
                 mlua::Error::runtime(format!("run: expected {expected}"))
             })?;
-            script::run(lua, action)
+            script::reach(lua, "run")?.call::<()>(lua.create_userdata(action)?)
         })?;
         desk.set("run", run)?;
+        for name in &script::REACHING[1..] {
+            let f = lua.create_function(move |lua, args: mlua::MultiValue| {
+                script::reach(lua, name)?.call::<mlua::MultiValue>(args)
+            })?;
+            desk.set(*name, f)?;
+        }
         // `print` goes to InfinityDesk's log, where it can be found.
         let print = lua.create_function(|_, args: mlua::MultiValue| {
             let texts: Vec<String> = args
@@ -1493,6 +1499,10 @@ mod tests {
                 "run works inside functions given to desk.on",
             ),
             ("desk.run(desk.drag_move)", "run: expected an action"),
+            (
+                "desk.move(1, 0, 0)",
+                "move works inside functions given to desk.on",
+            ),
             (
                 r#"desk.bind("MouseLeft", print)"#,
                 "keys the other actions and functions",
