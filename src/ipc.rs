@@ -2,14 +2,18 @@
 //! config's state, like a function given to `desk.bind`, and prints what it returns as JSON
 //! (one line per value), e.g. `infinitydesk msg eval 'return desk.windows()'`.
 //!
-//! They talk over a Unix socket in `$XDG_RUNTIME_DIR`; programs started inside find it in
-//! `$INFINITYDESK_SOCKET`. The client sends the code and closes its writing side; the answer
+//! They talk over a Unix socket in `$XDG_RUNTIME_DIR` (a folder only the user can enter, so
+//! nobody else can run code in the session; without it there is no socket). Programs started
+//! inside find it in `$INFINITYDESK_SOCKET`. The client sends the code and closes its writing side; the answer
 //! is `ok` or `error` on the first line, then the text.
 
 use std::{
     ffi::OsStr,
     io::{ErrorKind, Read, Write},
-    os::unix::net::{UnixListener, UnixStream},
+    os::unix::{
+        fs::PermissionsExt,
+        net::{UnixListener, UnixStream},
+    },
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -21,12 +25,10 @@ use crate::InfinityDesk;
 /// Longer requests are refused.
 const MAX_REQUEST: usize = 1 << 20;
 
-pub fn socket_path(wayland_socket: &OsStr) -> PathBuf {
-    let dir = std::env::var_os("XDG_RUNTIME_DIR").map_or_else(std::env::temp_dir, PathBuf::from);
-    dir.join(format!(
-        "infinitydesk.{}.sock",
-        wayland_socket.to_string_lossy()
-    ))
+pub fn socket_path(wayland_socket: &OsStr) -> Option<PathBuf> {
+    let dir = PathBuf::from(std::env::var_os("XDG_RUNTIME_DIR")?);
+    let name = format!("infinitydesk.{}.sock", wayland_socket.to_string_lossy());
+    Some(dir.join(name))
 }
 
 /// Listens for `infinitydesk msg` on `path`.
@@ -34,6 +36,8 @@ pub fn listen(handle: &LoopHandle<'static, InfinityDesk>, path: &Path) -> std::i
     // Left over when InfinityDesk crashed on this Wayland socket before.
     let _ = std::fs::remove_file(path);
     let listener = UnixListener::bind(path)?;
+    // Only for the user, also if the folder should be open to others.
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
     listener.set_nonblocking(true)?;
     let handle2 = handle.clone();
     let source = Generic::new(listener, Interest::READ, Mode::Level);

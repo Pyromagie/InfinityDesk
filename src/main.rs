@@ -51,8 +51,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("InfinityDesk running on {:?}", state.socket_name);
     state.xdisplay = xwayland::XDisplay::start(&state.socket_name);
     let ipc_socket = ipc::socket_path(&state.socket_name);
-    if let Err(err) = ipc::listen(&event_loop.handle(), &ipc_socket) {
-        tracing::warn!("No commands from outside, the socket {ipc_socket:?} failed: {err}");
+    match &ipc_socket {
+        Some(path) => {
+            if let Err(err) = ipc::listen(&event_loop.handle(), path) {
+                tracing::warn!("No commands from outside, the socket {path:?} failed: {err}");
+            }
+        }
+        None => tracing::warn!("No commands from outside: XDG_RUNTIME_DIR is not set"),
     }
 
     // Start a program inside: `-c <program>`, otherwise a terminal. Then the config's own.
@@ -67,7 +72,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Between two turns of the loop, scripts get what happened.
     event_loop.run(None, &mut state, |state| state.dispatch_events())?;
-    let _ = std::fs::remove_file(ipc_socket);
+    if let Some(path) = ipc_socket {
+        let _ = std::fs::remove_file(path);
+    }
     Ok(())
 }
 
@@ -87,8 +94,11 @@ pub fn spawn(command: &str, state: &InfinityDesk) {
     let mut cmd = std::process::Command::new("sh");
     cmd.args(["-c", command])
         .envs(state.config.env.iter().map(|(name, value)| (name, value)))
-        .env("WAYLAND_DISPLAY", &state.socket_name)
-        .env("INFINITYDESK_SOCKET", ipc::socket_path(&state.socket_name));
+        .env("WAYLAND_DISPLAY", &state.socket_name);
+    match ipc::socket_path(&state.socket_name) {
+        Some(path) => cmd.env("INFINITYDESK_SOCKET", path),
+        None => cmd.env_remove("INFINITYDESK_SOCKET"),
+    };
     // X11 programs too: on our X display, never on the host's.
     match &state.xdisplay {
         Some(x) => cmd.env("DISPLAY", &x.name),
