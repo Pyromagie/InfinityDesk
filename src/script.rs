@@ -193,7 +193,7 @@ impl InfinityDesk {
         });
         let _ = lua.unset_named_registry_value(ACT);
         if let Err(err) = result {
-            tracing::error!("Lua ({what}): {err}");
+            tracing::warn!("Lua ({what}): {err}");
         }
     }
 }

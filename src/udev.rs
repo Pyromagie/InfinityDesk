@@ -332,7 +332,7 @@ pub fn init_udev(
                     tracing::warn!("The input devices could not be taken back");
                 }
                 if let Err(err) = udev.drm.activate(false) {
-                    tracing::error!("The screen could not be taken back: {err}");
+                    tracing::warn!("The screen could not be taken back: {err}");
                 }
                 // The other console may have changed the screen setup.
                 if let Err(err) = udev.compositor.reset_state() {
@@ -347,7 +347,7 @@ pub fn init_udev(
     // A frame reached the screen.
     handle.insert_source(notifier, |event, _, state| match event {
         DrmEvent::VBlank(_) => state.frame_shown(),
-        DrmEvent::Error(err) => tracing::error!("Screen error: {err}"),
+        DrmEvent::Error(err) => tracing::warn!("Screen error: {err}"),
     })?;
 
     let grid = Grid::new(&mut renderer);

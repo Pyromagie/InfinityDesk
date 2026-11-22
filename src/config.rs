@@ -617,7 +617,7 @@ impl Config {
             return Self::default();
         };
         Self::read(&path).unwrap_or_else(|err| {
-            tracing::error!("Error in the config, using the defaults:\n{err}");
+            tracing::warn!("Error in the config, using the defaults:\n{err}");
             Self::default()
         })
     }

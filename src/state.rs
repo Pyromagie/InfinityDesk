@@ -165,7 +165,7 @@ impl InfinityDesk {
         tracing::info!("Keyboard layout: {:?} {:?}", xkb.layout, xkb.variant);
         if let Err(err) = seat.add_keyboard(xkb.to_smithay(), k.repeat_delay, k.repeat_rate) {
             // E.g. a layout name that does not exist.
-            tracing::error!("Keyboard layout from the config failed ({err:?}), using the default");
+            tracing::warn!("Keyboard layout from the config failed ({err:?}), using the default");
             (seat.add_keyboard(Default::default(), k.repeat_delay, k.repeat_rate))
                 .expect("the default keyboard layout must work");
         }
@@ -272,7 +272,7 @@ impl InfinityDesk {
         };
         match Config::read(&path) {
             Ok(config) => self.apply_config(config),
-            Err(err) => tracing::error!("Error in the config, keeping the settings:\n{err}"),
+            Err(err) => tracing::warn!("Error in the config, keeping the settings:\n{err}"),
         }
     }
 
@@ -283,9 +283,7 @@ impl InfinityDesk {
             && let Err(err) =
                 keyboard.set_xkb_config(self, k.xkb.with_system_default().to_smithay())
         {
-            tracing::error!(
-                "Keyboard layout from the config failed ({err:?}), keeping the old one"
-            );
+            tracing::warn!("Keyboard layout from the config failed ({err:?}), keeping the old one");
             k.xkb = self.config.keyboard.xkb.clone();
         }
         keyboard.change_repeat_info(k.repeat_rate, k.repeat_delay);
