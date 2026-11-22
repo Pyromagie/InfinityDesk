@@ -189,7 +189,8 @@ Ersetzt die freien Fenstergrößen aus Punkt 5 (`match_size`, freies Resize, Aus
 - ✅ Maus-Einstellungen in der Config (21.11.2026, siehe 6c).
 - Pyro will (21.11.2026) alle vier: ✅ Maus-Einstellungen, ✅ Autostart, ✅ XWayland, mehrere Monitore (Bedienung entschieden, siehe Punkt 8; gebaut, sobald ein zweiter Bildschirm zum Testen da ist). Die Bildrate stimmt schon: eigenständig nimmt InfinityDesk die eigene Auflösung des Monitors mit der höchsten Bildrate dort.
 - ✅ XWayland (21.11.2026) über xwayland-satellite wie niri: InfinityDesk belegt selbst ein freies X-Display (Lock-Datei, Socket-Datei und abstrakter Socket; ist der abstrakte Socket fremd belegt, gilt das Display als besetzt, sonst könnte ein anderer Benutzer mithören; verwaiste Locks toter Prozesse werden wiederverwendet; `/tmp/.X11-unix` muss root gehören und das Sticky-Bit haben) und reicht den Socket per `-listenfd` weiter. So können X11-Programme aus dem Autostart sofort verbinden. Gestartete Programme bekommen `DISPLAY`; ohne xwayland-satellite wird `DISPLAY` entfernt (nie das X-Display des Hosts). X11-Fenster bekommen dieselbe halbe Breite wie Wayland-Fenster (geprüft mit glxgears; ein früherer Verdacht kam vom Test: das Programm startete, bevor das genestete Fenster Vollbild war). Offen: stürzt xwayland-satellite ab, wird es nicht neu gestartet.
-- Noch nicht: mehrere Monitore, Monitor-Einstellungen in der Config, Monitor ab-/anstecken im Betrieb.
+- ✅ Monitor-Einstellungen in der Config (22.11.2026, `desk.output`, siehe 6c).
+- Noch nicht: mehrere Monitore, Monitor ab-/anstecken im Betrieb.
 
 ## 8. Offene Fragen
 
