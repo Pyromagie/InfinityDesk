@@ -8,7 +8,7 @@ use smithay::{
         PointerMotionEvent,
     },
     input::{
-        keyboard::{FilterResult, Keysym},
+        keyboard::{FilterResult, Keysym, ModifiersState},
         pointer::{AxisFrame, ButtonEvent, Focus, GrabStartData, MotionEvent},
     },
     reexports::wayland_server::protocol::wl_surface::WlSurface,
@@ -17,7 +17,7 @@ use smithay::{
 
 use crate::{
     InfinityDesk,
-    config::{Action, mod_held},
+    config::{Action, Key, mod_held},
     grabs::DragGrab,
     layout,
     resize::Edge,
@@ -25,7 +25,6 @@ use crate::{
 
 /// Mouse buttons (linux/input-event-codes.h).
 const BTN_LEFT: u32 = 0x110;
-const BTN_RIGHT: u32 = 0x111;
 /// Zoom change per scrolled pixel (a mouse wheel notch is 15 px, about 14 %).
 const ZOOM_SPEED: f64 = 0.01;
 /// A mouse wheel notch on empty canvas moves the view this many times its 15 px.
@@ -80,7 +79,7 @@ impl InfinityDesk {
                         let sym = keysym.modified_sym();
                         let raw = keysym.raw_syms().first().copied();
                         let bound = (state.config.binds.iter())
-                            .find(|b| raw.is_some_and(|raw| b.keys.matches(raw, mods)))
+                            .find(|b| raw.is_some_and(|raw| b.keys.matches(Key::Sym(raw), mods)))
                             .map(|b| b.action.clone());
                         let digit = sym.raw().wrapping_sub(Keysym::_1.raw()) as usize;
                         let vt = sym.raw().wrapping_sub(Keysym::XF86_Switch_VT_1.raw());
@@ -205,7 +204,7 @@ impl InfinityDesk {
                 {
                     let mods = keyboard.modifier_state();
                     let alt = mod_held(&mods);
-                    let select = alt && mods.shift && button == BTN_LEFT;
+                    let bound = self.mouse_bind(Key::Button(button), &mods, clicked.is_none());
                     let start_data = GrabStartData {
                         focus: None,
                         button,
@@ -222,12 +221,12 @@ impl InfinityDesk {
                         pointer.set_grab(self, grab, serial, Focus::Clear);
                     } else if let Some(window) = clicked {
                         self.focus_window(&window);
-                        if select {
+                        if bound == Some(Action::DragSelect) {
                             self.toggle_selected(window);
-                        } else if alt && button == BTN_LEFT {
+                        } else if bound == Some(Action::DragMove) {
                             let grab = DragGrab::move_window(self, start_data, window);
                             pointer.set_grab(self, grab, serial, Focus::Clear);
-                        } else if alt && button == BTN_RIGHT {
+                        } else if bound == Some(Action::DragResize) {
                             // Resize at the edges nearest to the pointer (like a corner).
                             let geo = self.space.element_geometry(&window).unwrap();
                             let edge =
@@ -252,10 +251,10 @@ impl InfinityDesk {
                         });
                         keyboard.set_focus(self, Option::<WlSurface>::None, serial);
                         self.active = None;
-                        if select {
+                        if bound == Some(Action::DragSelect) {
                             let grab = DragGrab::select(self, start_data);
                             pointer.set_grab(self, grab, serial, Focus::Clear);
-                        } else if button == BTN_LEFT {
+                        } else if bound == Some(Action::DragMove) {
                             self.selected.clear();
                             let grab = DragGrab::pan(self, start_data);
                             pointer.set_grab(self, grab, serial, Focus::Clear);
@@ -319,9 +318,15 @@ impl InfinityDesk {
                 }
             }
             InputEvent::GesturePinchEnd { .. } => self.gesture = None,
-            // Mod + scroll zooms around the pointer (not while a window is fullscreen).
+            // Mod + scroll (by default) zooms around the pointer (not while a window is
+            // fullscreen).
             InputEvent::PointerAxis { event, .. }
-                if mod_held(&self.seat.get_keyboard().unwrap().modifier_state())
+                if (self.mouse_bind(
+                    Key::Scroll,
+                    &self.seat.get_keyboard().unwrap().modifier_state(),
+                    self.on_empty_canvas(),
+                ))
+                .is_some()
                     && !self.seat.get_pointer().unwrap().is_grabbed()
                     && self.fullscreen.is_none() =>
             {
@@ -414,6 +419,14 @@ impl InfinityDesk {
                 }
             }
         }
+    }
+
+    /// What a mouse button or scrolling is bound to in the config. Bindings without a modifier
+    /// only act on empty canvas: over a window, the program gets the click.
+    fn mouse_bind(&self, key: Key, mods: &ModifiersState, empty: bool) -> Option<Action> {
+        let any_mod = mods.logo || mods.alt || mods.ctrl || mods.shift;
+        let bind = (self.config.binds.iter()).find(|b| b.keys.matches(key, mods))?;
+        (any_mod || empty).then(|| bind.action.clone())
     }
 
     /// The pointer is over nothing but the canvas (no window, no bar), and nothing else is going on.

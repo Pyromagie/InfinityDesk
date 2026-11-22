@@ -157,25 +157,25 @@ cargo run --release -- -c firefox    # with another program inside
 ## Controls (provisional)
 
 Mod is **Super** in the standalone session and **Alt** while running nested (like niri does).
-Keyboard shortcuts can be changed in the config (see [Settings](#settings)); mouse controls
-will follow.
+Keyboard shortcuts and the mouse controls marked with * can be changed in the config (see
+[Settings](#settings)).
 
 | Action                          | Input                                              |
 |---------------------------------|----------------------------------------------------|
-| Pan the canvas                  | Left-drag or scroll on empty space                 |
-| Zoom around the pointer         | Mod + scroll                                       |
+| Pan the canvas                  | Left-drag* or scroll on empty space                |
+| Zoom around the pointer         | Mod + scroll*                                      |
 | Touchpad: zoom                  | Pinch (anywhere)                                   |
 | Touchpad: pan the canvas        | Three-finger swipe (anywhere)                      |
 | Touchpad: overview              | Four-finger swipe up (open) / down (close)         |
-| Move a window and its cluster   | Mod + left-drag on a window                        |
+| Move a window and its cluster   | Mod + left-drag* on a window                       |
 | Dock windows                    | Drag a window close to another one                 |
 | Detach a window from a cluster  | Mod + left-click, hold still briefly, then drag    |
-| Mark / unmark a window          | Mod + Shift + click                                |
-| Mark windows with a box         | Mod + Shift + drag on empty space                  |
+| Mark / unmark a window          | Mod + Shift + click*                               |
+| Mark windows with a box         | Mod + Shift + drag* on empty space                 |
 | Detach marked windows together  | Hold and drag one of them (as above)               |
 | Clear marks                     | Click on empty space                               |
 | Resize (neighbors follow)       | Left-drag on a window border (the edges light up)  |
-|                                 | or Mod + right-drag on a window (nearest edges)    |
+|                                 | or Mod + right-drag* on a window (nearest edges)   |
 | Resize, rest of cluster moves   | The same with Shift                                |
 | Focus the next window           | Mod + arrow keys                                   |
 | Swap with the neighbor          | Mod + Ctrl + arrow keys                            |
@@ -257,6 +257,15 @@ desk.colors { background = "#1a1a1f", grid = "#474752", accent = "#59a6ff" }
 desk.bind("Mod+B", desk.spawn("firefox"))
 desk.bind("Mod+L", desk.focus("right"))
 desk.unbind("Mod+Tab")
+
+-- Mouse buttons (MouseLeft, MouseRight, MouseMiddle, MouseBack, MouseForward) take
+-- desk.drag_move (a cluster; on empty space the view), desk.drag_resize (Shift held: the rest
+-- of the cluster moves along) or desk.drag_select (mark a window; on empty space a box).
+-- Scroll (wheel or two fingers) takes desk.scroll_zoom. Without a modifier, they only act on
+-- empty space. Built in: MouseLeft and Mod+MouseLeft drag_move, Mod+MouseRight and
+-- Mod+Shift+MouseRight drag_resize, Mod+Shift+MouseLeft drag_select, Mod+Scroll scroll_zoom.
+desk.bind("Mod+MouseMiddle", desk.drag_resize)
+desk.unbind("Mod+MouseRight")
 
 -- Programs started once with InfinityDesk (after the one given with -c, or the terminal)
 desk.spawn_at_startup("awww-daemon")

@@ -13,6 +13,7 @@
 //! desk.colors { background = "#1a1a1f", grid = "#474752", accent = "#59a6ff" }
 //! desk.bind("Mod+B", desk.spawn("firefox"))
 //! desk.unbind("Mod+Space")
+//! desk.bind("Mod+MouseMiddle", desk.drag_resize)
 //! desk.spawn_at_startup("awww-daemon")
 //! desk.env { QT_QPA_PLATFORM = "wayland" }
 //! desk.cursor { theme = "Adwaita", size = 24 }
@@ -228,6 +229,13 @@ impl Default for Config {
                 // "+" is its own key on some layouts (e.g. German), shares "=" on others.
                 ("Mod+Plus".to_string(), Action::ZoomIn),
                 ("Mod+Equal".to_string(), Action::ZoomIn),
+                // Without a modifier only on empty canvas (over a window, the program gets it).
+                ("MouseLeft".to_string(), Action::DragMove),
+                ("Mod+MouseLeft".to_string(), Action::DragMove),
+                ("Mod+MouseRight".to_string(), Action::DragResize),
+                ("Mod+Shift+MouseRight".to_string(), Action::DragResize),
+                ("Mod+Shift+MouseLeft".to_string(), Action::DragSelect),
+                ("Mod+Scroll".to_string(), Action::ScrollZoom),
             ]
             .into_iter()
             .chain(Dir::ALL.into_iter().flat_map(|dir| {
@@ -248,26 +256,44 @@ impl Default for Config {
     }
 }
 
-/// A keyboard shortcut.
+/// A keyboard shortcut, or what a mouse button or scrolling does.
 pub struct Bind {
     pub keys: Keys,
     pub action: Action,
 }
 
-/// A key with modifiers, e.g. "Mod+Shift+Return".
+/// A key, mouse button or scrolling with modifiers, e.g. "Mod+Shift+Return", "Mod+MouseRight".
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Keys {
     pub logo: bool,
     pub alt: bool,
     pub ctrl: bool,
     pub shift: bool,
-    /// The key as without Shift (lowercase letters).
-    pub key: Keysym,
+    pub key: Key,
 }
 
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Key {
+    /// A key as without Shift (lowercase letters).
+    Sym(Keysym),
+    /// A mouse button (its Linux code, e.g. 0x110 for the left one).
+    Button(u32),
+    /// Mouse wheel or two-finger scrolling.
+    Scroll,
+}
+
+/// Mouse buttons by their name in the config.
+const BUTTONS: [(&str, u32); 5] = [
+    ("MouseLeft", 0x110),
+    ("MouseRight", 0x111),
+    ("MouseMiddle", 0x112),
+    ("MouseBack", 0x113),
+    ("MouseForward", 0x114),
+];
+
 impl Keys {
-    /// Does a key press (its unshifted symbol and the modifiers held) match?
-    pub fn matches(&self, key: Keysym, mods: &ModifiersState) -> bool {
+    /// Does a key press, mouse button or scrolling (and the modifiers held) match?
+    pub fn matches(&self, key: Key, mods: &ModifiersState) -> bool {
         self.key == key
             && (self.logo, self.alt, self.ctrl, self.shift)
                 == (mods.logo, mods.alt, mods.ctrl, mods.shift)
@@ -300,12 +326,37 @@ pub enum Action {
     RecentWindows,
     /// Ends InfinityDesk (and with it the session).
     Quit,
+    /// Mouse button: drags the cluster under the pointer (held still first: pulls the window out),
+    /// or on empty canvas the view.
+    DragMove,
+    /// Mouse button: resizes the window under the pointer at its nearest corner; with Shift, the
+    /// rest of the cluster moves along.
+    DragResize,
+    /// Mouse button: marks the window under the pointer, or draws a selection box on empty canvas.
+    DragSelect,
+    /// Scrolling: zooms around the pointer.
+    ScrollZoom,
+}
+
+impl Action {
+    /// Mouse buttons take the drag actions, scrolling takes the zoom, keys everything else.
+    fn fits(&self, key: Key) -> bool {
+        let drag = matches!(
+            self,
+            Action::DragMove | Action::DragResize | Action::DragSelect
+        );
+        match key {
+            Key::Sym(_) => !drag && *self != Action::ScrollZoom,
+            Key::Button(_) => drag,
+            Key::Scroll => *self == Action::ScrollZoom,
+        }
+    }
 }
 
 impl UserData for Action {}
 
 /// The actions that need no argument, by their Lua name.
-const SIMPLE_ACTIONS: [(&str, Action); 9] = [
+const SIMPLE_ACTIONS: [(&str, Action); 13] = [
     ("close_window", Action::CloseWindow),
     ("fullscreen", Action::Fullscreen),
     ("layout_menu", Action::LayoutMenu),
@@ -315,6 +366,10 @@ const SIMPLE_ACTIONS: [(&str, Action); 9] = [
     ("overview", Action::Overview),
     ("recent_windows", Action::RecentWindows),
     ("quit", Action::Quit),
+    ("drag_move", Action::DragMove),
+    ("drag_resize", Action::DragResize),
+    ("drag_select", Action::DragSelect),
+    ("scroll_zoom", Action::ScrollZoom),
 ];
 /// The actions that take a direction ("left", "right", "up", "down").
 type DirAction = fn(Dir) -> Action;
@@ -348,10 +403,15 @@ fn parse_keys(text: &str) -> Result<Keys, String> {
     let mut parts: Vec<&str> = text.split('+').map(str::trim).collect();
     let name = parts.pop().filter(|n| !n.is_empty());
     let name = name.ok_or_else(|| format!("\"{text}\": no key after the modifiers"))?;
-    let key = xkb::keysym_from_name(name, KEYSYM_CASE_INSENSITIVE);
-    if key == Keysym::NoSymbol {
-        return Err(format!("\"{text}\": unknown key \"{name}\""));
-    }
+    let button = BUTTONS.iter().find(|(n, _)| n.eq_ignore_ascii_case(name));
+    let key = match button {
+        Some(&(_, code)) => Key::Button(code),
+        None if name.eq_ignore_ascii_case("Scroll") => Key::Scroll,
+        None => match xkb::keysym_from_name(name, KEYSYM_CASE_INSENSITIVE) {
+            Keysym::NoSymbol => return Err(format!("\"{text}\": unknown key \"{name}\"")),
+            sym => Key::Sym(sym),
+        },
+    };
     let mut keys = Keys {
         logo: false,
         alt: false,
@@ -469,6 +529,11 @@ impl Config {
                 let expected = "an action like desk.spawn(\"...\") or desk.close_window";
                 mlua::Error::runtime(format!("bind \"{text}\": the action must be {expected}"))
             })?;
+            if !action.fits(keys.key) {
+                let rule = "mouse buttons take desk.drag_move, desk.drag_resize or \
+                    desk.drag_select, Scroll takes desk.scroll_zoom, keys the other actions";
+                return Err(mlua::Error::runtime(format!("bind \"{text}\": {rule}")));
+            }
             let mut config = lua.app_data_mut::<Config>().unwrap();
             config.binds.retain(|b| b.keys != keys);
             config.binds.push(Bind { keys, action });
@@ -901,7 +966,7 @@ mod tests {
             config
                 .binds
                 .iter()
-                .filter(|b| b.keys.key == Keysym::t)
+                .filter(|b| b.keys.key == Key::Sym(Keysym::t))
                 .count(),
             1
         );
@@ -915,14 +980,47 @@ mod tests {
     }
 
     #[test]
+    fn mouse_bindings() {
+        let config = load(
+            r#"
+            local desk = require("infinitydesk")
+            desk.bind("Mod+MouseMiddle", desk.drag_resize)
+            desk.bind("ctrl+scroll", desk.scroll_zoom)
+            desk.unbind("Mod+MouseRight")
+            "#,
+        )
+        .unwrap();
+        assert_eq!(
+            parse_keys("Mod+mouseright").unwrap().key,
+            Key::Button(0x111)
+        );
+        assert_eq!(action(&config, "Mod+MouseMiddle"), Some(Action::DragResize));
+        assert_eq!(action(&config, "Ctrl+Scroll"), Some(Action::ScrollZoom));
+        assert_eq!(action(&config, "Mod+MouseRight"), None);
+        // Built-in ones stay.
+        assert_eq!(action(&config, "MouseLeft"), Some(Action::DragMove));
+        assert_eq!(action(&config, "Mod+Scroll"), Some(Action::ScrollZoom));
+        // Mouse actions only on mouse buttons, the zoom only on scrolling, and the other way round.
+        for bind in [
+            r#"d.bind("Mod+M", d.drag_move)"#,
+            r#"d.bind("Mod+MouseLeft", d.close_window)"#,
+            r#"d.bind("Mod+Scroll", d.drag_move)"#,
+            r#"d.bind("Mod+MouseLeft", d.scroll_zoom)"#,
+        ] {
+            let err = error(&format!(r#"local d = require("infinitydesk") {bind}"#));
+            assert!(err.contains("mouse buttons take desk.drag_move"), "{err}");
+        }
+    }
+
+    #[test]
     fn keys_match_presses() {
         let keys = parse_keys("Mod+Shift+Q").unwrap();
         let mut mods = ModifiersState::default();
         (mods.alt, mods.shift) = (true, true);
-        assert!(keys.matches(Keysym::q, &mods));
+        assert!(keys.matches(Key::Sym(Keysym::q), &mods));
         mods.ctrl = true;
-        assert!(!keys.matches(Keysym::q, &mods));
-        assert_eq!(parse_keys("Super+1").unwrap().key, Keysym::_1);
+        assert!(!keys.matches(Key::Sym(Keysym::q), &mods));
+        assert_eq!(parse_keys("Super+1").unwrap().key, Key::Sym(Keysym::_1));
     }
 
     #[test]
