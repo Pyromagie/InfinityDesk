@@ -665,10 +665,12 @@ impl InfinityDesk {
             .collect()
     }
 
-    /// The window whose border is under a canvas point, and which of its edges are grabbed there.
-    /// The topmost window wins; a point deeper inside a window belongs to its content.
-    pub fn border_under(&self, pos: Point<f64, Logical>) -> Option<(Window, [Edge; 2])> {
+    /// The windows whose border is under a canvas point (topmost first; between two windows both),
+    /// and which of their edges are grabbed there. A point deeper inside a window belongs to its
+    /// content.
+    pub fn borders_under(&self, pos: Point<f64, Logical>) -> Vec<(Window, [Edge; 2])> {
         let zoom = self.canvas.zoom();
+        let mut borders = Vec::new();
         for window in self.space.elements().rev() {
             let Some(geo) = self.space.element_geometry(window) else {
                 continue;
@@ -676,26 +678,29 @@ impl InfinityDesk {
             let edges =
                 resize::border_edges(&geo, pos, BORDER_INSIDE / zoom, BORDER_OUTSIDE / zoom);
             if let Some(edges) = edges {
-                return Some((window.clone(), edges));
-            }
-            if geo.to_f64().contains(pos) {
-                return None;
+                borders.push((window.clone(), edges));
+            } else if geo.to_f64().contains(pos) {
+                break;
             }
         }
-        None
+        borders
     }
 
-    /// Lights up the edges that move when `window` is resized at `edges` (`None`: nothing),
-    /// and shows matching resize arrows.
-    pub fn set_resize_hint(&mut self, hint: Option<(Window, [Edge; 2])>, shift: bool) {
-        let Some((window, edges)) = hint else {
-            self.resize_hint.clear();
-            self.cursor = CursorIcon::Default;
-            return;
-        };
-        let toggle = self.plan_toggle(&window, edges, shift);
-        self.resize_hint = toggle.windows.into_iter().zip(toggle.follow).collect();
-        self.set_cursor_for(edges);
+    /// Lights up the edges that move when the first of `borders` (see `borders_under`) that can
+    /// change its size is resized there, and shows matching resize arrows (none: nothing).
+    pub fn set_resize_hint(&mut self, borders: Vec<(Window, [Edge; 2])>, shift: bool) {
+        self.resize_hint.clear();
+        self.cursor = CursorIcon::Default;
+        for (i, (window, edges)) in borders.into_iter().enumerate() {
+            let toggle = self.plan_toggle(&window, edges, shift);
+            if i == 0 || !toggle.follow.is_empty() {
+                self.set_cursor_for(edges);
+            }
+            if !toggle.follow.is_empty() {
+                self.resize_hint = toggle.windows.into_iter().zip(toggle.follow).collect();
+                return;
+            }
+        }
     }
 
     /// Resize arrows matching the grabbed edges.

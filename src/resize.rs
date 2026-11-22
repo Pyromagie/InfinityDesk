@@ -145,6 +145,32 @@ fn connected(rects: &[Rect], gap: i32) -> bool {
     reached.iter().all(|&r| r)
 }
 
+/// What to try, in this order, for a resize grabbed at `edges` once the pointer moved by `moved`:
+/// at a corner both axes, else only the axis the pointer moves along more, else the other one.
+pub fn tries(edges: [Edge; 2], moved: Point<f64, Logical>) -> Vec<[Edge; 2]> {
+    let mut tries = vec![edges];
+    if edges[0] != Edge::None && edges[1] != Edge::None {
+        let only = |axis: usize| {
+            let mut only = [Edge::None; 2];
+            only[axis] = edges[axis];
+            only
+        };
+        match moved.x.abs() >= moved.y.abs() {
+            true => tries.extend([only(0), only(1)]),
+            false => tries.extend([only(1), only(0)]),
+        }
+    }
+    tries
+}
+
+/// Does a resize from `toggle` (its `delta` and `sign`) go the way the pointer moved, on every
+/// axis that changes?
+pub fn goes_along(delta: Point<i32, Logical>, sign: [i32; 2], moved: Point<f64, Logical>) -> bool {
+    let way = [delta.x * sign[0], delta.y * sign[1]];
+    let moved = [moved.x, moved.y];
+    (0..2).all(|axis| way[axis] == 0 || way[axis] as f64 * moved[axis] > 0.0)
+}
+
 /// How far the dragged edges follow the pointer: as far as it moved, but only between the size
 /// now and the other one (`toggle`).
 pub fn following(toggle: Point<i32, Logical>, pointer: Point<i32, Logical>) -> Point<i32, Logical> {
@@ -662,6 +688,20 @@ mod tests {
             let min: [Size<i32, Logical>; 2] = [(20, h).into(), (20, 20).into()];
             assert_eq!(toggle(&rects, &min, 0, edges, false, screen(), 10), None);
         }
+    }
+
+    #[test]
+    fn a_corner_tries_both_axes_then_the_one_moved_along_more() {
+        let corner = [Edge::Start, Edge::End];
+        let (x, y) = ([Edge::Start, Edge::None], [Edge::None, Edge::End]);
+        assert_eq!(tries(corner, (-9.0, 3.0).into()), [corner, x, y]);
+        assert_eq!(tries(corner, (2.0, 8.0).into()), [corner, y, x]);
+        assert_eq!(tries(x, (2.0, 8.0).into()), [x]);
+        // Only if every changing axis goes the way the pointer moved.
+        assert!(goes_along((-300, 0).into(), [1, 1], (-5.0, 9.0).into()));
+        assert!(goes_along((-300, 0).into(), [-1, 1], (5.0, 0.0).into()));
+        assert!(!goes_along((-300, 0).into(), [1, 1], (5.0, 0.0).into()));
+        assert!(!goes_along((-300, 200).into(), [1, 1], (-5.0, 0.0).into()));
     }
 
     #[test]

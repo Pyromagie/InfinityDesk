@@ -5,10 +5,10 @@ use std::time::Instant;
 use smithay::{
     desktop::Window,
     input::pointer::{
-        AxisFrame, ButtonEvent, GestureHoldBeginEvent, GestureHoldEndEvent, GesturePinchBeginEvent,
-        GesturePinchEndEvent, GesturePinchUpdateEvent, GestureSwipeBeginEvent,
-        GestureSwipeEndEvent, GestureSwipeUpdateEvent, GrabStartData, MotionEvent, PointerGrab,
-        PointerInnerHandle, RelativeMotionEvent,
+        AxisFrame, ButtonEvent, CursorIcon, GestureHoldBeginEvent, GestureHoldEndEvent,
+        GesturePinchBeginEvent, GesturePinchEndEvent, GesturePinchUpdateEvent,
+        GestureSwipeBeginEvent, GestureSwipeEndEvent, GestureSwipeUpdateEvent, GrabStartData,
+        MotionEvent, PointerGrab, PointerInnerHandle, RelativeMotionEvent,
     },
     reexports::wayland_protocols::xdg::shell::server::xdg_toplevel,
     reexports::wayland_server::protocol::wl_surface::WlSurface,
@@ -69,6 +69,10 @@ fn others<'a>(
 const SNAP_MAX_SPEED: f64 = 1000.0;
 /// Pointer movement (in screen pixels) that still counts as holding still.
 const HOLD_TOLERANCE: f64 = 6.0;
+/// Pointer movement (in screen pixels) after which it is decided what a resize changes.
+const DECIDE_DISTANCE: f64 = 6.0;
+/// How far (in screen pixels) a window bumps when it cannot change its size the way it is pulled.
+const BUMP: f64 = 16.0;
 
 /// A window being dragged along, with its starting position.
 struct DraggedWindow {
@@ -157,6 +161,33 @@ impl InfinityDesk {
         }
     }
 
+    /// Decides a resize grabbed at `borders` once the pointer moved by `moved` (canvas pixels):
+    /// the first window whose edges can change the way the pointer moves (between two windows,
+    /// pulling decides which one), at a corner both axes or else one (see `resize::tries`).
+    /// Lights up its moving edges.
+    fn choose_resize(
+        &mut self,
+        borders: &[(Window, [Edge; 2])],
+        shift: bool,
+        moved: Point<f64, Logical>,
+    ) -> Option<(Toggle, Point<i32, Logical>)> {
+        for (window, edges) in borders {
+            for edges in resize::tries(*edges, moved) {
+                let toggle = self.plan_toggle(window, edges, shift);
+                if !toggle.follow.is_empty() && resize::goes_along(toggle.delta, toggle.sign, moved)
+                {
+                    set_resizing(&toggle.windows, &toggle.follow, true);
+                    self.resize_hint = (toggle.windows.iter().cloned())
+                        .zip(toggle.follow.iter().copied())
+                        .collect();
+                    self.set_cursor_for(edges);
+                    return Some((toggle, Point::default()));
+                }
+            }
+        }
+        None
+    }
+
     /// Resizes the windows as planned in `toggle`, with the dragged edges moved by `delta`.
     /// They follow at once: a drag follows the pointer, a toggle glides in steps (`ResizeGlide`).
     pub fn apply_toggle(&mut self, toggle: &Toggle, delta: Point<i32, Logical>) {
@@ -243,9 +274,15 @@ enum DragKind {
         last: (Point<f64, Logical>, Instant),
         speed: f64,
     },
-    /// A window's size changes between half and full; its cluster neighbors follow. The dragged
-    /// edges follow the pointer (by the second field) and glide to a size when let go.
-    Resize(Toggle, Point<i32, Logical>),
+    /// A window's size changes between half and full; its cluster neighbors follow. Which
+    /// window and edges is decided on the first movement (see `choose_resize`); then the edges
+    /// follow the pointer (by `followed`) and glide to a size when let go.
+    Resize {
+        /// The grabbed borders (see `borders_under`); emptied if nothing could change.
+        borders: Vec<(Window, [Edge; 2])>,
+        shift: bool,
+        chosen: Option<(Toggle, Point<i32, Logical>)>,
+    },
     /// A selection box is dragged open (Alt+Shift on empty space); windows inside get marked.
     Select {
         /// Windows marked before, they stay marked.
@@ -308,25 +345,23 @@ impl DragGrab {
         }
     }
 
-    /// Resizes `window` at `edges`, following the pointer between half and full; with `shift`,
-    /// the cluster beyond the edge moves instead of the neighbors changing size.
+    /// Resizes a window at one of `borders` (see `borders_under`), following the pointer between
+    /// half and full; with `shift`, the cluster beyond the edge moves instead of the neighbors
+    /// changing size.
     pub fn resize(
         state: &mut InfinityDesk,
         start_data: GrabStartData<InfinityDesk>,
-        window: Window,
-        edges: [Edge; 2],
+        borders: Vec<(Window, [Edge; 2])>,
         shift: bool,
     ) -> Self {
         state.finish_resize_glide();
-        let toggle = state.plan_toggle(&window, edges, shift);
-        set_resizing(&toggle.windows, &toggle.follow, true);
-        state.resize_hint = (toggle.windows.iter().cloned())
-            .zip(toggle.follow.iter().copied())
-            .collect();
-        state.set_cursor_for(edges);
         Self {
             start_data,
-            kind: DragKind::Resize(toggle, Point::default()),
+            kind: DragKind::Resize {
+                borders,
+                shift,
+                chosen: None,
+            },
         }
     }
 
@@ -405,10 +440,33 @@ impl PointerGrab<InfinityDesk> for DragGrab {
                         .map_element(m.window.clone(), m.initial_loc + delta, false);
                 }
             }
-            DragKind::Resize(toggle, followed) => {
-                let moved = toggle.edges_moved(pointer_delta.to_i32_round());
-                *followed = resize::following(toggle.delta, moved);
-                data.apply_toggle(toggle, *followed);
+            DragKind::Resize {
+                borders,
+                shift,
+                chosen,
+            } => {
+                if chosen.is_none() && !borders.is_empty() {
+                    let moved = pointer_delta.upscale(data.canvas.zoom());
+                    if moved.x.hypot(moved.y) < DECIDE_DISTANCE {
+                        return;
+                    }
+                    *chosen = data.choose_resize(borders, *shift, pointer_delta);
+                    if chosen.is_none() {
+                        // Nothing can change that way: the window bumps and the pointer says no.
+                        let way = moved.downscale(moved.x.hypot(moved.y));
+                        let bump = way.upscale(BUMP / data.canvas.zoom());
+                        let window = borders[0].0.clone();
+                        data.window_glides.insert(window, (bump, Instant::now()));
+                        data.resize_hint.clear();
+                        data.cursor = CursorIcon::NotAllowed;
+                        borders.clear();
+                    }
+                }
+                if let Some((toggle, followed)) = chosen {
+                    let moved = toggle.edges_moved(pointer_delta.to_i32_round());
+                    *followed = resize::following(toggle.delta, moved);
+                    data.apply_toggle(toggle, *followed);
+                }
             }
             DragKind::Select { initial } => {
                 let corners = [self.start_data.location, event.location];
@@ -553,12 +611,14 @@ impl PointerGrab<InfinityDesk> for DragGrab {
     /// Button released: if the cluster now touches other windows, they get docked.
     fn unset(&mut self, data: &mut InfinityDesk) {
         data.selection_box = None;
-        if let DragKind::Resize(toggle, followed) = &self.kind {
-            set_resizing(&toggle.windows, &toggle.follow, false);
-            data.set_resize_hint(None, false);
-            // On to the closer size: the other one once past half of the way.
-            let to = resize::toggled(toggle.delta, *followed);
-            data.glide_resize(toggle.clone(), *followed, to);
+        if let DragKind::Resize { chosen, .. } = &self.kind {
+            data.set_resize_hint(Vec::new(), false);
+            if let Some((toggle, followed)) = chosen {
+                set_resizing(&toggle.windows, &toggle.follow, false);
+                // On to the closer size: the other one once past half of the way.
+                let to = resize::toggled(toggle.delta, *followed);
+                data.glide_resize(toggle.clone(), *followed, to);
+            }
         }
         if let DragKind::Pan { .. } = self.kind {
             data.snap_view();

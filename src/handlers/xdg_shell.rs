@@ -162,7 +162,7 @@ impl XdgShellHandler for InfinityDesk {
             _ => Edge::None,
         };
         let shift = self.seat.get_keyboard().unwrap().modifier_state().shift;
-        let grab = DragGrab::resize(self, start_data, window, [x, y], shift);
+        let grab = DragGrab::resize(self, start_data, vec![(window, [x, y])], shift);
         seat.get_pointer()
             .unwrap()
             .set_grab(self, grab, serial, Focus::Clear);

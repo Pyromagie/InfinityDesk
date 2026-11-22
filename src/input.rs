@@ -211,12 +211,13 @@ impl InfinityDesk {
                     };
 
                     // A window border (also a bit outside the window) is grabbed to resize it.
-                    let border = (!alt && button == BTN_LEFT)
-                        .then(|| self.border_under(location))
-                        .flatten();
-                    if let Some((window, edges)) = border {
-                        self.focus_window(&window);
-                        let grab = DragGrab::resize(self, start_data, window, edges, mods.shift);
+                    let borders = match !alt && button == BTN_LEFT {
+                        true => self.borders_under(location),
+                        false => Vec::new(),
+                    };
+                    if let Some((window, _)) = borders.first() {
+                        self.focus_window(&window.clone());
+                        let grab = DragGrab::resize(self, start_data, borders, mods.shift);
                         pointer.set_grab(self, grab, serial, Focus::Clear);
                     } else if let Some(window) = clicked {
                         self.focus_window(&window);
@@ -237,8 +238,8 @@ impl InfinityDesk {
                                 edge(location.x, geo.loc.x, geo.size.w),
                                 edge(location.y, geo.loc.y, geo.size.h),
                             ];
-                            let grab =
-                                DragGrab::resize(self, start_data, window, edges, mods.shift);
+                            let borders = vec![(window, edges)];
+                            let grab = DragGrab::resize(self, start_data, borders, mods.shift);
                             pointer.set_grab(self, grab, serial, Focus::Clear);
                         }
                     } else {
@@ -484,9 +485,10 @@ impl InfinityDesk {
             let mods = self.seat.get_keyboard().unwrap().modifier_state();
             let on_layer = (self.layer_surface_under(pos, self.upper_layers())).is_some();
             let free = self.layout_menu.is_none() && self.fullscreen.is_none();
-            let hint = (!self.config.mod_key().held(&mods) && !on_layer && free)
-                .then(|| self.border_under(pos))
-                .flatten();
+            let hint = match !self.config.mod_key().held(&mods) && !on_layer && free {
+                true => self.borders_under(pos),
+                false => Vec::new(),
+            };
             self.set_resize_hint(hint, mods.shift);
         }
     }

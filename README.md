@@ -131,7 +131,9 @@ cargo run --release -- -c firefox    # with another program inside
   a neighbor would only touch at a corner afterwards, the window changes size at its other edge
   (or not at all, if that does not work either). Grab any window border (a generous
   zone around it shows resize arrows and lights up the edges that will move), or use Mod +
-  right-drag.
+  right-drag (the nearest corner). The direction you pull decides: between two windows, the one
+  that can change its size that way does; at a corner, width and height together, or else just
+  the one that can. If nothing can change, the window bumps and the pointer shows "not allowed".
 - **Layout templates:** Mod + R opens a menu of templates (whole screen, half | half, a half
   and two quarters, four quarters). Picking one arranges the active window's
   cluster so it fills exactly one screen, shown at 1:1. Click the slot the active window should
