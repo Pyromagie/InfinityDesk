@@ -73,6 +73,7 @@ impl InfinityDesk {
         });
         self.fit_fullscreen();
         self.focus_window(window);
+        self.emit("window.fullscreen", &[window], Some(true));
     }
 
     /// Sizes the fullscreen window to the screen (also when the screen changes size).
@@ -97,6 +98,7 @@ impl InfinityDesk {
         self.glide_view(|c| c.set_view(view.0, view.1));
         if window.alive() {
             self.resize_to(&window, rect, Some(false));
+            self.emit("window.fullscreen", &[&window], Some(false));
         }
     }
 
@@ -296,6 +298,7 @@ impl InfinityDesk {
             .collect();
         for n in neighbors {
             self.clusters.join(window, &n);
+            self.emit("cluster.dock", &[window, &n], None);
         }
     }
 

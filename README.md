@@ -149,7 +149,9 @@ cargo run --release -- -c firefox    # with another program inside
 - **Touchpad gestures:** pinch to zoom, three fingers to pan, four fingers for the overview
 - **Lua configuration** with live reload: keyboard, touchpad, mouse, canvas, gaps, snapping,
   colors, shortcuts, mouse bindings, programs to start and their environment variables, pointer
-  theme, window rules, monitors (resolution, refresh rate, scale, orientation)
+  theme, window rules, monitors (resolution, refresh rate, scale, orientation), animations
+- **Lua scripting:** functions on keys and on events (windows opening, closing, focus, title,
+  docking, fullscreen, overview), carrying out any action; each call has a time limit
 - wlr-layer-shell, so launchers like fuzzel, bars and wallpaper tools (e.g. awww, swaybg) work;
   the wallpaper stays fixed behind the moving canvas
 - **X11 programs** (Steam, older games and tools) through `xwayland-satellite`, if it is
@@ -311,6 +313,23 @@ desk.output {
   scale = 1.5,            -- 0.5 to 4, e.g. for high resolution screens
   transform = "normal",   -- turned: "90", "180", "270", mirrored: "flipped", "flipped-90", ...
 }
+
+-- Scripting: functions on keys and on events; desk.run carries out any key action right away.
+-- The Lua state stays loaded until the file changes, so variables keep their values between
+-- calls. print() writes to InfinityDesk's log. A function running longer than 100 ms is
+-- stopped (loading the file: 1.5 s), so a mistake cannot freeze the desktop.
+desk.bind("Mod+G", function()
+  desk.run(desk.spawn("kitty"))
+  desk.run(desk.center)
+end)
+local id = desk.on("window.open", function(w) -- w = { id = 1, app_id = "mpv", title = "..." }
+  if w.app_id == "mpv" then desk.run(desk.fullscreen) end
+end)
+desk.off(id) -- stops listening again
+-- Events and what the function gets: window.open (w), window.close (w), window.focus (w, or
+-- nothing when no window is active), window.title (w; title or app_id changed),
+-- window.fullscreen (w, on), cluster.dock (w, w), cluster.undock (w), view.overview (on),
+-- config.reloaded (), desk.start ()
 ```
 
 A mistake (a typo in a setting name, a wrong type, a value out of range) is logged with the
@@ -353,6 +372,7 @@ from `XCURSOR_THEME` and `XCURSOR_SIZE`.
 | `src/render.rs`   | What gets drawn: windows, layers, dot grid, outlines          |
 | `src/state.rs`    | Compositor state                                              |
 | `src/config.rs`   | Settings from the Lua config (tested)                         |
+| `src/script.rs`   | Lua scripting: events, desk.run, time limits                  |
 | `src/winit.rs`    | Nested backend                                                |
 | `src/udev.rs`     | Standalone backend: screen, GPU, input devices, consoles      |
 | `src/cursor.rs`   | The pointer image (standalone)                                |

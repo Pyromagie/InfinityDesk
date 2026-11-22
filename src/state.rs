@@ -111,6 +111,8 @@ pub struct InfinityDesk {
     pub fullscreen: Option<Fullscreen>,
     /// The open template menu (Mod+R).
     pub layout_menu: Option<LayoutMenu>,
+    /// What happened since the last turn of the event loop, for scripts (see `script.rs`).
+    pub events: Vec<crate::script::Event>,
     /// The open overview (Mod+Tab).
     pub overview: Option<Overview>,
     /// Slots of the last applied template that new windows fill.
@@ -208,6 +210,7 @@ impl InfinityDesk {
             udev: None,
             fullscreen: None,
             layout_menu: None,
+            events: Vec::new(),
             overview: None,
             free_slots: None,
             active: None,
@@ -308,6 +311,7 @@ impl InfinityDesk {
             .as_ref()
             .map(|o| (self.config.output(&o.name()), config.output(&o.name())));
         self.config = config;
+        self.emit("config.reloaded", &[], None);
         if let (Some(output), Some((old, new))) = (output, settings)
             && old != new
         {
@@ -472,6 +476,7 @@ impl InfinityDesk {
                 self.space.map_element(window.clone(), loc, false);
             }
         }
+        self.emit("window.open", &[&window], None);
         self.focus_window(&window);
         // Leaving fullscreen, it is back at the place it got above.
         if rules.open_fullscreen {
@@ -481,6 +486,9 @@ impl InfinityDesk {
 
     /// Raises the window with its cluster and gives it keyboard focus.
     pub fn focus_window(&mut self, window: &Window) {
+        if self.active.as_ref() != Some(window) {
+            self.emit("window.focus", &[window], None);
+        }
         self.active = Some(window.clone());
         // While switching with Alt+Tab, the order is kept until the choice is made.
         if self.switching.is_none() {

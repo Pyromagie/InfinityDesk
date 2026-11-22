@@ -4,6 +4,8 @@ mod compositor;
 mod layer_shell;
 mod xdg_shell;
 
+pub use xdg_shell::app_id_and_title;
+
 use smithay::{
     backend::{allocator::dmabuf::Dmabuf, renderer::ImportDma},
     input::{

@@ -329,6 +329,9 @@ impl PointerGrab<InfinityDesk> for DragGrab {
                         tracing::info!("{} window(s) pulled out of their cluster", group.len());
                         members.retain(|m| group.contains(&m.window));
                         data.clusters.detach(group);
+                        for w in group.iter() {
+                            data.emit("cluster.undock", &[w], None);
+                        }
                         data.selected.clear();
                     }
                 }
@@ -525,6 +528,7 @@ impl PointerGrab<InfinityDesk> for DragGrab {
                 if touching(mr, or, data.config.gaps) {
                     tracing::info!("Docked");
                     data.clusters.join(mw, ow);
+                    data.emit("cluster.dock", &[mw, ow], None);
                 }
             }
         }

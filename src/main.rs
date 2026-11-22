@@ -15,6 +15,7 @@ mod layout;
 mod navigate;
 mod render;
 mod resize;
+mod script;
 mod state;
 mod udev;
 mod winit;
@@ -53,8 +54,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for command in std::iter::once(&first).chain(&state.config.startup) {
         spawn(command, &state);
     }
+    state.emit("desk.start", &[], None);
 
-    event_loop.run(None, &mut state, |_| {})?;
+    // Between two turns of the loop, scripts get what happened.
+    event_loop.run(None, &mut state, |state| state.dispatch_events())?;
     Ok(())
 }
 

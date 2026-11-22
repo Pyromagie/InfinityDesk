@@ -249,7 +249,9 @@ impl InfinityDesk {
                             w.toplevel().unwrap().send_pending_configure();
                         });
                         keyboard.set_focus(self, Option::<WlSurface>::None, serial);
-                        self.active = None;
+                        if self.active.take().is_some() {
+                            self.emit("window.focus", &[], None);
+                        }
                         if bound == Some(Action::DragSelect) {
                             let grab = DragGrab::select(self, start_data);
                             pointer.set_grab(self, grab, serial, Focus::Clear);
@@ -386,7 +388,7 @@ impl InfinityDesk {
 
     /// Runs a shortcut's action. Window actions work on the window with the keyboard focus,
     /// navigation starts from the active window (also while a launcher has the keyboard).
-    fn run(&mut self, action: Action) {
+    pub fn run(&mut self, action: Action) {
         let keyboard = self.seat.get_keyboard().unwrap();
         let focused = (keyboard.current_focus()).and_then(|s| self.window_for_surface(&s));
         match action {
@@ -403,6 +405,7 @@ impl InfinityDesk {
             }
             Action::LayoutMenu => self.toggle_layout_menu(focused),
             Action::Quit => self.loop_signal.stop(),
+            Action::Lua(f) => self.call_lua(&f, mlua::MultiValue::new(), "key binding"),
             // Moving around ends fullscreen first.
             action => {
                 self.end_fullscreen();

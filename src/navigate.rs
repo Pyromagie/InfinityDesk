@@ -231,6 +231,7 @@ impl InfinityDesk {
     /// or, if another window was chosen meanwhile (click or Mod+arrow), to that window's cluster.
     pub fn toggle_overview(&mut self) {
         if let Some(overview) = self.overview.take() {
+            self.emit("view.overview", &[], Some(false));
             match self
                 .active
                 .clone()
@@ -247,6 +248,7 @@ impl InfinityDesk {
         let area = all.unwrap_or_else(|| Rect::from_size(self.canvas.size()));
         let margin = (area.size.w / OVERVIEW_MARGIN, area.size.h / OVERVIEW_MARGIN);
         let margin = margin.0.max(margin.1);
+        self.emit("view.overview", &[], Some(true));
         self.overview = Some(Overview {
             view: self.canvas.target(),
             active: self.active.clone(),
@@ -291,7 +293,9 @@ impl InfinityDesk {
 
     /// A window was clicked in the overview: it gets focused and the overview closes there.
     pub fn choose_in_overview(&mut self, window: &Window) {
-        self.overview = None;
+        if self.overview.take().is_some() {
+            self.emit("view.overview", &[], Some(false));
+        }
         self.focus_window(window);
         self.show_cluster(window);
     }

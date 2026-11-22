@@ -23,7 +23,17 @@
 //! desk.window_rule { match = { app_id = "^firefox$" }, width = "full", height = "full",
 //!                    open_fullscreen = false, dock = true }
 //! desk.output { name = "DP-2", mode = "3440x1440@175", scale = 1.0, transform = "normal" }
+//!
+//! -- Scripting: functions on keys and events; desk.run carries out an action from inside them.
+//! desk.bind("Mod+G", function() desk.run(desk.spawn("kitty")) end)
+//! local id = desk.on("window.open", function(w)
+//!   if w.app_id == "mpv" then desk.run(desk.fullscreen) end
+//! end)
+//! desk.off(id)
 //! ```
+//!
+//! The Lua state stays loaded (until the file is reloaded), so scripts can keep values in
+//! variables between calls. See `script.rs` for the events and the time limits.
 //!
 //! Everything is optional. Without the file the defaults apply; if the file has an error, it is
 //! logged and the defaults apply as well. Changes to the file are picked up while running; a
@@ -36,10 +46,13 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use mlua::{AnyUserData, FromLua, Lua, Table, UserData, Value};
+use mlua::{FromLua, Function, Lua, Table, UserData, Value};
 use regex::Regex;
 
-use crate::navigate::Dir;
+use crate::{
+    navigate::Dir,
+    script::{self, Handlers},
+};
 use smithay::input::keyboard::{
     Keysym, ModifiersState, XkbConfig,
     xkb::{self, KEYSYM_CASE_INSENSITIVE},
@@ -88,6 +101,8 @@ pub struct Config {
     pub cursor_size: Option<u32>,
     pub window_rules: Vec<WindowRule>,
     pub outputs: Vec<OutputConfig>,
+    /// The config's Lua state, kept for its functions (`desk.on`, functions on keys).
+    pub lua: Option<Lua>,
 }
 
 /// Settings for a monitor (`desk.output`); without a name for every monitor.
@@ -326,6 +341,7 @@ impl Default for Config {
             cursor_size: None,
             window_rules: Vec::new(),
             outputs: Vec::new(),
+            lua: None,
             binds: [
                 ("Mod+T".to_string(), Action::Spawn("kitty".into())),
                 ("Mod+Return".to_string(), Action::Spawn("kitty".into())),
@@ -478,6 +494,8 @@ pub enum Action {
     DragSelect,
     /// Scrolling: zooms around the pointer.
     ScrollZoom,
+    /// A Lua function from the config (keys only).
+    Lua(Function),
 }
 
 impl Action {
@@ -489,6 +507,7 @@ impl Action {
         );
         match key {
             Key::Sym(_) => !drag && *self != Action::ScrollZoom,
+            Key::Button(_) | Key::Scroll if matches!(self, Action::Lua(_)) => false,
             Key::Button(_) => drag,
             Key::Scroll => *self == Action::ScrollZoom,
         }
@@ -679,15 +698,19 @@ impl Config {
         desk.set("spawn", spawn)?;
         let bind = lua.create_function(|lua, (text, action): (String, Value)| {
             let keys = parse_keys(&text).map_err(|e| mlua::Error::runtime(format!("bind {e}")))?;
-            let action = (action.as_userdata())
-                .and_then(|a: &AnyUserData| a.borrow::<Action>().ok().map(|a| a.clone()));
+            let action = match action {
+                Value::Function(f) => Some(Action::Lua(f)),
+                action => action_of(&action),
+            };
             let action = action.ok_or_else(|| {
-                let expected = "an action like desk.spawn(\"...\") or desk.close_window";
+                let expected = "an action like desk.spawn(\"...\") or desk.close_window, or a \
+                    function";
                 mlua::Error::runtime(format!("bind \"{text}\": the action must be {expected}"))
             })?;
             if !action.fits(keys.key) {
                 let rule = "mouse buttons take desk.drag_move, desk.drag_resize or \
-                    desk.drag_select, Scroll takes desk.scroll_zoom, keys the other actions";
+                    desk.drag_select, Scroll takes desk.scroll_zoom, keys the other actions \
+                    and functions";
                 return Err(mlua::Error::runtime(format!("bind \"{text}\": {rule}")));
             }
             let mut config = lua.app_data_mut::<Config>().unwrap();
@@ -709,11 +732,55 @@ impl Config {
             Ok(())
         })?;
         desk.set("spawn_at_startup", spawn_at_startup)?;
+        // Scripting (see `script.rs`).
+        lua.set_app_data(Handlers::default());
+        let on = lua.create_function(|lua, (name, f): (String, Function)| {
+            let event = script::EVENTS.iter().find(|e| **e == name).ok_or_else(|| {
+                let known = script::EVENTS.join(", ");
+                mlua::Error::runtime(format!("on \"{name}\": unknown event (known: {known})"))
+            })?;
+            Ok(lua.app_data_mut::<Handlers>().unwrap().add(event, f))
+        })?;
+        desk.set("on", on)?;
+        let off = lua.create_function(|lua, id: u64| {
+            lua.app_data_mut::<Handlers>().unwrap().remove(id);
+            Ok(())
+        })?;
+        desk.set("off", off)?;
+        let run = lua.create_function(|lua, action: Value| {
+            // Mouse actions need a pressed button.
+            let action = action_of(&action).filter(|a| a.fits(Key::Sym(Keysym::a)));
+            let action = action.ok_or_else(|| {
+                let expected = "an action like desk.spawn(\"...\") or desk.center";
+                mlua::Error::runtime(format!("run: expected {expected}"))
+            })?;
+            script::run(lua, action)
+        })?;
+        desk.set("run", run)?;
+        // `print` goes to InfinityDesk's log, where it can be found.
+        let print = lua.create_function(|_, args: mlua::MultiValue| {
+            let texts: Vec<String> = args
+                .iter()
+                .map(|v| v.to_string())
+                .collect::<Result<_, _>>()?;
+            tracing::info!("Lua: {}", texts.join("\t"));
+            Ok(())
+        })?;
+        lua.globals().set("print", print)?;
         let loaded: Table = lua.globals().get::<Table>("package")?.get("loaded")?;
         loaded.set("infinitydesk", desk)?;
-        lua.load(source).set_name(format!("@{name}")).exec()?;
-        Ok(lua.remove_app_data::<Config>().unwrap())
+        let chunk = lua.load(source).set_name(format!("@{name}"));
+        script::guarded(&lua, script::LOAD_LIMIT, || chunk.exec())?;
+        let mut config = lua.remove_app_data::<Config>().unwrap();
+        config.lua = Some(lua);
+        Ok(config)
     }
+}
+
+/// The action in a Lua value made by `desk.spawn(...)`, `desk.close_window` and the like.
+fn action_of(value: &Value) -> Option<Action> {
+    let action = value.as_userdata()?.borrow::<Action>().ok()?;
+    Some(action.clone())
 }
 
 /// Reads one `desk.<section> { ... }` call into the config.
@@ -1387,6 +1454,51 @@ mod tests {
             let err = error(&format!(
                 r#"require("infinitydesk").output {{ {setting} }}"#
             ));
+            assert!(err.contains(message), "{err}");
+        }
+    }
+
+    #[test]
+    fn scripting() {
+        let config = load(
+            r#"
+            local desk = require("infinitydesk")
+            desk.bind("Mod+G", function() desk.run(desk.center) end)
+            local id = desk.on("window.open", function(w) end)
+            desk.on("window.focus", function(w) end)
+            desk.off(id)
+            "#,
+        )
+        .unwrap();
+        let handlers = config
+            .lua
+            .as_ref()
+            .unwrap()
+            .app_data_ref::<Handlers>()
+            .unwrap();
+        assert_eq!(handlers.listening("window.open").count(), 0);
+        assert_eq!(handlers.listening("window.focus").count(), 1);
+        assert!(matches!(
+            config.binds.last().unwrap().action,
+            Action::Lua(_)
+        ));
+
+        for (code, message) in [
+            (
+                r#"desk.on("window.opened", print)"#,
+                r#"on "window.opened": unknown event"#,
+            ),
+            (
+                "desk.run(desk.center)",
+                "run works inside functions given to desk.on",
+            ),
+            ("desk.run(desk.drag_move)", "run: expected an action"),
+            (
+                r#"desk.bind("MouseLeft", print)"#,
+                "keys the other actions and functions",
+            ),
+        ] {
+            let err = error(&format!("local desk = require(\"infinitydesk\")\n{code}"));
             assert!(err.contains(message), "{err}");
         }
     }

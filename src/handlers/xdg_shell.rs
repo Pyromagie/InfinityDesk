@@ -62,6 +62,7 @@ impl XdgShellHandler for InfinityDesk {
     fn toplevel_destroyed(&mut self, surface: ToplevelSurface) {
         // Leave the cluster; the rest may split into several clusters.
         if let Some(window) = self.window_for_surface(surface.wl_surface()) {
+            self.emit("window.close", &[&window], None);
             self.selected.retain(|w| w != &window);
             self.resizing.remove(&window);
             self.resize_hint.retain(|(w, _)| w != &window);
@@ -80,9 +81,20 @@ impl XdgShellHandler for InfinityDesk {
             self.forget_recent(&window);
             if self.active.as_ref() == Some(&window) {
                 self.active = None;
+                self.emit("window.focus", &[], None);
             }
         }
         self.unplaced.retain(|w| w.toplevel().unwrap() != &surface);
+    }
+
+    fn title_changed(&mut self, surface: ToplevelSurface) {
+        if let Some(window) = self.window_for_surface(surface.wl_surface()) {
+            self.emit("window.title", &[&window], None);
+        }
+    }
+
+    fn app_id_changed(&mut self, surface: ToplevelSurface) {
+        self.title_changed(surface);
     }
 
     /// The client asks to fill the screen (e.g. a video player): same as Alt+F.
@@ -211,12 +223,8 @@ impl XdgShellHandler for InfinityDesk {
 impl InfinityDesk {
     /// What the window rules from the config say for a window (by its app id and title).
     pub fn rules(&self, toplevel: &ToplevelSurface) -> Rules {
-        let (app_id, title) = with_states(toplevel.wl_surface(), |states| {
-            let data = states.data_map.get::<XdgToplevelSurfaceData>().unwrap();
-            let data = data.lock().unwrap();
-            (data.app_id.clone(), data.title.clone())
-        });
-        (self.config).rules_for(&app_id.unwrap_or_default(), &title.unwrap_or_default())
+        let (app_id, title) = app_id_and_title(toplevel);
+        self.config.rules_for(&app_id, &title)
     }
 
     /// The size of a new window: half the screen wide and full high, or as its rules say.
@@ -308,4 +316,14 @@ impl InfinityDesk {
             state.geometry = state.positioner.get_unconstrained_geometry(target);
         });
     }
+}
+
+/// A window's app_id and title (empty if it has none).
+pub fn app_id_and_title(toplevel: &ToplevelSurface) -> (String, String) {
+    with_states(toplevel.wl_surface(), |states| {
+        let data = states.data_map.get::<XdgToplevelSurfaceData>().unwrap();
+        let data = data.lock().unwrap();
+        let text = |t: &Option<String>| t.clone().unwrap_or_default();
+        (text(&data.app_id), text(&data.title))
+    })
 }
