@@ -252,7 +252,9 @@ desk.canvas {
   wheel_pan = 60,   -- screen pixels a mouse wheel notch moves the view on empty space
 }
 
-desk.layout { gaps = 16 } -- space between windows and around the screen
+-- gaps: space between windows and around the screen. titlebars = true lets programs draw their
+-- own titlebar; by default those that can (kitty, alacritty, Qt, most others) leave it out.
+desk.layout { gaps = 16, titlebars = false }
 
 desk.snapping {
   threshold = 15, -- screen pixels within which edges snap together

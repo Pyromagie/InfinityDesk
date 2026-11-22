@@ -168,6 +168,11 @@ Ersetzt die freien Fenstergrößen aus Punkt 5 (`match_size`, freies Resize, Aus
 - 💡 Neu geladen werden ohne Neustart (Hot-Reload), wenn möglich.
 - ✅ Code, Kommentare, Logs, README und Doku auf **Englisch** (öffentliches Repo). Dieser Plan bleibt unser deutsches Arbeitsdokument.
 
+## 6d. Optik (Pyro, 22.11.2026)
+
+Pyros Auswahl: keine Titelleisten, Rahmen ums aktive Fenster, abgerundete Ecken (Radius in der Config, 0 = eckig). Schatten nicht.
+- ✅ **Keine Titelleisten** (xdg-decoration): Programme, die es können (kitty, alacritty, Qt), lassen ihre Titelleiste weg; InfinityDesk zeichnet auch keine, so wirken Cluster wie aus einem Guss. Schließen mit Mod+Q. Zusätzlich gelten alle Fenster als „gekachelt“, dann lassen GTK-Programme Schatten und runde Ecken weg. `desk.layout { titlebars = true }` lässt jedes Programm selbst entscheiden. Gilt für Fenster, die nach dem Ändern aufgehen. GTK-Programme behalten ihre Kopfleiste (sie ist bei GTK Teil des Programms).
+
 ## 7. Roadmap
 
 1. ✅ Minimaler Compositor (genestet, winit), zeigt Wayland-Clients an

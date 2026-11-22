@@ -22,7 +22,10 @@ use wayland_client::{
     Connection, Dispatch, EventQueue, QueueHandle, delegate_noop,
     protocol::{wl_buffer, wl_compositor, wl_registry, wl_shm, wl_shm_pool, wl_surface},
 };
-use wayland_protocols::xdg::shell::client::{xdg_surface, xdg_toplevel, xdg_wm_base};
+use wayland_protocols::xdg::{
+    decoration::zv1::client::{zxdg_decoration_manager_v1, zxdg_toplevel_decoration_v1},
+    shell::client::{xdg_surface, xdg_toplevel, xdg_wm_base},
+};
 
 const BIN: &str = env!("CARGO_BIN_EXE_infinitydesk");
 /// Window sizes InfinityDesk gives on the 1920×1080 output with the default gaps of 16: half
@@ -220,6 +223,7 @@ struct Windows {
     compositor: Option<wl_compositor::WlCompositor>,
     shm: Option<wl_shm::WlShm>,
     wm_base: Option<xdg_wm_base::XdgWmBase>,
+    decorations: Option<zxdg_decoration_manager_v1::ZxdgDecorationManagerV1>,
     /// Where the window contents (shared memory) are created.
     dir: PathBuf,
     list: Vec<TestWindow>,
@@ -231,6 +235,11 @@ struct TestWindow {
     toplevel: xdg_toplevel::XdgToplevel,
     /// What InfinityDesk asked for last (0: up to the program).
     size: (i32, i32),
+    /// Whether the program should draw its own titlebar, as InfinityDesk said last.
+    titlebar: Option<bool>,
+    /// InfinityDesk counts the window as tiled on all sides.
+    tiled: bool,
+    decoration: zxdg_toplevel_decoration_v1::ZxdgToplevelDecorationV1,
     open: bool,
 }
 
@@ -246,7 +255,7 @@ impl Client {
         };
         queue.roundtrip(&mut windows).unwrap();
         assert!(windows.compositor.is_some() && windows.shm.is_some());
-        assert!(windows.wm_base.is_some());
+        assert!(windows.wm_base.is_some() && windows.decorations.is_some());
         Client { queue, windows }
     }
 
@@ -266,12 +275,18 @@ impl Client {
         toplevel.set_app_id(app_id.into());
         toplevel.set_title(title.into());
         toplevel.set_parent(parent.map(|p| &w.list[p].toplevel));
+        // Like kitty: it can do without a titlebar of its own.
+        let decorations = w.decorations.as_ref().unwrap();
+        let decoration = decorations.get_toplevel_decoration(&toplevel, &qh, index);
         surface.commit();
         w.list.push(TestWindow {
             surface,
             xdg,
             toplevel,
             size: (0, 0),
+            titlebar: None,
+            tiled: false,
+            decoration,
             open: true,
         });
         self.sync();
@@ -293,6 +308,16 @@ impl Client {
         self.sync();
     }
 
+    /// The program says whether it would rather draw its own titlebar.
+    fn prefer_titlebar(&mut self, index: usize, own: bool) {
+        let decoration = &self.windows.list[index].decoration;
+        decoration.set_mode(match own {
+            true => zxdg_toplevel_decoration_v1::Mode::ClientSide,
+            false => zxdg_toplevel_decoration_v1::Mode::ServerSide,
+        });
+        self.sync();
+    }
+
     fn is_open(&self, index: usize) -> bool {
         self.windows.list[index].open
     }
@@ -309,6 +334,7 @@ impl Client {
 impl TestWindow {
     fn close(&mut self) {
         if self.open {
+            self.decoration.destroy();
             self.toplevel.destroy();
             self.xdg.destroy();
             self.surface.destroy();
@@ -360,7 +386,11 @@ impl Dispatch<wl_registry::WlRegistry, ()> for Windows {
             match interface.as_str() {
                 "wl_compositor" => state.compositor = Some(registry.bind(name, 1, qh, ())),
                 "wl_shm" => state.shm = Some(registry.bind(name, 1, qh, ())),
-                "xdg_wm_base" => state.wm_base = Some(registry.bind(name, 1, qh, ())),
+                // Version 2 knows the tiled states.
+                "xdg_wm_base" => state.wm_base = Some(registry.bind(name, 2, qh, ())),
+                "zxdg_decoration_manager_v1" => {
+                    state.decorations = Some(registry.bind(name, 1, qh, ()));
+                }
                 _ => {}
             }
         }
@@ -410,8 +440,17 @@ impl Dispatch<xdg_toplevel::XdgToplevel, usize> for Windows {
         _: &QueueHandle<Self>,
     ) {
         match event {
-            xdg_toplevel::Event::Configure { width, height, .. } => {
+            xdg_toplevel::Event::Configure {
+                width,
+                height,
+                states,
+            } => {
                 state.list[*index].size = (width, height);
+                let tiled = xdg_toplevel::State::TiledLeft as u32;
+                let mut states = states
+                    .chunks(4)
+                    .map(|c| u32::from_ne_bytes(c.try_into().unwrap()));
+                state.list[*index].tiled = states.any(|s| s == tiled);
             }
             xdg_toplevel::Event::Close => state.list[*index].close(),
             _ => {}
@@ -419,6 +458,24 @@ impl Dispatch<xdg_toplevel::XdgToplevel, usize> for Windows {
     }
 }
 
+impl Dispatch<zxdg_toplevel_decoration_v1::ZxdgToplevelDecorationV1, usize> for Windows {
+    fn event(
+        state: &mut Self,
+        _: &zxdg_toplevel_decoration_v1::ZxdgToplevelDecorationV1,
+        event: zxdg_toplevel_decoration_v1::Event,
+        index: &usize,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        if let zxdg_toplevel_decoration_v1::Event::Configure { mode } = event {
+            let own =
+                mode == wayland_client::WEnum::Value(zxdg_toplevel_decoration_v1::Mode::ClientSide);
+            state.list[*index].titlebar = Some(own);
+        }
+    }
+}
+
+delegate_noop!(Windows: ignore zxdg_decoration_manager_v1::ZxdgDecorationManagerV1);
 delegate_noop!(Windows: ignore wl_compositor::WlCompositor);
 delegate_noop!(Windows: ignore wl_surface::WlSurface);
 delegate_noop!(Windows: ignore wl_shm::WlShm);
@@ -629,4 +686,26 @@ fn with_a_scale_of_two_windows_get_half_the_size() {
     let half = ((960 - 3 * 16) / 2, 540 - 2 * 16);
     assert_eq!(desk.rect("one")[2..], [half.0, half.1]);
     assert_eq!(client.windows.list[0].size, (half.0 as i32, half.1 as i32));
+}
+
+#[test]
+fn programs_leave_out_their_titlebar_unless_the_config_lets_them_draw_it() {
+    let desk = Desk::start("");
+    let mut client = Client::connect(&desk);
+    client.open("one", "One");
+    let one = &client.windows.list[0];
+    assert_eq!((one.titlebar, one.tiled), (Some(false), true));
+    // Asking for its own titlebar does not change it.
+    client.prefer_titlebar(0, true);
+    assert_eq!(client.windows.list[0].titlebar, Some(false));
+
+    let desk = Desk::start("desk.layout { titlebars = true }");
+    let mut client = Client::connect(&desk);
+    client.open("one", "One");
+    let one = &client.windows.list[0];
+    assert_eq!((one.titlebar, one.tiled), (Some(true), false));
+    client.prefer_titlebar(0, false);
+    assert_eq!(client.windows.list[0].titlebar, Some(false));
+    client.prefer_titlebar(0, true);
+    assert_eq!(client.windows.list[0].titlebar, Some(true));
 }

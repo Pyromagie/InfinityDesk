@@ -10,7 +10,7 @@
 //!              mod_key = "Super", mod_key_nested = "Alt" }
 //! desk.canvas { width = 20000, height = 12000, grid = { spacing = 100 },
 //!               zoom_speed = 1.0, wheel_pan = 60 }
-//! desk.layout { gaps = 16 }
+//! desk.layout { gaps = 16, titlebars = false }
 //! desk.snapping { threshold = 15, hold_ms = 300, view = true }
 //! desk.animation { duration_ms = 250 }
 //! desk.colors { background = "#1a1a1f", grid = "#474752", accent = "#59a6ff" }
@@ -81,6 +81,8 @@ pub struct Config {
     pub snap_view: bool,
     /// Space between windows, and between windows and the screen edge.
     pub gaps: i32,
+    /// Programs draw their own titlebar (false: those that can leave it out).
+    pub titlebars: bool,
     /// Edges closer than this (in screen pixels) snap together.
     pub snap_threshold: f64,
     /// How long a window is held still before it can be pulled out of its cluster.
@@ -329,6 +331,7 @@ impl Default for Config {
             wheel_pan: 60.0,
             snap_view: true,
             gaps: 16,
+            titlebars: false,
             snap_threshold: 15.0,
             hold_time: Duration::from_millis(300),
             animation: Duration::from_millis(250),
@@ -949,8 +952,9 @@ fn canvas(config: &mut Config, t: &Table) -> mlua::Result<()> {
 }
 
 fn layout(config: &mut Config, t: &Table) -> mlua::Result<()> {
-    check_keys(t, "layout", &["gaps"])?;
+    check_keys(t, "layout", &["gaps", "titlebars"])?;
     config.gaps = get_in(t, "layout", "gaps", 0..=200)?.unwrap_or(config.gaps);
+    config.titlebars = get::<bool>(t, "layout", "titlebars")?.unwrap_or(config.titlebars);
     Ok(())
 }
 
@@ -1189,7 +1193,7 @@ mod tests {
                          mod_key = "ctrl", mod_key_nested = "Super" }
             desk.canvas { width = 30000, height = 15000, grid = { spacing = 200 },
                           zoom_speed = 2.5, wheel_pan = 120 }
-            desk.layout { gaps = 8 }
+            desk.layout { gaps = 8, titlebars = true }
             desk.snapping { threshold = 20, hold_ms = 500, view = false }
             desk.animation { duration_ms = 0 }
             desk.colors { background = "#000000", accent = "#ff8000" }
@@ -1227,6 +1231,7 @@ mod tests {
         assert_eq!((config.zoom_speed, config.wheel_pan), (2.5, 120.0));
         assert!(!config.snap_view);
         assert_eq!(config.gaps, 8);
+        assert!(config.titlebars);
         assert_eq!(config.snap_threshold, 20.0);
         assert_eq!(config.hold_time, Duration::from_millis(500));
         assert_eq!(config.animation, Duration::ZERO);

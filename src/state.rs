@@ -54,7 +54,7 @@ use smithay::{
         selection::data_device::DataDeviceState,
         shell::{
             wlr_layer::{Layer, WlrLayerShellState},
-            xdg::XdgShellState,
+            xdg::{XdgShellState, decoration::XdgDecorationState},
         },
         shm::ShmState,
         socket::ListeningSocketSource,
@@ -141,6 +141,8 @@ pub struct InfinityDesk {
     pub viewporter_state: ViewporterState,
     /// Tells apps the screen's scale (e.g. 1.5), so they draw crisp at it.
     pub fractional_scale_state: FractionalScaleManagerState,
+    /// Lets apps leave out their titlebar (see `titlebars` in the config).
+    pub decoration_state: XdgDecorationState,
     /// Apps hand over GPU buffers directly (standalone only; offered by `udev`).
     pub dmabuf_state: DmabufState,
     pub seat: Seat<Self>,
@@ -158,6 +160,7 @@ impl InfinityDesk {
         let data_device_state = DataDeviceState::new::<Self>(&dh);
         let viewporter_state = ViewporterState::new::<Self>(&dh);
         let fractional_scale_state = FractionalScaleManagerState::new::<Self>(&dh);
+        let decoration_state = XdgDecorationState::new::<Self>(&dh);
 
         let config = Config::load();
         let mut seat_state = SeatState::new();
@@ -231,6 +234,7 @@ impl InfinityDesk {
             data_device_state,
             viewporter_state,
             fractional_scale_state,
+            decoration_state,
             dmabuf_state: DmabufState::new(),
             seat,
         }

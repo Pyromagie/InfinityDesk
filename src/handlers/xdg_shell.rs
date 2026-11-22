@@ -26,6 +26,13 @@ use smithay::{
 
 use crate::{InfinityDesk, config::Rules, grabs::DragGrab, resize::Edge, state::Resizing};
 
+const TILED: [xdg_toplevel::State; 4] = [
+    xdg_toplevel::State::TiledLeft,
+    xdg_toplevel::State::TiledRight,
+    xdg_toplevel::State::TiledTop,
+    xdg_toplevel::State::TiledBottom,
+];
+
 /// Checks that a client move request belongs to a real, currently pressed pointer button.
 fn check_grab(
     seat: &Seat<InfinityDesk>,
@@ -285,6 +292,15 @@ impl InfinityDesk {
                         self.resizing
                             .insert(window.clone(), Resizing { rect, anchor_end });
                     }
+                }
+                if !self.config.titlebars {
+                    // Counts as tiled on all sides: programs that draw their own frame (GTK) then
+                    // leave out shadows and round corners, so windows fit together.
+                    toplevel.with_pending_state(|s| {
+                        for state in TILED {
+                            s.states.set(state);
+                        }
+                    });
                 }
                 toplevel.send_configure();
             }

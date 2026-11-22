@@ -13,7 +13,10 @@ use smithay::{
         dnd::{DnDGrab, DndGrabHandler, GrabType, Source},
         pointer::{CursorImageStatus, Focus},
     },
-    reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface},
+    reexports::{
+        wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode,
+        wayland_server::{Resource, protocol::wl_surface::WlSurface},
+    },
     utils::Serial,
     wayland::dmabuf::{DmabufGlobal, DmabufHandler, DmabufState, ImportNotifier},
     wayland::{
@@ -27,6 +30,7 @@ use smithay::{
                 DataDeviceHandler, DataDeviceState, WaylandDndGrabHandler, set_data_device_focus,
             },
         },
+        shell::xdg::{ToplevelSurface, decoration::XdgDecorationHandler},
     },
 };
 
@@ -110,6 +114,41 @@ impl DmabufHandler for InfinityDesk {
             let _ = notifier.successful::<Self>();
         } else {
             notifier.failed();
+        }
+    }
+}
+
+// --- Titlebars ---
+
+/// With `titlebars = false` (the default) programs that support it leave out their own titlebar
+/// and InfinityDesk draws none, so windows in a cluster fit together. Otherwise each program
+/// decides.
+impl XdgDecorationHandler for InfinityDesk {
+    fn new_decoration(&mut self, toplevel: ToplevelSurface) {
+        self.set_decoration(&toplevel, None);
+    }
+
+    fn request_mode(&mut self, toplevel: ToplevelSurface, mode: Mode) {
+        self.set_decoration(&toplevel, Some(mode));
+    }
+
+    fn unset_mode(&mut self, toplevel: ToplevelSurface) {
+        self.set_decoration(&toplevel, None);
+    }
+
+    fn decoration_destroyed(&mut self, _toplevel: ToplevelSurface) {}
+}
+
+impl InfinityDesk {
+    /// `ServerSide` means: no titlebar from the program (InfinityDesk draws none either).
+    fn set_decoration(&mut self, toplevel: &ToplevelSurface, wanted: Option<Mode>) {
+        let mode = match self.config.titlebars {
+            false => Mode::ServerSide,
+            true => wanted.unwrap_or(Mode::ClientSide),
+        };
+        toplevel.with_pending_state(|s| s.decoration_mode = Some(mode));
+        if toplevel.is_initial_configure_sent() {
+            toplevel.send_pending_configure();
         }
     }
 }
