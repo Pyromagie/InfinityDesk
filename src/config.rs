@@ -8,13 +8,13 @@
 //!              mouse = { natural_scroll = false, left_handed = false,
 //!                        accel_speed = 0.0, accel_profile = "adaptive" },
 //!              mod_key = "Super", mod_key_nested = "Alt" }
-//! desk.canvas { width = 20000, height = 12000, grid = { spacing = 100 },
+//! desk.canvas { width = 60000, height = 36000, grid = { spacing = 100 },
 //!               zoom_speed = 1.0, wheel_pan = 60 }
 //! desk.layout { gaps = 16, titlebars = false, border = 3, corner_radius = 0 }
 //! desk.snapping { threshold = 15, hold_ms = 300, view = true }
 //! desk.animation { duration_ms = 250 }
 //! desk.colors { background = "#1a1a1f", grid = "#474752", accent = "#59a6ff",
-//!               border = "#b8bcc8" }
+//!               border = "#b8bcc84d" }
 //! desk.bind("Mod+B", desk.spawn("firefox"))
 //! desk.unbind("Mod+Space")
 //! desk.bind("Mod+MouseMiddle", desk.drag_resize)
@@ -332,7 +332,7 @@ impl Default for Config {
             },
             mod_key: Modifier::Super,
             mod_key_nested: Modifier::Alt,
-            canvas_size: (20_000, 12_000),
+            canvas_size: (60_000, 36_000),
             grid_spacing: 100.0,
             zoom_speed: 1.0,
             wheel_pan: 60.0,
@@ -347,7 +347,13 @@ impl Default for Config {
             background: [0.1, 0.1, 0.12, 1.0],
             grid_color: [0.28, 0.28, 0.32, 1.0],
             accent: [0.35, 0.65, 1.0, 1.0],
-            border_color: [184.0 / 255.0, 188.0 / 255.0, 200.0 / 255.0, 1.0],
+            // Light gray at 30 %, so it does not stand out (premultiplied).
+            border_color: [
+                0.3 * 184.0 / 255.0,
+                0.3 * 188.0 / 255.0,
+                0.3 * 200.0 / 255.0,
+                0.3,
+            ],
             startup: Vec::new(),
             env: Vec::new(),
             cursor_theme: None,

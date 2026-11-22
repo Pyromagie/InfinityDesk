@@ -18,7 +18,7 @@ Skizze: Mehrere Cluster (2er-Gruppen, 2×2-Block, Einzelfenster) verteilt auf ei
 
 ## 2. Kernkonzepte
 
-- ✅ **Canvas**: sehr große, aber begrenzte Fläche (nicht wirklich unendlich). Größe: 💬 (Vorschlag: ~20000×12000 logische px, konfigurierbar)
+- ✅ **Canvas**: sehr große, aber begrenzte Fläche (nicht wirklich unendlich). Größe 60000×36000 logische px, konfigurierbar (Pyro 22.11.2026: 20000×12000 war viel zu klein, mindestens doppelt, eher dreifach)
 - ✅ **Viewport**: der Monitor zeigt einen Ausschnitt des Canvas.
 - ✅ **Fenster**: frei platzier- und skalierbar.
 - ✅ **Cluster**: Gruppe aneinander angedockter Fenster, als Ganzes verschiebbar.
@@ -152,7 +152,7 @@ Ersetzt die freien Fenstergrößen aus Punkt 5 (`match_size`, freies Resize, Aus
     touchpad = { tap = true, natural_scroll = true },
   }
 
-  desk.canvas { width = 20000, height = 12000, grid = { spacing = 100 } }
+  desk.canvas { width = 60000, height = 36000, grid = { spacing = 100 } }
   desk.layout { gaps = 16 }
   desk.snapping { threshold = 15, hold_ms = 300 }
 
@@ -172,7 +172,7 @@ Ersetzt die freien Fenstergrößen aus Punkt 5 (`match_size`, freies Resize, Aus
 
 Pyros Auswahl: keine Titelleisten, Rahmen ums aktive Fenster, abgerundete Ecken (Radius in der Config, 0 = eckig). Schatten nicht.
 - ✅ **Keine Titelleisten** (xdg-decoration): Programme, die es können (kitty, alacritty, Qt), lassen ihre Titelleiste weg; InfinityDesk zeichnet auch keine, so wirken Cluster wie aus einem Guss. Schließen mit Mod+Q. Zusätzlich gelten alle Fenster als „gekachelt“, dann lassen GTK-Programme Schatten und runde Ecken weg. `desk.layout { titlebars = true }` lässt jedes Programm selbst entscheiden. Gilt für Fenster, die nach dem Ändern aufgehen. GTK-Programme behalten ihre Kopfleiste (sie ist bei GTK Teil des Programms).
-- ✅ **Rahmen ums aktive Fenster** (`desk.layout { border = 3 }`, Farbe `desk.colors { border = "#b8bcc8" }`, 0 = kein Rahmen): liegt außen ums Fenster (in der Lücke), gleich breit bei jedem Zoom, gleitet mit dem Fenster. Er liegt direkt hinter seinem Fenster, also unter Fenstern davor. Hellgrau statt Akzentblau, damit markierte Fenster (blau) unterscheidbar bleiben. Im Vollbild kein Rahmen.
+- ✅ **Rahmen ums aktive Fenster** (`desk.layout { border = 3 }`, Farbe `desk.colors { border = "#b8bcc84d" }`, 0 = kein Rahmen; Pyro 22.11.2026: voll deckend war zu präsent, jetzt 30 %): liegt außen ums Fenster (in der Lücke), gleich breit bei jedem Zoom, gleitet mit dem Fenster. Er liegt direkt hinter seinem Fenster, also unter Fenstern davor. Hellgrau statt Akzentblau, damit markierte Fenster (blau) unterscheidbar bleiben. Im Vollbild kein Rahmen.
 - ✅ **Abgerundete Ecken** (`desk.layout { corner_radius = 0 }`, Standard eckig): Radius in Canvas-Pixeln, wird also beim Herauszoomen mitverkleinert. Die Fenster werden auf der Grafikkarte rund abgeschnitten (eigener Shader, rechnet über die Projektion des Bildes, stimmt daher auch auf gedrehten und gespiegelten Bildschirmen; genestet geprüft mit gespiegelt, normal und 90°). Dabei fällt auch alles außerhalb des Fensters weg (Schatten der Programme), Menüs nicht. Rahmen und Markierungen folgen den runden Ecken. Vollbild bleibt eckig (und kann dann direkt auf den Bildschirm). Nach dem Neuladen der Config wird einmal alles neu gezeichnet, damit geänderte Ecken sofort stimmen.
 
 ## 7. Roadmap

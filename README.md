@@ -14,7 +14,7 @@ step further into two dimensions. Built in Rust on [Smithay](https://github.com/
 
 ## The idea
 
-- **Canvas:** a very large but finite surface (20000 × 12000 logical pixels by default).
+- **Canvas:** a very large but finite surface (60000 × 36000 logical pixels by default).
   Your screen is a viewport onto it.
 - **Pan and zoom:** move the viewport freely. Zooming in stops at 1:1 (windows at their real
   size), zooming out stops when the whole canvas fits on the screen.
@@ -247,7 +247,7 @@ desk.input {
 }
 
 desk.canvas {
-  width = 20000, height = 12000, grid = { spacing = 100 },
+  width = 60000, height = 36000, grid = { spacing = 100 },
   zoom_speed = 1.0, -- scrolling to zoom: 1 is about 14 % per mouse wheel notch
   wheel_pan = 60,   -- screen pixels a mouse wheel notch moves the view on empty space
 }
@@ -272,7 +272,7 @@ desk.animation { duration_ms = 250 }
 
 -- "#rrggbb" or "#rrggbbaa"; accent is used for selected windows, lit edges and the template
 -- menu, border for the frame around the active window
-desk.colors { background = "#1a1a1f", grid = "#474752", accent = "#59a6ff", border = "#b8bcc8" }
+desk.colors { background = "#1a1a1f", grid = "#474752", accent = "#59a6ff", border = "#b8bcc84d" }
 
 -- Shortcuts: the built-in ones (see Controls) stay unless you change or remove them. If two
 -- bindings fit a key press (e.g. "Alt+F" and "Mod+F" with Mod = Alt), the later one wins.

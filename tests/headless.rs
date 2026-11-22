@@ -549,10 +549,10 @@ fn moving_a_window_takes_its_cluster_along_and_stays_in_the_canvas() {
     assert_eq!(moved, ["true"]);
     assert_eq!(desk.rect("one")[..2], [one[0] + 300, one[1] + 200]);
     assert_eq!(desk.rect("two")[..2], [two[0] + 300, two[1] + 200]);
-    // Far away: the cluster stops at the canvas' corner (20000 × 12000).
-    desk.eval("desk.move(find('one').id, 100000, 100000)");
+    // Far away: the cluster stops at the canvas' corner (60000 × 36000).
+    desk.eval("desk.move(find('one').id, 200000, 200000)");
     let two = desk.rect("two");
-    assert_eq!((two[0] + two[2], two[1] + two[3]), (20000, 12000));
+    assert_eq!((two[0] + two[2], two[1] + two[3]), (60000, 36000));
     // A window that is not there.
     assert_eq!(desk.eval("return desk.move(999, 0, 0)"), ["false"]);
 }
