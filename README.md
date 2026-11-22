@@ -98,8 +98,8 @@ Inside your current Wayland session, InfinityDesk opens as a window, and Mod is 
 (the host compositor keeps Super). This is the safest way to look around:
 
 ```sh
-cargo run --release                  # with a kitty terminal inside
-cargo run --release -- -c firefox    # with another program inside
+cargo run --release                  # empty (Mod + Enter opens a terminal)
+cargo run --release -- -c firefox    # with a program inside
 ```
 
 ## What works today
@@ -390,7 +390,7 @@ settings stay. If the canvas gets smaller, clusters outside it move back in as a
 ## Development
 
 ```sh
-cargo run                            # nested, with a kitty terminal inside
+cargo run                            # nested, empty
 cargo test                           # the pure logic (canvas, clusters, resize, layouts, config,
                                      # scripting) and the end-to-end tests without a screen
 ```

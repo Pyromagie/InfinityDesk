@@ -67,13 +67,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         None => tracing::warn!("No commands from outside: XDG_RUNTIME_DIR is not set"),
     }
 
-    // Start a program inside: `-c <program>`, otherwise a terminal (not without a screen). Then
-    // the config's own.
+    // The desk starts empty; `-c <program>` starts one inside, then the config's own.
     let command = (args.windows(2))
         .find(|a| a[0] == "-c" || a[0] == "--command")
         .map(|a| a[1].clone());
-    let first = command.or_else(|| (!headless).then(|| "kitty".to_string()));
-    for command in first.iter().chain(&state.config.startup) {
+    for command in command.iter().chain(&state.config.startup) {
         spawn(command, &state);
     }
     state.emit("desk.start", &[], None);
