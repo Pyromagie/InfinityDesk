@@ -88,7 +88,10 @@ impl XdgShellHandler for InfinityDesk {
     }
 
     fn title_changed(&mut self, surface: ToplevelSurface) {
-        if let Some(window) = self.window_for_surface(surface.wl_surface()) {
+        // Not before it opened: `window.open` brings the title along.
+        if let Some(window) = self.window_for_surface(surface.wl_surface())
+            && !self.unplaced.contains(&window)
+        {
             self.emit("window.title", &[&window], None);
         }
     }

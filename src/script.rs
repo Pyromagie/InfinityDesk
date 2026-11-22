@@ -4,10 +4,14 @@
 //!
 //! Every call into Lua has a time limit, so a script stuck in a loop cannot freeze the desktop.
 //! Events are handed to scripts between two turns of the event loop, never in the middle of
-//! changing something, and only if a script listens to them.
+//! changing something, and only if a script listens to them. Programs outside get them as lines
+//! of JSON through `infinitydesk msg events` (see `ipc.rs`).
 
 use std::{
     cell::RefCell,
+    fmt::Write as _,
+    io::Write as _,
+    os::unix::net::UnixStream,
     sync::atomic::{AtomicU64, Ordering},
     time::{Duration, Instant},
 };
@@ -118,6 +122,20 @@ impl WindowInfo {
         t.set("fullscreen", self.fullscreen)?;
         Ok(t)
     }
+
+    /// The same as JSON, for `infinitydesk msg events`.
+    fn json(&self, out: &mut String) {
+        let _ = write!(out, "{{\"id\":{},\"app_id\":", self.id);
+        json_string(&self.app_id, out);
+        out.push_str(",\"title\":");
+        json_string(&self.title, out);
+        let (loc, size) = (self.rect.loc, self.rect.size);
+        let _ = write!(
+            out,
+            ",\"x\":{},\"y\":{},\"width\":{},\"height\":{},\"focused\":{},\"fullscreen\":{}}}",
+            loc.x, loc.y, size.w, size.h, self.focused, self.fullscreen
+        );
+    }
 }
 
 impl Event {
@@ -129,6 +147,24 @@ impl Event {
         }
         args.extend(self.on.map(Value::Boolean));
         Ok(MultiValue::from_vec(args))
+    }
+
+    /// One line for `infinitydesk msg events`: `{"event":…,"windows":[…],"on":…}` (`on` only
+    /// when the event has it).
+    fn json(&self) -> String {
+        let mut out = format!("{{\"event\":\"{}\",\"windows\":[", self.name);
+        for (i, w) in self.windows.iter().enumerate() {
+            if i > 0 {
+                out.push(',');
+            }
+            w.json(&mut out);
+        }
+        out.push(']');
+        if let Some(on) = self.on {
+            let _ = write!(out, ",\"on\":{on}");
+        }
+        out.push_str("}\n");
+        out
     }
 }
 
@@ -162,12 +198,13 @@ pub fn reach(lua: &Lua, name: &str) -> mlua::Result<Function> {
 }
 
 impl InfinityDesk {
-    /// Something happened: scripts listening to `name` get it after this turn of the event
-    /// loop (see `dispatch_events`), with `windows` and `on`.
+    /// Something happened: scripts listening to `name` and the programs watching events get it
+    /// after this turn of the event loop (see `dispatch_events`), with `windows` and `on`.
     pub fn emit(&mut self, name: &'static str, windows: &[&Window], on: Option<bool>) {
         let lua = self.config.lua.as_ref();
         let handlers = lua.and_then(|lua| lua.app_data_ref::<Handlers>());
-        if handlers.is_some_and(|h| h.listening(name).next().is_some()) {
+        let listening = handlers.is_some_and(|h| h.listening(name).next().is_some());
+        if listening || !self.event_streams.is_empty() {
             let windows = windows.iter().map(|w| self.window_info(w)).collect();
             self.events.push(Event { name, windows, on });
         }
@@ -209,15 +246,40 @@ impl InfinityDesk {
         self.shift_windows(windows.into_iter().zip(rects).collect(), shift);
     }
 
-    /// Between two turns of the event loop: hands the events to the functions listening.
+    /// `infinitydesk msg events`: `stream` gets the state first (a `state` event with all windows,
+    /// then whether the overview is open, as `view.overview`), then every event as it happens.
+    pub fn add_event_stream(&mut self, stream: UnixStream) {
+        let windows = self.space.elements().map(|w| self.window_info(w)).collect();
+        let state = Event {
+            name: "state",
+            windows,
+            on: None,
+        };
+        let overview = Event {
+            name: "view.overview",
+            windows: Vec::new(),
+            on: Some(self.overview.is_some()),
+        };
+        let text = format!("ok\n{}{}", state.json(), overview.json());
+        if (&stream).write_all(text.as_bytes()).is_ok() {
+            self.event_streams.push(stream);
+        }
+    }
+
+    /// Between two turns of the event loop: hands the events to the programs watching and to
+    /// the functions listening. A program that does not keep up (or is gone) is dropped.
     pub fn dispatch_events(&mut self) {
         for _ in 0..MAX_ROUNDS {
             if self.events.is_empty() {
                 return;
             }
             for event in std::mem::take(&mut self.events) {
+                if !self.event_streams.is_empty() {
+                    let line = event.json();
+                    (self.event_streams).retain(|mut s| s.write_all(line.as_bytes()).is_ok());
+                }
                 let Some(lua) = self.config.lua.clone() else {
-                    return;
+                    continue;
                 };
                 let handlers = lua.app_data_ref::<Handlers>();
                 let functions: Vec<Function> =
@@ -335,7 +397,6 @@ impl InfinityDesk {
 /// Writes `value` as JSON. Tables with entries 1..n (and empty ones) become arrays, others
 /// objects.
 fn json(value: &Value, out: &mut String, depth: usize) -> mlua::Result<()> {
-    use std::fmt::Write;
     match value {
         Value::Nil => out.push_str("null"),
         Value::Boolean(b) => out.push_str(if *b { "true" } else { "false" }),
@@ -389,7 +450,6 @@ fn json(value: &Value, out: &mut String, depth: usize) -> mlua::Result<()> {
 }
 
 fn json_string(text: &str, out: &mut String) {
-    use std::fmt::Write;
     out.push('"');
     for c in text.chars() {
         match c {
@@ -422,6 +482,34 @@ mod tests {
         assert!(
             err.to_string()
                 .contains("a function cannot be turned into JSON")
+        );
+    }
+
+    #[test]
+    fn events_become_json_lines() {
+        let window = WindowInfo {
+            id: 3,
+            app_id: "kitty".into(),
+            title: "say \"hi\"".into(),
+            rect: Rect::new((-10, 20).into(), (300, 400).into()),
+            focused: true,
+            fullscreen: false,
+        };
+        let event = Event {
+            name: "window.fullscreen",
+            windows: vec![window],
+            on: Some(true),
+        };
+        let line = r#"{"event":"window.fullscreen","windows":[{"id":3,"app_id":"kitty","title":"say \"hi\"","x":-10,"y":20,"width":300,"height":400,"focused":true,"fullscreen":false}],"on":true}"#;
+        assert_eq!(event.json(), format!("{line}\n"));
+        let event = Event {
+            name: "config.reloaded",
+            windows: Vec::new(),
+            on: None,
+        };
+        assert_eq!(
+            event.json(),
+            "{\"event\":\"config.reloaded\",\"windows\":[]}\n"
         );
     }
 

@@ -1,6 +1,8 @@
 //! Commands from outside: `infinitydesk msg eval '<lua>'` runs Lua code in the running
 //! config's state, like a function given to `desk.bind`, and prints what it returns as JSON
 //! (one line per value), e.g. `infinitydesk msg eval 'return desk.windows()'`.
+//! `infinitydesk msg events` prints the state and then every event as a line of JSON, for bars
+//! (see `InfinityDesk::add_event_stream`).
 //!
 //! They talk over a Unix socket in `$XDG_RUNTIME_DIR` (a folder only the user can enter, so
 //! nobody else can run code in the session; without it there is no socket). Programs started
@@ -9,7 +11,7 @@
 
 use std::{
     ffi::OsStr,
-    io::{ErrorKind, Read, Write},
+    io::{BufRead, BufReader, ErrorKind, Read, Write},
     os::unix::{
         fs::PermissionsExt,
         net::{UnixListener, UnixStream},
@@ -76,6 +78,14 @@ fn serve(handle: &LoopHandle<'static, InfinityDesk>, stream: UnixStream) -> std:
             }
         }
         let request = String::from_utf8_lossy(&request);
+        if request == "events" {
+            // The connection stays open for the events (the copy shares the connection).
+            match stream.try_clone() {
+                Ok(stream) => state.add_event_stream(stream),
+                Err(err) => answer(stream, Err(format!("events: {err}"))),
+            }
+            return Ok(PostAction::Remove);
+        }
         let reply = match request.split_once(' ') {
             Some(("eval", code)) => state.eval_lua(code),
             _ => Err(format!("unknown request: {request}")),
@@ -89,7 +99,7 @@ fn serve(handle: &LoopHandle<'static, InfinityDesk>, stream: UnixStream) -> std:
 fn answer(mut stream: &UnixStream, reply: Result<String, String>) {
     let text = match reply {
         Ok(text) => format!("ok\n{text}"),
-        Err(text) => format!("error\n{text}"),
+        Err(text) => format!("error\n{text}\n"),
     };
     // A short wait at most, if the client does not read.
     let _ = stream.set_nonblocking(false);
@@ -97,33 +107,37 @@ fn answer(mut stream: &UnixStream, reply: Result<String, String>) {
     let _ = stream.write_all(text.as_bytes());
 }
 
-/// `infinitydesk msg ...`: sends the request, prints the answer; returns the exit code.
+/// `infinitydesk msg ...`: sends the request, prints the answer (for `events` until InfinityDesk
+/// quits); returns the exit code.
 pub fn send(args: &[String]) -> i32 {
-    let usage = "usage: infinitydesk msg eval '<lua code>'";
+    let usage = "usage: infinitydesk msg eval '<lua code>'\n       infinitydesk msg events";
     let request = match args {
         [what, code] if what == "eval" => format!("eval {code}"),
+        [what] if what == "events" => what.clone(),
         _ => return fail(usage),
     };
     let Some(path) = std::env::var_os("INFINITYDESK_SOCKET") else {
         return fail("INFINITYDESK_SOCKET is not set (programs started in InfinityDesk have it)");
     };
-    let talk = || -> std::io::Result<String> {
+    let talk = || -> std::io::Result<i32> {
         let mut stream = UnixStream::connect(&path)?;
         stream.write_all(request.as_bytes())?;
         stream.shutdown(std::net::Shutdown::Write)?;
-        let mut reply = String::new();
-        stream.read_to_string(&mut reply)?;
-        Ok(reply)
+        let mut reply = BufReader::new(stream);
+        let mut status = String::new();
+        reply.read_line(&mut status)?;
+        // The rest as it comes (stdout writes each line right away). When the reader stops
+        // listening, e.g. `| head -1`, writing the next line fails and ends it.
+        let (output, code): (&mut dyn Write, i32) = match status.as_str() {
+            "ok\n" => (&mut std::io::stdout(), 0),
+            "error\n" => (&mut std::io::stderr(), 1),
+            _ => return Ok(fail("InfinityDesk gave no answer")),
+        };
+        let _ = std::io::copy(&mut reply, output);
+        Ok(code)
     };
     match talk() {
-        Ok(reply) => match reply.split_once('\n') {
-            Some(("ok", text)) => {
-                print!("{text}");
-                0
-            }
-            Some((_, text)) => fail(text),
-            None => fail("InfinityDesk gave no answer"),
-        },
+        Ok(code) => code,
         Err(err) => fail(&format!("could not reach InfinityDesk at {path:?}: {err}")),
     }
 }

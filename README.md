@@ -154,7 +154,8 @@ cargo run --release -- -c firefox    # with another program inside
   theme, window rules, monitors (resolution, refresh rate, scale, orientation), animations
 - **Lua scripting:** functions on keys and on events (windows opening, closing, focus, title,
   docking, fullscreen, overview), carrying out any action, looking at and steering windows;
-  each call has a time limit. Commands from outside: `infinitydesk msg eval '<lua>'`
+  each call has a time limit. Commands from outside (`infinitydesk msg eval '<lua>'`) and an
+  event stream for bars (`infinitydesk msg events`)
 - wlr-layer-shell, so launchers like fuzzel, bars and wallpaper tools (e.g. awww, swaybg) work;
   the wallpaper stays fixed behind the moving canvas
 - **X11 programs** (Steam, older games and tools) through `xwayland-satellite`, if it is
@@ -352,7 +353,14 @@ JSON, one line per value. Errors go to stderr with exit code 1.
 ```sh
 infinitydesk msg eval 'return desk.windows()'   # [{"id":1,"app_id":"kitty",...}]
 infinitydesk msg eval 'desk.run(desk.overview)'
+infinitydesk msg events                         # for bars, see below
 ```
+
+`infinitydesk msg events` keeps running and prints one line of JSON per event, the same events
+as `desk.on`: `{"event":"window.focus","windows":[{"id":1,"app_id":"kitty",...}]}` (with
+`"on":true/false` where the event has it). It starts with the current state: a `state` line
+with all windows, then `view.overview` saying whether the overview is open. A program that stops
+reading is dropped.
 
 Programs started inside InfinityDesk find it through `$INFINITYDESK_SOCKET`.
 
@@ -362,8 +370,8 @@ settings stay. If the canvas gets smaller, clusters outside it move back in as a
 
 ## Roadmap
 
-- **Scripting:** an event stream for bars (`infinitydesk msg events`), then tests that run
-  InfinityDesk without a screen. Maybe a converter for niri configs later.
+- **Testing without a screen:** tests that run InfinityDesk headless and steer it through
+  `infinitydesk msg`. Maybe a converter for niri configs later.
 - **Final default controls**, configurable gestures
 - **Standalone session:** several monitors
 - Visual polish: cluster outlines, decorations

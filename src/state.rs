@@ -113,6 +113,8 @@ pub struct InfinityDesk {
     pub layout_menu: Option<LayoutMenu>,
     /// What happened since the last turn of the event loop, for scripts (see `script.rs`).
     pub events: Vec<crate::script::Event>,
+    /// The programs watching events (`infinitydesk msg events`).
+    pub event_streams: Vec<std::os::unix::net::UnixStream>,
     /// The open overview (Mod+Tab).
     pub overview: Option<Overview>,
     /// Slots of the last applied template that new windows fill.
@@ -211,6 +213,7 @@ impl InfinityDesk {
             fullscreen: None,
             layout_menu: None,
             events: Vec::new(),
+            event_streams: Vec::new(),
             overview: None,
             free_slots: None,
             active: None,
@@ -455,16 +458,13 @@ impl InfinityDesk {
         let rules = self.rules(window.toplevel().unwrap());
         let slot = self.resizing.get(&window).map(|r| r.rect);
         let spot = (rules.dock).then(|| self.spot_next_to_active(&window, size));
-        match slot.or(spot.flatten()) {
+        let docked = match slot.or(spot.flatten()) {
             Some(rect) => {
                 self.space.map_element(window.clone(), rect.loc, false);
                 if rect.size != size {
                     self.resize_to(&window, rect, None);
                 }
-                self.dock_into_slot(&window, rect);
-                self.place_resized(&window, false);
-                // Docked off the screen: the view follows. The pointer stays put on the screen.
-                self.reveal(rect);
+                Some(rect)
             }
             None => {
                 let loc = match window.toplevel().unwrap().parent() {
@@ -472,9 +472,17 @@ impl InfinityDesk {
                     _ => self.canvas.centered_in_viewport(size),
                 };
                 self.space.map_element(window.clone(), loc, false);
+                None
             }
-        }
+        };
+        // Opened first, so scripts and bars know the window before it docks or gets the focus.
         self.emit("window.open", &[&window], None);
+        if let Some(rect) = docked {
+            self.dock_into_slot(&window, rect);
+            self.place_resized(&window, false);
+            // Docked off the screen: the view follows. The pointer stays put on the screen.
+            self.reveal(rect);
+        }
         self.focus_window(&window);
         // Leaving fullscreen, it is back at the place it got above.
         if rules.open_fullscreen {
