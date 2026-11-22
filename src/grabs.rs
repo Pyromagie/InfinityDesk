@@ -123,8 +123,17 @@ pub struct Toggle {
     pub min: Vec<Size<i32, Logical>>,
     /// How each window follows (empty if the size cannot change).
     pub follow: Vec<[Follow; 2]>,
-    /// The movement of the dragged edges that toggles them.
+    /// The movement of the moving edges that toggles them.
     pub delta: Point<i32, Logical>,
+    /// Per axis 1 if the edges move with the pointer, -1 against it (the other edge moves).
+    pub sign: [i32; 2],
+}
+
+impl Toggle {
+    /// The movement of the moving edges for a pointer movement.
+    pub fn edges_moved(&self, pointer: Point<i32, Logical>) -> Point<i32, Logical> {
+        (pointer.x * self.sign[0], pointer.y * self.sign[1]).into()
+    }
 }
 
 impl InfinityDesk {
@@ -136,7 +145,7 @@ impl InfinityDesk {
         let min: Vec<_> = windows.iter().map(min_size).collect();
         let screen = self.canvas.screen_size();
         let gap = self.config.gaps;
-        let (follow, delta) =
+        let (follow, delta, sign) =
             resize::toggle(&rects, &min, dragged, edges, shift, screen, gap).unwrap_or_default();
         Toggle {
             windows,
@@ -144,6 +153,7 @@ impl InfinityDesk {
             min,
             follow,
             delta,
+            sign,
         }
     }
 
@@ -396,7 +406,8 @@ impl PointerGrab<InfinityDesk> for DragGrab {
                 }
             }
             DragKind::Resize(toggle, followed) => {
-                *followed = resize::following(toggle.delta, pointer_delta.to_i32_round());
+                let moved = toggle.edges_moved(pointer_delta.to_i32_round());
+                *followed = resize::following(toggle.delta, moved);
                 data.apply_toggle(toggle, *followed);
             }
             DragKind::Select { initial } => {

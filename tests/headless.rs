@@ -742,3 +742,30 @@ fn a_size_change_glides_instead_of_jumping() {
     assert_eq!(desk.rect("one")[0], x + 300);
     assert_eq!(desk.rect("one")[3], HALF.1);
 }
+
+#[test]
+fn a_window_shrinks_at_its_other_edge_to_keep_the_cluster_together() {
+    let desk = Desk::start(r#"desk.window_rule { match = { app_id = "^low$" }, height = "half" }"#);
+    let mut client = Client::connect(&desk);
+    let settle = |client: &mut Client| {
+        std::thread::sleep(Duration::from_millis(400));
+        client.sync();
+    };
+    // one | two, then two half as high and "low" below it; two goes.
+    client.open("one", "One");
+    client.open("two", "Two");
+    desk.eval("desk.run(desk.resize('up'))");
+    settle(&mut client);
+    client.open("low", "Low");
+    client.close(1);
+    settle(&mut client);
+    let (one, low) = (desk.rect("one"), desk.rect("low"));
+    let half = (1080 - 3 * 16) / 2;
+    assert_eq!((low[1], low[3]), (one[1] + half + 16, half));
+    // Mod+Shift+Up on one: its bottom edge going up would leave low at a corner, so its top
+    // edge comes down, and one ends up next to low.
+    desk.eval("desk.focus_window(find('one').id) desk.run(desk.resize('up'))");
+    settle(&mut client);
+    assert_eq!(desk.rect("one"), [one[0], low[1], one[2], half]);
+    assert_eq!(desk.rect("low"), low);
+}

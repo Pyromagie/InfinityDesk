@@ -5,13 +5,14 @@
 //! Default: neighbors at the dragged edge (the whole seam) shrink or grow with it, the cluster
 //! stays closed. With Shift, or if the neighbors cannot (they would get smaller than half or
 //! larger than full): the windows on the dragged side of the seam change size, everything in the
-//! cluster beyond the edge moves along.
+//! cluster beyond the edge moves along. If windows of the cluster would only touch at a corner
+//! afterwards, the window changes size at its other edge instead, so the cluster stays together.
 //!
 //! Pure geometry without Wayland, so it is easy to test.
 
 use smithay::utils::{Logical, Point, Size};
 
-use crate::cluster::{Rect, TOUCH_TOLERANCE};
+use crate::cluster::{Rect, TOUCH_TOLERANCE, touching};
 
 /// Which edge of the dragged window moves along one axis.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -40,9 +41,10 @@ pub type Plan = Vec<[Follow; 2]>;
 
 /// Toggling the size of `rects[dragged]` at `edges`: on each dragged axis, a window closer to
 /// half the `screen` (with gaps) becomes full, else half. Returns how the windows follow (see
-/// `plan`) and the pointer movement that toggles the dragged edges, or `None` if the windows
-/// cannot take the new size (`min`, or neighbors beyond half or full even with `shift`, or
-/// windows would end up on each other).
+/// `plan`), the movement of the edges that toggles them, and per axis whether the edges move
+/// with the pointer (1) or against it (-1: the other edge changes the size, so the cluster stays
+/// together). `None` if the windows cannot take the new size (`min`, or neighbors beyond half or
+/// full even with `shift`, or windows would end up on each other).
 pub fn toggle(
     rects: &[Rect],
     min: &[Size<i32, Logical>],
@@ -51,7 +53,7 @@ pub fn toggle(
     shift: bool,
     screen: Size<i32, Logical>,
     gap: i32,
-) -> Option<(Plan, Point<i32, Logical>)> {
+) -> Option<(Plan, Point<i32, Logical>, [i32; 2])> {
     let d = rects.get(dragged)?;
     let screen = [screen.w, screen.h];
     let half = [0, 1].map(|axis| (screen[axis] - gap) / 2 - gap);
@@ -61,40 +63,86 @@ pub fn toggle(
         true => full[axis],
         false => half[axis],
     });
-    let delta = [0, 1].map(|axis| match edges[axis] {
-        Edge::None => 0,
-        Edge::Start => len(d, axis) - target[axis],
-        Edge::End => target[axis] - len(d, axis),
-    });
-    let delta = Point::from((delta[0], delta[1]));
-    // The dragged window gets exactly its new size, every other window that changes size stays
-    // between half and full.
-    let fits = |follow: &Plan| {
-        let new = apply(rects, follow, min, delta);
-        (rects.iter().zip(&new).enumerate()).all(|(i, (old, new))| {
-            (0..2).all(|axis| match len(new, axis) {
-                l if i == dragged && edges[axis] != Edge::None => l == target[axis],
-                l if l == len(old, axis) => true,
-                l => half[axis] - TOUCH_TOLERANCE <= l && l <= full[axis] + TOUCH_TOLERANCE,
+    // How the windows follow when the window changes size at `edges`, and how far those edges
+    // move. `together`: the cluster must stay connected.
+    let resize_at = |edges: [Edge; 2], together: bool| {
+        let delta = [0, 1].map(|axis| match edges[axis] {
+            Edge::None => 0,
+            Edge::Start => len(d, axis) - target[axis],
+            Edge::End => target[axis] - len(d, axis),
+        });
+        let delta = Point::from((delta[0], delta[1]));
+        // The dragged window gets exactly its new size, every other window that changes size
+        // stays between half and full.
+        let fits = |follow: &Plan| {
+            let new = apply(rects, follow, min, delta);
+            (rects.iter().zip(&new).enumerate()).all(|(i, (old, new))| {
+                (0..2).all(|axis| match len(new, axis) {
+                    l if i == dragged && edges[axis] != Edge::None => l == target[axis],
+                    l if l == len(old, axis) => true,
+                    l => half[axis] - TOUCH_TOLERANCE <= l && l <= full[axis] + TOUCH_TOLERANCE,
+                })
             })
-        })
-    };
-    // Windows moving along per axis can land on others (one beyond both dragged edges moves
-    // twice). Also checked with only one axis moved: while dragging, each axis follows the
-    // pointer on its own (`following`).
-    let apart = |follow: &Plan| {
-        [(delta.x, 0), (0, delta.y), (delta.x, delta.y)]
+        };
+        // Windows moving along per axis can land on others (one beyond both dragged edges moves
+        // twice). Also checked with only one axis moved: while dragging, each axis follows the
+        // pointer on its own (`following`).
+        let sound = |follow: &Plan| {
+            [(delta.x, 0), (0, delta.y), (delta.x, delta.y)]
+                .into_iter()
+                .all(|d| {
+                    let new = apply(rects, follow, min, d.into());
+                    let apart = (new.iter().enumerate())
+                        .all(|(i, a)| new[i + 1..].iter().all(|b| !a.overlaps(*b)));
+                    apart && (!together || connected(&new, gap))
+                })
+        };
+        let follow = [shift, true]
+            .map(|shift| plan(rects, dragged, edges, shift, gap))
             .into_iter()
-            .all(|d| {
-                let new = apply(rects, follow, min, d.into());
-                (new.iter().enumerate()).all(|(i, a)| new[i + 1..].iter().all(|b| !a.overlaps(*b)))
-            })
+            .find(|follow| fits(follow) && sound(follow))?;
+        Some((follow, delta))
     };
-    let follow = [shift, true]
-        .map(|shift| plan(rects, dragged, edges, shift, gap))
-        .into_iter()
-        .find(|follow| fits(follow) && apart(follow))?;
-    Some((follow, delta))
+    // The grabbed edges, else the other edge on one or both axes.
+    let other = |e: Edge| match e {
+        Edge::Start => Edge::End,
+        Edge::End => Edge::Start,
+        Edge::None => Edge::None,
+    };
+    let resize = |flip: [bool; 2], together: bool| {
+        let edges = [0, 1].map(|axis| {
+            if flip[axis] {
+                other(edges[axis])
+            } else {
+                edges[axis]
+            }
+        });
+        let (follow, delta) = resize_at(edges, together)?;
+        Some((follow, delta, flip.map(|f| if f { -1 } else { 1 })))
+    };
+    // Only when the grabbed edges can move but the cluster would come apart: the other edge.
+    // If that does not keep it together either (neighbors on both sides), nothing changes.
+    resize([false, false], false)?;
+    let together = connected(rects, gap);
+    let flips = [[false, false], [true, false], [false, true], [true, true]];
+    (flips.into_iter())
+        .filter(|flip| (0..2).all(|axis| !flip[axis] || edges[axis] != Edge::None))
+        .find_map(|flip| resize(flip, together))
+}
+
+/// Do the windows hang together, each touching another one along an edge (not just at a corner)?
+fn connected(rects: &[Rect], gap: i32) -> bool {
+    let mut reached = vec![false; rects.len()];
+    let mut queue = vec![0];
+    while let Some(k) = queue.pop() {
+        for (j, r) in rects.iter().enumerate() {
+            if !reached[j] && (j == k || touching(&rects[k], r, gap)) {
+                reached[j] = true;
+                queue.push(j);
+            }
+        }
+    }
+    reached.iter().all(|&r| r)
 }
 
 /// How far the dragged edges follow the pointer: as far as it moved, but only between the size
@@ -346,13 +394,11 @@ mod tests {
             .find(|&(i, j)| rects[i].overlaps(rects[j]))
     }
 
-    /// Clusters can still come apart (windows that only touch at a corner afterwards); they stay
-    /// one cluster, as it is stored, not derived from the places.
     #[test]
-    fn random_resizes_never_put_windows_on_each_other() {
+    fn random_resizes_neither_put_windows_on_each_other_nor_apart() {
         let mut random = Random(0x9e37_79b9_7f4a_7c15);
         let edges = [Edge::None, Edge::Start, Edge::End];
-        let (mut resized, mut steps) = (0, 0);
+        let (mut resized, mut steps, mut flipped) = (0, 0, 0);
         for case in 0..3000 {
             let mut rects = random_cluster(&mut random);
             let min = vec![Size::from((100, 100)); rects.len()];
@@ -363,12 +409,14 @@ mod tests {
                 let shift = random.below(2) == 0;
                 let before = rects.clone();
                 steps += 1;
-                let Some((follow, delta)) =
+                let Some((follow, delta, sign)) =
                     toggle(&rects, &min, dragged, grabbed, shift, SCREEN.into(), GAP)
                 else {
                     continue;
                 };
                 resized += 1;
+                flipped += usize::from(sign.contains(&-1));
+                let together = connected(&before, GAP);
                 // While dragging, the edges follow the pointer anywhere between the two sizes.
                 let (x, y) = (delta.x, delta.y);
                 for d in [
@@ -387,13 +435,23 @@ mod tests {
                              before: {before:?}\nafter: {rects:?}"
                         );
                     }
+                    // Let go, each axis toggles on its own: in all these places, a cluster that
+                    // hung together still does (on the way, a growing window only reaches its
+                    // new neighbor at the end).
+                    let end = [(x, 0), (0, y), (x, y)].contains(&d);
+                    assert!(
+                        !together || !end || connected(&rects, GAP),
+                        "case {case}, step {step}: window {dragged} at {grabbed:?} (Shift: \
+                         {shift}), moved {d:?}: the cluster came apart\n\
+                         before: {before:?}\nafter: {rects:?}"
+                    );
                 }
             }
         }
-        // Most steps must really resize, else the test checks little.
+        // Most steps must really resize, and some at the other edge, else the test checks little.
         assert!(
-            resized * 2 > steps,
-            "only {resized} of {steps} steps resized"
+            resized * 2 > steps && flipped * 20 > resized,
+            "only {resized} of {steps} steps resized, {flipped} at the other edge"
         );
     }
 
@@ -563,7 +621,7 @@ mod tests {
 
     fn toggle_a(rects: &[Rect], shift: bool) -> Vec<Rect> {
         let edges = [Edge::End, Edge::None];
-        let (follow, delta) = toggle(rects, &min()[..2], 0, edges, shift, screen(), 10).unwrap();
+        let (follow, delta, _) = toggle(rects, &min()[..2], 0, edges, shift, screen(), 10).unwrap();
         apply(rects, &follow, &min()[..2], delta)
     }
 
@@ -590,7 +648,7 @@ mod tests {
         // Full height, the bottom edge: it can only shrink, by 310, so from 155 px upwards.
         let rects = pair(500, 500);
         let edges = [Edge::None, Edge::End];
-        let (_, delta) = toggle(&rects, &min()[..2], 0, edges, false, screen(), 10).unwrap();
+        let (_, delta, _) = toggle(&rects, &min()[..2], 0, edges, false, screen(), 10).unwrap();
         assert_eq!(delta, (0, -310).into());
         assert_eq!(toggled(delta, (0, -150).into()), (0, 0).into());
         assert_eq!(toggled(delta, (0, -160).into()), (0, -310).into());
@@ -604,5 +662,25 @@ mod tests {
             let min: [Size<i32, Logical>; 2] = [(20, h).into(), (20, 20).into()];
             assert_eq!(toggle(&rects, &min, 0, edges, false, screen(), 10), None);
         }
+    }
+
+    #[test]
+    fn shrinks_at_the_other_edge_to_stay_together() {
+        // A full height, B half height next to its lower half. Pulling A's bottom edge up would
+        // leave them touching at a corner only, so A's top edge comes down instead.
+        let rects = [rect(10, 10, 500, 610), rect(520, 320, 500, 300)];
+        let edges = [Edge::None, Edge::End];
+        let (follow, delta, sign) =
+            toggle(&rects, &min()[..2], 0, edges, false, screen(), 10).unwrap();
+        assert_eq!((delta, sign), ((0, 310).into(), [1, -1]));
+        let new = apply(&rects, &follow, &min()[..2], delta);
+        assert_eq!(new, [rect(10, 320, 500, 300), rect(520, 320, 500, 300)]);
+        // A neighbor at the top on one side and at the bottom on the other: neither works.
+        let rects = [
+            rect(520, 10, 500, 610),
+            rect(1030, 10, 500, 300),
+            rect(10, 320, 500, 300),
+        ];
+        assert_eq!(toggle(&rects, &min(), 0, edges, false, screen(), 10), None);
     }
 }

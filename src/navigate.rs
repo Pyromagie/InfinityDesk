@@ -169,7 +169,8 @@ impl InfinityDesk {
         let mut edges = [Edge::None; 2];
         edges[axis] = Edge::End;
         let toggle = self.plan_toggle(&active, edges, false);
-        let delta = [toggle.delta.x, toggle.delta.y][axis];
+        // Which way the right (bottom) edge goes, also if the left (top) one moves instead.
+        let delta = [toggle.delta.x, toggle.delta.y][axis] * toggle.sign[axis];
         if delta == 0 || (delta > 0) != forward {
             return;
         }
