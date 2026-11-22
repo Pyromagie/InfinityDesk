@@ -241,6 +241,33 @@ impl InfinityDesk {
         let Some(lua) = self.config.lua.clone() else {
             return;
         };
+        if let Err(err) = self.reaching(&lua, || f.call::<()>(args)) {
+            tracing::warn!("Lua ({what}): {err}");
+        }
+    }
+
+    /// `infinitydesk msg eval`: runs `code` like a function given to `desk.bind` (with `desk`
+    /// at hand); what it returns comes back as JSON, one line per value.
+    pub fn eval_lua(&mut self, code: &str) -> Result<String, String> {
+        let Some(lua) = self.config.lua.clone() else {
+            return Err("there is no Lua state (the config could not be read)".into());
+        };
+        // `desk` is ready, as in the config; on the same line, so line numbers in errors fit.
+        let code = format!("local desk = require(\"infinitydesk\") {code}");
+        let chunk = lua.load(code).set_name("msg eval");
+        let values =
+            (self.reaching(&lua, || chunk.eval::<MultiValue>())).map_err(|e| e.to_string())?;
+        let mut out = String::new();
+        for value in &values {
+            json(value, &mut out, 0).map_err(|e| e.to_string())?;
+            out.push('\n');
+        }
+        Ok(out)
+    }
+
+    /// Runs `f` (which calls into Lua) within the time limit, with the functions in `REACHING`
+    /// working meanwhile.
+    fn reaching<R>(&mut self, lua: &Lua, f: impl FnOnce() -> mlua::Result<R>) -> mlua::Result<R> {
         let state = RefCell::new(self);
         let result = lua.scope(|scope| {
             let t = lua.create_table()?;
@@ -298,18 +325,105 @@ impl InfinityDesk {
                 t.set(name, f)?;
             }
             lua.set_named_registry_value(REACH, t)?;
-            guarded(&lua, CALL_LIMIT, || f.call::<()>(args))
+            guarded(lua, CALL_LIMIT, f)
         });
         let _ = lua.unset_named_registry_value(REACH);
-        if let Err(err) = result {
-            tracing::warn!("Lua ({what}): {err}");
+        result
+    }
+}
+
+/// Writes `value` as JSON. Tables with entries 1..n (and empty ones) become arrays, others
+/// objects.
+fn json(value: &Value, out: &mut String, depth: usize) -> mlua::Result<()> {
+    use std::fmt::Write;
+    match value {
+        Value::Nil => out.push_str("null"),
+        Value::Boolean(b) => out.push_str(if *b { "true" } else { "false" }),
+        Value::Integer(i) => drop(write!(out, "{i}")),
+        Value::Number(n) if n.is_finite() => drop(write!(out, "{n}")),
+        Value::Number(_) => out.push_str("null"),
+        Value::String(s) => json_string(&s.to_string_lossy(), out),
+        Value::Table(t) if depth < 32 => {
+            let n = t.raw_len();
+            if n > 0 || t.is_empty() {
+                out.push('[');
+                for i in 1..=n {
+                    if i > 1 {
+                        out.push(',');
+                    }
+                    json(&t.raw_get(i)?, out, depth + 1)?;
+                }
+                out.push(']');
+            } else {
+                out.push('{');
+                for (i, pair) in t.pairs::<Value, Value>().enumerate() {
+                    let (key, value) = pair?;
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    let key = match &key {
+                        Value::String(s) => s.to_string_lossy(),
+                        Value::Integer(_) | Value::Number(_) => key.to_string()?,
+                        _ => {
+                            return Err(mlua::Error::runtime(
+                                "JSON keys must be strings or numbers",
+                            ));
+                        }
+                    };
+                    json_string(&key, out);
+                    out.push(':');
+                    json(&value, out, depth + 1)?;
+                }
+                out.push('}');
+            }
+        }
+        Value::Table(_) => return Err(mlua::Error::runtime("tables nested too deep for JSON")),
+        other => {
+            let kind = other.type_name();
+            return Err(mlua::Error::runtime(format!(
+                "a {kind} cannot be turned into JSON"
+            )));
         }
     }
+    Ok(())
+}
+
+fn json_string(text: &str, out: &mut String) {
+    use std::fmt::Write;
+    out.push('"');
+    for c in text.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            c if (c as u32) < 0x20 => drop(write!(out, "\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn values_become_json() {
+        let lua = Lua::new();
+        let value: Value = (lua
+            .load(r#"return { 1, 2.5, "a\"b\n", true, {}, { x = 3 }, { 1 / 0 } }"#))
+        .eval()
+        .unwrap();
+        let mut out = String::new();
+        json(&value, &mut out, 0).unwrap();
+        assert_eq!(out, r#"[1,2.5,"a\"b\n",true,[],{"x":3},[null]]"#);
+        let f: Value = lua.load("return print").eval().unwrap();
+        let err = json(&f, &mut String::new(), 0).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("a function cannot be turned into JSON")
+        );
+    }
 
     #[test]
     fn endless_loops_are_stopped() {

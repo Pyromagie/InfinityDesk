@@ -152,7 +152,7 @@ cargo run --release -- -c firefox    # with another program inside
   theme, window rules, monitors (resolution, refresh rate, scale, orientation), animations
 - **Lua scripting:** functions on keys and on events (windows opening, closing, focus, title,
   docking, fullscreen, overview), carrying out any action, looking at and steering windows;
-  each call has a time limit
+  each call has a time limit. Commands from outside: `infinitydesk msg eval '<lua>'`
 - wlr-layer-shell, so launchers like fuzzel, bars and wallpaper tools (e.g. awww, swaybg) work;
   the wallpaper stays fixed behind the moving canvas
 - **X11 programs** (Steam, older games and tools) through `xwayland-satellite`, if it is
@@ -343,6 +343,17 @@ end)
 -- config.reloaded (), desk.start ()
 ```
 
+From outside, e.g. from a terminal or a bar inside InfinityDesk, `infinitydesk msg eval` runs Lua
+code in the running config (with `desk` at hand, same time limit) and prints what it returns as
+JSON, one line per value. Errors go to stderr with exit code 1.
+
+```sh
+infinitydesk msg eval 'return desk.windows()'   # [{"id":1,"app_id":"kitty",...}]
+infinitydesk msg eval 'desk.run(desk.overview)'
+```
+
+Programs started inside InfinityDesk find it through `$INFINITYDESK_SOCKET`.
+
 A mistake (a typo in a setting name, a wrong type, a value out of range) is logged with the
 setting, file and line. At startup the defaults are used instead; while running, the previous
 settings stay. If the canvas gets smaller, clusters outside it move back in as a whole.
@@ -384,6 +395,7 @@ from `XCURSOR_THEME` and `XCURSOR_SIZE`.
 | `src/state.rs`    | Compositor state                                              |
 | `src/config.rs`   | Settings from the Lua config (tested)                         |
 | `src/script.rs`   | Lua scripting: events, desk.run, time limits                  |
+| `src/ipc.rs`      | `infinitydesk msg`: commands from outside over a socket       |
 | `src/winit.rs`    | Nested backend                                                |
 | `src/udev.rs`     | Standalone backend: screen, GPU, input devices, consoles      |
 | `src/cursor.rs`   | The pointer image (standalone)                                |
