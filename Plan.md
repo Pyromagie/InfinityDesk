@@ -185,6 +185,17 @@ Pyros Auswahl: keine Titelleisten, Rahmen ums aktive Fenster, abgerundete Ecken 
 5. ✅ Lua-Konfiguration (Einstellungen, Tastenbelegung; Maus-Belegung mit Punkt 6)
 6. Bedienung festlegen (Standard-Belegung), Hintergrund / layer-shell, Feinschliff
 7. Standalone-Betrieb (eigener Login-Eintrag, ohne niri darunter), README, Veröffentlichung
+8. Mehrere Monitore (Schritte in 7b)
+9. **Schnittstellen für Alltagsprogramme** (Pyro, 23.11.2026; wie Hyprland und niri): InfinityDesk bietet nur die Standard-Protokolle an, die Programme selbst wählt jeder in seiner eigenen Config (Pyro in einem eigenen Repo, z. B. `desk.bind("Mod+L", desk.spawn("hyprlock"))`). Smithay bringt die meisten fertig mit. Ungefähr nach Wichtigkeit:
+   - Bildschirm sperren (ext-session-lock; hyprlock, swaylock)
+   - Screenshots (wlr-screencopy / ext-image-copy-capture; grim, hyprshot)
+   - Leerlauf und Bildschirm aus (ext-idle-notify, idle-inhibit; hypridle, swayidle; Videoplayer verhindern es)
+   - Mittelklick-Einfügen und Zwischenablage-Verlauf (primary-selection, data-control; cliphist)
+   - Bildschirm teilen (über xdg-desktop-portal-wlr; prüfen, was es braucht)
+   - Mauszeiger festhalten für Spiele und 3D-Programme (pointer-constraints, relative-pointer)
+   - Fokus-Anfragen (xdg-activation), Fensterliste für Leisten (foreign-toplevel), Monitore per Werkzeug (output-management)
+   - später bei Bedarf: Eingabehilfen (text-input/input-method), Grafiktablett, Touch
+10. **Version 0.1**: Lua-Schnittstelle ab da stabil (nur ergänzen; Umbenennen oder Entfernen nur angekündigt), Installation (installiertes `infinitydesk` statt Build-Ordner), README für Fremde. Danach baut Pyro sein eigenes Setup in einem eigenen Repo darauf auf.
 
 ## 7b. Eigenständige Sitzung (begonnen 17.11.2026)
 
