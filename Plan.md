@@ -194,6 +194,7 @@ Pyros Auswahl: keine Titelleisten, Rahmen ums aktive Fenster, abgerundete Ecken 
    - Bildschirm teilen (über xdg-desktop-portal-wlr; prüfen, was es braucht)
    - Mauszeiger festhalten für Spiele und 3D-Programme (pointer-constraints, relative-pointer)
    - Fokus-Anfragen (xdg-activation), Fensterliste für Leisten (foreign-toplevel), Monitore per Werkzeug (output-management)
+   - Nachtlicht (wlr-gamma-control; braucht die Dux Shell, siehe 7c)
    - später bei Bedarf: Eingabehilfen (text-input/input-method), Grafiktablett, Touch
 10. **Version 0.1**: Lua-Schnittstelle ab da stabil (nur ergänzen; Umbenennen oder Entfernen nur angekündigt), Installation (installiertes `infinitydesk` statt Build-Ordner), README für Fremde. Danach baut Pyro sein eigenes Setup in einem eigenen Repo darauf auf.
 
@@ -215,6 +216,32 @@ Pyros Auswahl: keine Titelleisten, Rahmen ums aktive Fenster, abgerundete Ecken 
   2. **Zeichnen je Monitor**: eigenständig ein Bild je angeschlossenem Monitor (udev), genestet bleibt es ein Fenster (zum Anschauen evtl. zwei).
   3. **Zeiger über die Monitorgrenze** (Monitore nebeneinander, Lage aus `desk.output { position }` oder automatisch), **Fenster auf den anderen Monitor ziehen**: das Fenster springt dabei an die Stelle des Canvas, die der andere Monitor gerade zeigt (jede Ansicht zeigt ja einen anderen Ausschnitt).
   4. **Monitor an- und abstecken im Betrieb**: Fenster eines abgesteckten Monitors bleiben im Canvas, die Ansicht des verbleibenden Monitors ändert sich nicht.
+
+## 7c. Dux Shell als Oberfläche (gelesen 23.11.2026)
+
+Pyro will in einem eigenen Repo die Dux Modular Shell (`github.com/duxlabs-dev/dux-shell`, MIT, Fork von DMS; Stand `ead2e74`) forken und für InfinityDesk umbauen. Gelesen, nichts ausgeführt. Aufbau: Oberfläche in Quickshell/QML (`quickshell/`), Hintergrunddienst `dms` in Go (`core/`).
+
+**Wie sie den Compositor erkennt und anspricht** (`quickshell/Services/CompositorService.qml`):
+- Erkennung über den Prozessnamen, dem der Wayland-Socket gehört (`/proc/<pid>/comm`, also `infinitydesk`), sonst über Umgebungsvariablen (`NIRI_SOCKET`, `XDG_CURRENT_DESKTOP` …). Im Fork: `infinitydesk` in `_compositorNameFromComm` und `_applyCompositor` eintragen.
+- Je Compositor ein eigener Dienst: `NiriService.qml` (2036 Zeilen), `HyprlandService.qml` (1129), `MangoService.qml` (844), `LabwcService.qml` (15, kann nur abmelden). Ein `InfinityDeskService.qml` wäre das neue Stück; er spricht über `infinitydesk msg events` und `msg eval`.
+- Unbekannte Compositors laufen schon: Leiste, Benachrichtigungen, Launcher usw. gehen über Standard-Protokolle. Was fehlt, sind Arbeitsflächen (`hasWorkspaceIpc` nur für bekannte), Übersicht, Fensterregeln, Fenster-Screenshot (nur Hyprland/Mango/niri, über deren eigene Befehle) und die Tastenkürzel-Anzeige (liest die Config des Compositors).
+- Was NiriService aus niris Ereignisstrom nutzt: Fenster geöffnet/geändert/geschlossen/Fokus/Dringlichkeit/Lage, Arbeitsflächen, Monitore, Übersicht auf/zu, Tastaturbelegung geändert/gewechselt, Config geladen, Screenshot gemacht, Bildschirm-Teilen gestartet/gestoppt. Befehle: Übersicht an/aus/zu, Monitore aus/an, Fokus links/rechts.
+- Arbeitsflächen gibt es bei uns nicht. Im Fork die Arbeitsflächen-Anzeige ersetzen (z. B. Cluster oder ein Knopf für die Übersicht) oder ausblenden.
+
+**Was InfinityDesk dafür anbieten muss.** Haben wir: layer-shell (Leiste, Menüs, Benachrichtigungen; Quickshell nutzt sie überall), viewporter, dmabuf, fractional-scale, Ereignisse und Befehle über `infinitydesk msg`. Fehlt (deckt sich mit Roadmap 9; in Klammern, welcher DMS-Teil es braucht):
+- `ext-session-lock` (Sperrbildschirm, `WlSessionLock`)
+- `ext-idle-notify` und `idle-inhibit` (Leerlauf, `IdleMonitor`/`IdleInhibitor`)
+- `wlr-foreign-toplevel-management` (Fensterliste, Taskleiste, Dock; `ToplevelManager`, 39 Stellen)
+- `ext-data-control` (Zwischenablage-Verlauf, im Go-Teil), `virtual-keyboard` (Einfügen per Tastendruck aus dem Verlauf)
+- `wlr-screencopy` (Screenshots, Bereichsauswahl, Vorschau; Go-Teil und `ScreencopyView`)
+- `wlr-gamma-control` (Nachtlicht) — **neu**, stand noch nicht auf Roadmap 9
+- `wlr-output-management` und `wlr-output-power-management` (Monitor-Einstellungen, Monitore aus)
+- `keyboard-shortcuts-inhibit` (`ShortcutInhibitor`), `cursor-shape`, `color-management` (kleiner; nachsehen, wofür genau)
+- Fokus-Weitergabe an Ebenen mit Tastatur (`WlrKeyboardFocus`, 68 Stellen): exklusiv und auf Abruf. Prüfen, ob unsere layer-shell beides richtig macht.
+
+**Was in `infinitydesk msg` wohl noch fehlt** (prüfen, wenn es dran ist): Übersicht auf/zu als Ereignis und Befehl, Monitore als Ereignis (mit Roadmap 8), Tastaturbelegung als Ereignis und Wechsel, Dringlichkeit von Fenstern, Config neu geladen, Monitore aus/an, Abmelden.
+
+**Vorgehen, wenn es dran ist:** Protokolle in der Reihenfolge Sperre → Leerlauf → Fensterliste → Zwischenablage → Screenshots → Nachtlicht → Monitore bauen, dabei jeweils mit dem passenden DMS-Teil prüfen (wenn möglich auch headless mit einem kleinen Test-Client). Den Fork selbst schreibt Pyro (eigenes Repo).
 
 ## 8. Offene Fragen
 
