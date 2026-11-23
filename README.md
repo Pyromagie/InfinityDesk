@@ -128,8 +128,9 @@ cargo run --release -- -c firefox    # with a program inside
   size once dragged past halfway). Neighbors give or take the space, so
   the cluster stays closed; if they cannot (they would get smaller than half or larger than
   full), or with Shift, the rest of the cluster moves instead. A cluster never comes apart: if
-  a neighbor would only touch at a corner afterwards, the window changes size at its other edge
-  (or not at all, if that does not work either). Grab any window border (a generous
+  a neighbor would only touch at a corner afterwards, the window changes size at its other edge;
+  if that does not help either, the neighbor moves along with the edge (or nothing changes, if
+  there is no room). Grab any window border (a generous
   zone around it shows resize arrows and lights up the edges of the window that will change), or use Mod +
   right-drag (anywhere in the window: pull up and it grows at the top, or shrinks at the bottom
   if it is already full). The direction you pull decides: between two windows, the one
