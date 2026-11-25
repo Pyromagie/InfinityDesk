@@ -77,6 +77,12 @@ impl Canvas {
         self.glide.as_ref().map_or(self.view(), |g| g.to)
     }
 
+    /// The viewport at the end of a glide, else as it is.
+    pub fn target_viewport(&self) -> Rectangle<f64, Logical> {
+        let (loc, zoom) = self.target();
+        Rectangle::new(loc, self.screen.to_f64().downscale(zoom))
+    }
+
     /// Changes the view with `change` (worked out from where it is going) and lets it glide
     /// there in `duration` from where it is shown now, instead of jumping (see `step`). Every
     /// other change (the user pans or zooms) stops a glide where it is.

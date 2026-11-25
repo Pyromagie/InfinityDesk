@@ -2,6 +2,7 @@
 
 use smithay::{
     desktop::{LayerSurface, WindowSurfaceType, layer_map_for_output},
+    output::Output,
     reexports::wayland_server::protocol::{wl_output::WlOutput, wl_surface::WlSurface},
     utils::{IsAlive, SERIAL_COUNTER},
     wayland::{
@@ -23,12 +24,13 @@ impl WlrLayerShellHandler for InfinityDesk {
     fn new_layer_surface(
         &mut self,
         surface: WlrLayerSurface,
-        _output: Option<WlOutput>,
+        output: Option<WlOutput>,
         _layer: Layer,
         namespace: String,
     ) {
-        // There is only one output for now.
-        if let Some(output) = &self.output {
+        // On the monitor it asks for, else on the current one.
+        let wanted = output.as_ref().and_then(Output::from_resource);
+        if let Some(output) = wanted.as_ref().or(self.monitor.output.as_ref()) {
             layer_map_for_output(output)
                 .map_layer(&LayerSurface::new(surface, namespace))
                 .unwrap();
@@ -36,16 +38,16 @@ impl WlrLayerShellHandler for InfinityDesk {
     }
 
     fn layer_destroyed(&mut self, surface: WlrLayerSurface) {
-        let Some(output) = &self.output else { return };
-        let mut map = layer_map_for_output(output);
-        let layer = map
-            .layers()
-            .find(|l| l.layer_surface() == &surface)
-            .cloned();
-        if let Some(layer) = layer {
-            map.unmap_layer(&layer);
+        for output in self.monitor.outputs() {
+            let mut map = layer_map_for_output(output);
+            let layer = map
+                .layers()
+                .find(|l| l.layer_surface() == &surface)
+                .cloned();
+            if let Some(layer) = layer {
+                map.unmap_layer(&layer);
+            }
         }
-        drop(map);
 
         // Give the keyboard back to the window that was active (e.g. after the launcher closed),
         // unless another surface has it (e.g. a wallpaper tool restarted while the launcher is open).
@@ -64,8 +66,10 @@ impl WlrLayerShellHandler for InfinityDesk {
 impl InfinityDesk {
     /// Must be called on every commit: arranges layer surfaces and sends their initial configure.
     pub fn handle_layer_commit(&mut self, surface: &WlSurface) {
-        let Some(output) = &self.output else { return };
-        let mut map = layer_map_for_output(output);
+        let Some(output) = self.layer_output(surface) else {
+            return;
+        };
+        let mut map = layer_map_for_output(&output);
         let Some(layer) = map
             .layer_for_surface(surface, WindowSurfaceType::TOPLEVEL)
             .cloned()

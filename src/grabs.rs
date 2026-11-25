@@ -37,7 +37,7 @@ fn cluster_delta(
 
     // The whole cluster stays inside the canvas.
     let target = bbox.loc + pointer_delta;
-    let clamped = data.canvas.clamp_window_loc(target, bbox.size);
+    let clamped = data.monitor.canvas.clamp_window_loc(target, bbox.size);
     let mut delta = pointer_delta + (clamped - target);
     if !snap {
         return delta;
@@ -49,7 +49,7 @@ fn cluster_delta(
         .map(|r| Rect::new(r.loc + delta, r.size))
         .collect();
     let others: Vec<Rect> = others(data, members).map(|(_, r)| r).collect();
-    let threshold = (data.config.snap_threshold / data.canvas.zoom()).round() as i32;
+    let threshold = (data.config.snap_threshold / data.monitor.canvas.zoom()).round() as i32;
     delta += snap_delta(&moved, &others, threshold, data.config.gaps);
     delta
 }
@@ -147,7 +147,8 @@ impl InfinityDesk {
         let (windows, rects) = self.cluster_rects(window);
         let dragged = windows.iter().position(|w| w == window).unwrap_or(0);
         let min: Vec<_> = windows.iter().map(min_size).collect();
-        let screen = self.canvas.screen_size();
+        let monitor = &self.monitor.list[self.monitor_of(window)];
+        let screen = monitor.canvas.screen_size();
         let gap = self.config.gaps;
         let (follow, delta, sign) =
             resize::toggle(&rects, &min, dragged, edges, shift, screen, gap).unwrap_or_default();
@@ -379,12 +380,12 @@ impl DragGrab {
     }
 
     pub fn pan(state: &InfinityDesk, start_data: GrabStartData<InfinityDesk>) -> Self {
-        let start_screen = state.canvas.canvas_to_screen(start_data.location);
+        let start_screen = state.monitor.canvas.canvas_to_screen(start_data.location);
         Self {
             start_data,
             kind: DragKind::Pan {
                 start_screen,
-                initial_viewport: state.canvas.viewport_loc(),
+                initial_viewport: state.monitor.canvas.viewport_loc(),
             },
         }
     }
@@ -412,14 +413,14 @@ impl PointerGrab<InfinityDesk> for DragGrab {
             } => {
                 // Smoothed pointer speed: windows passing by quickly do not snap.
                 let (last_pos, last_time) = *last;
-                let distance = (event.location - last_pos).upscale(data.canvas.zoom());
+                let distance = (event.location - last_pos).upscale(data.monitor.canvas.zoom());
                 let dt = last_time.elapsed().as_secs_f64().max(0.001);
                 *speed = (*speed + distance.x.hypot(distance.y) / dt) / 2.0;
                 *last = (event.location, Instant::now());
 
                 // Decide on the first real movement: held still long enough -> just this window.
                 if let Some(time) = *pressed {
-                    let moved = pointer_delta.x.hypot(pointer_delta.y) * data.canvas.zoom();
+                    let moved = pointer_delta.x.hypot(pointer_delta.y) * data.monitor.canvas.zoom();
                     if moved < HOLD_TOLERANCE {
                         return;
                     }
@@ -450,7 +451,7 @@ impl PointerGrab<InfinityDesk> for DragGrab {
                 chosen,
             } => {
                 if chosen.is_none() && !borders.is_empty() {
-                    let moved = pointer_delta.upscale(data.canvas.zoom());
+                    let moved = pointer_delta.upscale(data.monitor.canvas.zoom());
                     if moved.x.hypot(moved.y) < DECIDE_DISTANCE {
                         return;
                     }
@@ -458,7 +459,7 @@ impl PointerGrab<InfinityDesk> for DragGrab {
                     if chosen.is_none() {
                         // Nothing can change that way: the window bumps and the pointer says no.
                         let way = moved.downscale(moved.x.hypot(moved.y));
-                        let bump = way.upscale(BUMP / data.canvas.zoom());
+                        let bump = way.upscale(BUMP / data.monitor.canvas.zoom());
                         let window = borders[0].0.clone();
                         data.window_glides.insert(window, (bump, Instant::now()));
                         data.resize_hint.clear();
@@ -489,9 +490,11 @@ impl PointerGrab<InfinityDesk> for DragGrab {
                 initial_viewport,
             } => {
                 // Work in screen coordinates, because the canvas moves under the pointer.
-                let screen_now = data.canvas.canvas_to_screen(event.location);
-                let delta = (screen_now - *start_screen).downscale(data.canvas.zoom());
-                data.canvas.set_viewport_loc(*initial_viewport - delta);
+                let screen_now = data.monitor.canvas.canvas_to_screen(event.location);
+                let delta = (screen_now - *start_screen).downscale(data.monitor.canvas.zoom());
+                data.monitor
+                    .canvas
+                    .set_viewport_loc(*initial_viewport - delta);
                 data.apply_viewport();
             }
         }

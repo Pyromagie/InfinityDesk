@@ -59,7 +59,7 @@ pub fn init_winit(
         Some((0, 0).into()),
     );
     output.set_preferred(mode);
-    state.set_output(output.clone());
+    state.add_output(output.clone());
 
     let mut damage_tracker = OutputDamageTracker::from_output(&output);
     let mut scene = Scene::new(backend.renderer());
@@ -86,7 +86,7 @@ pub fn init_winit(
                     None,
                     None,
                 );
-                state.output_changed();
+                state.output_changed(&output);
             }
             WinitEvent::Input(event) => state.process_input_event(event),
             WinitEvent::Redraw => {
@@ -122,7 +122,7 @@ pub fn init_winit(
                             renderer,
                             &output,
                             &state.space,
-                            &state.canvas,
+                            &state.monitor.canvas,
                             &mut scene,
                             &state.config,
                             state.upper_layers(),

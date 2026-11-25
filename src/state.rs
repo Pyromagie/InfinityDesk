@@ -17,12 +17,11 @@ const BORDER_OUTSIDE: f64 = 10.0;
 const BORDER_INSIDE: f64 = 5.0;
 
 use crate::{
-    arrange::{FreeSlots, Fullscreen, LayoutMenu},
-    canvas::Canvas,
+    arrange::{FreeSlots, LayoutMenu},
     cluster::{Clusters, Rect},
     config::Config,
     grabs::ResizeGlide,
-    navigate::Overview,
+    monitor::Monitors,
     render::{OUTLINE_WIDTH, Outline},
     resize::{self, Edge, Follow},
     xwayland::XDisplay,
@@ -44,13 +43,11 @@ use smithay::{
             Display, DisplayHandle, backend::ClientData, protocol::wl_surface::WlSurface,
         },
     },
-    utils::{Logical, Point, Rectangle, SERIAL_COUNTER, Size},
+    utils::{Logical, Point, Rectangle, SERIAL_COUNTER},
     wayland::{
-        compositor::{
-            CompositorClientState, CompositorState, TraversalAction, with_surface_tree_downward,
-        },
+        compositor::{CompositorClientState, CompositorState},
         dmabuf::DmabufState,
-        fractional_scale::{FractionalScaleManagerState, with_fractional_scale},
+        fractional_scale::FractionalScaleManagerState,
         output::OutputManagerState,
         selection::data_device::DataDeviceState,
         shell::{
@@ -72,13 +69,11 @@ pub struct InfinityDesk {
     pub display_handle: DisplayHandle,
     pub loop_signal: LoopSignal,
 
-    /// The canvas and its viewport.
-    pub canvas: Canvas,
-    /// All windows and outputs in canvas coordinates. The output sits where the viewport is.
+    /// The monitors, each with its view of the canvas; the current one.
+    pub monitor: Monitors,
+    /// All windows and outputs in canvas coordinates. The outputs sit where their viewports are.
     pub space: Space<Window>,
     pub popups: PopupManager,
-    /// The screen (when nested: the winit window).
-    pub output: Option<Output>,
     /// Windows that have not committed a buffer yet and are therefore not placed yet.
     pub unplaced: Vec<Window>,
     /// Which windows belong to which cluster.
@@ -110,8 +105,6 @@ pub struct InfinityDesk {
     pub client_cursor: CursorImageStatus,
     /// The screen, GPU and input devices when running standalone (`None`: nested).
     pub udev: Option<crate::udev::Udev>,
-    /// The fullscreen window (Mod+F).
-    pub fullscreen: Option<Fullscreen>,
     /// The next frame is drawn whole (after the config changed: e.g. other corners).
     pub redraw_all: bool,
     /// The open template menu (Mod+R).
@@ -120,8 +113,6 @@ pub struct InfinityDesk {
     pub events: Vec<crate::script::Event>,
     /// The programs watching events (`infinitydesk msg events`).
     pub event_streams: Vec<std::os::unix::net::UnixStream>,
-    /// The open overview (Mod+Tab).
-    pub overview: Option<Overview>,
     /// Slots of the last applied template that new windows fill.
     pub free_slots: Option<FreeSlots>,
     /// The window being worked in (it keeps this while a launcher has the keyboard). New windows
@@ -203,10 +194,9 @@ impl InfinityDesk {
             xdisplay: None,
             display_handle: dh,
             loop_signal: event_loop.get_signal(),
-            canvas: Canvas::new(config.canvas_size.into()),
+            monitor: Monitors::new(config.canvas_size.into()),
             space: Space::default(),
             popups: PopupManager::default(),
-            output: None,
             unplaced: Vec::new(),
             clusters: Clusters::default(),
             config,
@@ -218,12 +208,10 @@ impl InfinityDesk {
             pointer_screen: (0.0, 0.0).into(),
             client_cursor: CursorImageStatus::default_named(),
             udev: None,
-            fullscreen: None,
             redraw_all: false,
             layout_menu: None,
             events: Vec::new(),
             event_streams: Vec::new(),
-            overview: None,
             free_slots: None,
             active: None,
             recent: Vec::new(),
@@ -302,10 +290,16 @@ impl InfinityDesk {
         }
         keyboard.change_repeat_info(k.repeat_rate, k.repeat_delay);
         if config.canvas_size != self.config.canvas_size {
-            self.canvas.set_size(config.canvas_size.into());
+            for monitor in &mut self.monitor.list {
+                monitor.canvas.set_size(config.canvas_size.into());
+            }
             self.fit_clusters_into_canvas();
-            self.apply_viewport();
-            self.fit_fullscreen();
+            for i in 0..self.monitor.list.len() {
+                self.on_monitor(i, |state| {
+                    state.apply_viewport();
+                    state.fit_fullscreen();
+                });
+            }
         }
         if let Some(udev) = &mut self.udev
             && (config.touchpad != self.config.touchpad || config.mouse != self.config.mouse)
@@ -318,16 +312,15 @@ impl InfinityDesk {
         {
             udev.set_cursor_theme(&config);
         }
-        let output = self.output.clone();
-        let settings = output
-            .as_ref()
-            .map(|o| (self.config.output(&o.name()), config.output(&o.name())));
-        self.config = config;
+        let old = std::mem::replace(&mut self.config, config);
         self.redraw_all = true;
         self.emit("config.reloaded", &[], None);
-        if let (Some(output), Some((old, new))) = (output, settings)
-            && old != new
-        {
+        let outputs: Vec<Output> = self.monitor.outputs().cloned().collect();
+        for output in outputs {
+            let new = self.config.output(&output.name());
+            if old.output(&output.name()) == new {
+                continue;
+            }
             match &mut self.udev {
                 Some(udev) => udev.apply_output_settings(&output, &new, &self.config),
                 // Nested, only the scale: the host decides size and orientation.
@@ -338,14 +331,14 @@ impl InfinityDesk {
                     None,
                 ),
             }
-            self.output_changed();
+            self.output_changed(&output);
         }
     }
 
     /// Moves clusters that lie (partly) outside the canvas back in, each as a whole.
     fn fit_clusters_into_canvas(&mut self) {
         for (geos, bbox) in self.all_clusters() {
-            let shift = self.canvas.clamp_window_loc(bbox.loc, bbox.size) - bbox.loc;
+            let shift = self.monitor.canvas.clamp_window_loc(bbox.loc, bbox.size) - bbox.loc;
             self.shift_windows(geos, shift);
         }
     }
@@ -383,47 +376,18 @@ impl InfinityDesk {
         }
     }
 
-    /// The screen is ready: the viewport starts in the middle of the canvas, leaving room in
-    /// every direction.
-    pub fn set_output(&mut self, output: Output) {
-        self.canvas.set_screen_size(screen_size(&output));
-        self.output = Some(output);
-        let canvas = self.canvas.size().to_f64();
-        (self.canvas).center_viewport_on((canvas.w / 2.0, canvas.h / 2.0).into());
-        self.apply_viewport();
-    }
-
-    /// The screen changed size or scale (nested window resized, monitor settings): bars,
-    /// the view and a fullscreen window follow, and apps learn the new scale.
-    pub fn output_changed(&mut self) {
-        let Some(output) = self.output.clone() else {
-            return;
-        };
-        layer_map_for_output(&output).arrange();
-        self.canvas.set_screen_size(screen_size(&output));
-        self.apply_viewport();
-        self.fit_fullscreen();
-        let scale = output.current_scale().fractional_scale();
-        let layers: Vec<WlSurface> = (layer_map_for_output(&output).layers())
-            .map(|l| l.wl_surface().clone())
-            .collect();
-        let windows =
-            (self.space.elements()).filter_map(|w| Some(w.toplevel()?.wl_surface().clone()));
-        for surface in windows.chain(layers) {
-            with_surface_tree_downward(
-                &surface,
-                (),
-                |_, _, _| TraversalAction::DoChildren(()),
-                |_, states, _| with_fractional_scale(states, |f| f.set_preferred_scale(scale)),
-                |_, _, _| true,
-            );
-        }
-    }
-
     /// After a frame: tells apps they may draw their next one, and tidies up.
     pub fn send_frames(&mut self, output: &Output) {
         let time = self.start_time.elapsed();
+        // Each window draws at the pace (and scale) of its own monitor.
+        let several = self.monitor.list.len() > 1;
         for window in self.space.elements() {
+            if several {
+                if self.monitor.list[self.monitor_of(window)].output.as_ref() != Some(output) {
+                    continue;
+                }
+                self.update_scale(window);
+            }
             window.send_frame(output, time, Some(Duration::ZERO), |_, _| {
                 Some(output.clone())
             });
@@ -438,11 +402,11 @@ impl InfinityDesk {
         let _ = self.display_handle.flush_clients();
     }
 
-    /// Moves the output within the space to the canvas viewport position.
+    /// Moves the (current) output within the space to the canvas viewport position.
     pub fn apply_viewport(&mut self) {
-        if let Some(output) = &self.output {
+        if let Some(output) = &self.monitor.output {
             self.space
-                .map_output(output, self.canvas.viewport_loc().to_i32_round());
+                .map_output(output, self.monitor.canvas.viewport_loc().to_i32_round());
         }
     }
 
@@ -481,7 +445,7 @@ impl InfinityDesk {
             None => {
                 let loc = match window.toplevel().unwrap().parent() {
                     None if rules.dock => self.free_slot().loc,
-                    _ => self.canvas.centered_in_viewport(size),
+                    _ => self.monitor.canvas.centered_in_viewport(size),
                 };
                 self.space.map_element(window.clone(), loc, false);
                 None
@@ -543,11 +507,11 @@ impl InfinityDesk {
     /// Frames to draw, front to back: selected windows (blue), the active window, the selection
     /// box and the "unlocked" pulse. A fullscreen window hides them.
     pub fn outlines(&mut self) -> Vec<Outline> {
-        if self.fullscreen.is_some() {
+        if self.monitor.fullscreen.is_some() {
             return Vec::new();
         }
         let accent = self.config.accent;
-        let radius = self.config.corner_radius as f64 * self.canvas.zoom();
+        let radius = self.config.corner_radius as f64 * self.monitor.canvas.zoom();
         // Where a window is drawn (gliding ones on their way), on the screen.
         let shown = |w: &Window| {
             let geo = self.space.element_geometry(w)?;
@@ -669,7 +633,7 @@ impl InfinityDesk {
     /// and which of their edges are grabbed there. A point deeper inside a window belongs to its
     /// content.
     pub fn borders_under(&self, pos: Point<f64, Logical>) -> Vec<(Window, [Edge; 2])> {
-        let zoom = self.canvas.zoom();
+        let zoom = self.monitor.canvas.zoom();
         let mut borders = Vec::new();
         for window in self.space.elements().rev() {
             let Some(geo) = self.space.element_geometry(window) else {
@@ -752,8 +716,8 @@ impl InfinityDesk {
 
     /// Converts a rectangle on the canvas into one on the screen.
     fn screen_rect(&self, rect: Rectangle<i32, Logical>) -> Rectangle<i32, Logical> {
-        let loc = self.canvas.canvas_to_screen(rect.loc.to_f64());
-        let size = rect.size.to_f64().upscale(self.canvas.zoom());
+        let loc = self.monitor.canvas.canvas_to_screen(rect.loc.to_f64());
+        let size = rect.size.to_f64().upscale(self.monitor.canvas.zoom());
         Rectangle::new(loc, size).to_i32_round()
     }
 
@@ -785,7 +749,7 @@ impl InfinityDesk {
 
     /// Layers drawn above the windows: bars (Top) are covered by a fullscreen window.
     pub fn upper_layers(&self) -> &'static [Layer] {
-        match self.fullscreen {
+        match self.monitor.fullscreen {
             Some(_) => &[Layer::Overlay],
             None => &[Layer::Overlay, Layer::Top],
         }
@@ -795,7 +759,7 @@ impl InfinityDesk {
     /// template menu and lit edges. A fullscreen window hides the edges.
     pub fn bars(&self) -> Vec<(Rectangle<i32, Logical>, [f32; 4])> {
         let mut bars = self.menu_bars();
-        if self.fullscreen.is_none() {
+        if self.monitor.fullscreen.is_none() {
             let accent = self.config.accent;
             bars.extend(self.edge_highlights().into_iter().map(|r| (r, accent)));
         }
@@ -804,7 +768,7 @@ impl InfinityDesk {
 
     /// The fullscreen window, if there is one.
     pub fn fullscreen_window(&self) -> Option<&Window> {
-        self.fullscreen.as_ref().map(|f| &f.window)
+        self.monitor.fullscreen.as_ref().map(|f| &f.window)
     }
 
     /// Layer surfaces are placed on the screen, so convert canvas <-> screen coordinates around the lookup.
@@ -813,8 +777,8 @@ impl InfinityDesk {
         pos: Point<f64, Logical>,
         layers: &[Layer],
     ) -> Option<(WlSurface, Point<f64, Logical>)> {
-        let map = layer_map_for_output(self.output.as_ref()?);
-        let screen = self.canvas.canvas_to_screen(pos);
+        let map = layer_map_for_output(self.monitor.output.as_ref()?);
+        let screen = self.monitor.canvas.canvas_to_screen(pos);
         layers.iter().find_map(|&l| {
             let layer = map.layer_under(l, screen)?;
             let loc = map.layer_geometry(layer)?.loc;
@@ -839,12 +803,4 @@ pub struct Resizing {
     pub rect: Rectangle<i32, Logical>,
     /// Per axis: the right/bottom edge stays in place (the left/top one is dragged).
     pub anchor_end: [bool; 2],
-}
-
-/// The screen's size in logical pixels: its resolution, turned and divided by its scale.
-pub fn screen_size(output: &Output) -> Size<i32, Logical> {
-    let mode = output.current_mode().unwrap();
-    let scale = output.current_scale().fractional_scale();
-    let size = output.current_transform().transform_size(mode.size);
-    size.to_f64().to_logical(scale).to_i32_round()
 }

@@ -122,7 +122,7 @@ impl InfinityDesk {
         let next = match from {
             Some(from) => next_in(dir, &from, &rects),
             None => {
-                let c = self.canvas.viewport_center().to_i32_round();
+                let c = self.monitor.canvas.viewport_center().to_i32_round();
                 (0..rects.len()).min_by_key(|&i| {
                     let d = rects[i].loc + rects[i].size.downscale(2).to_point() - c;
                     d.x as i64 * d.x as i64 + d.y as i64 * d.y as i64
@@ -187,7 +187,7 @@ impl InfinityDesk {
     /// Mod+Ctrl+Shift+arrow: moves the view by a quarter of the screen.
     pub fn pan(&mut self, dir: Dir) {
         let (axis, forward) = dir.axis();
-        let screen = self.canvas.screen_size();
+        let screen = self.monitor.canvas.screen_size();
         let step = [screen.w, screen.h][axis] as f64 / PAN_STEP;
         self.glide_view(|c| {
             let mut d = [0.0, 0.0];
@@ -198,7 +198,7 @@ impl InfinityDesk {
 
     /// Mod+Plus / Mod+Minus: zooms around the middle of the screen.
     pub fn zoom_by(&mut self, zoom_in: bool) {
-        let screen = self.canvas.screen_size().to_f64();
+        let screen = self.monitor.canvas.screen_size().to_f64();
         let middle = Point::from((screen.w / 2.0, screen.h / 2.0));
         let factor = if zoom_in { ZOOM_STEP } else { 1.0 / ZOOM_STEP };
         self.glide_view(|c| c.zoom_at(middle, factor));
@@ -210,7 +210,7 @@ impl InfinityDesk {
         if !self.config.snap_view {
             return;
         }
-        let viewport = self.canvas.viewport().to_i32_round();
+        let viewport = self.monitor.canvas.viewport().to_i32_round();
         let rects: Vec<Rect> = (self.space.elements())
             .filter(|w| w.toplevel().is_some_and(|t| t.parent().is_none()))
             .filter_map(|w| self.space.element_geometry(w))
@@ -235,7 +235,7 @@ impl InfinityDesk {
     /// Mod+Tab: zooms out until all windows fit on the screen. Again: back to the view before,
     /// or, if another window was chosen meanwhile (click or Mod+arrow), to that window's cluster.
     pub fn toggle_overview(&mut self) {
-        if let Some(overview) = self.overview.take() {
+        if let Some(overview) = self.monitor.overview.take() {
             self.emit("view.overview", &[], Some(false));
             match self
                 .active
@@ -250,12 +250,12 @@ impl InfinityDesk {
         let all = (self.space.elements())
             .filter_map(|w| self.space.element_geometry(w))
             .reduce(|a, b| a.merge(b));
-        let area = all.unwrap_or_else(|| Rect::from_size(self.canvas.size()));
+        let area = all.unwrap_or_else(|| Rect::from_size(self.monitor.canvas.size()));
         let margin = (area.size.w / OVERVIEW_MARGIN, area.size.h / OVERVIEW_MARGIN);
         let margin = margin.0.max(margin.1);
         self.emit("view.overview", &[], Some(true));
-        self.overview = Some(Overview {
-            view: self.canvas.target(),
+        self.monitor.overview = Some(Overview {
+            view: self.monitor.canvas.target(),
             active: self.active.clone(),
         });
         let area = Rect::new(
@@ -298,7 +298,7 @@ impl InfinityDesk {
 
     /// A window was clicked in the overview: it gets focused and the overview closes there.
     pub fn choose_in_overview(&mut self, window: &Window) {
-        if self.overview.take().is_some() {
+        if self.monitor.overview.take().is_some() {
             self.emit("view.overview", &[], Some(false));
         }
         self.focus_window(window);
@@ -315,27 +315,39 @@ impl InfinityDesk {
 
     /// Changes the view with `change` and lets it glide there (see `Canvas::glide`).
     pub fn glide_view(&mut self, change: impl FnOnce(&mut Canvas)) {
-        self.canvas.glide(self.config.animation, change);
+        self.monitor.canvas.glide(self.config.animation, change);
         self.apply_viewport();
     }
 
-    /// The view glides just far enough that `rect` is on the screen (see `Canvas::reveal`).
+    /// The view glides just far enough that `rect` is on the screen (see `Canvas::reveal`). Is
+    /// it on another monitor already, that one becomes the current one instead.
     pub fn reveal(&mut self, rect: Rect) {
+        self.go_to_monitor_showing(rect);
         let gaps = self.config.gaps;
         self.glide_view(|c| c.reveal(rect, gaps));
     }
 
-    /// Before each frame: a gliding view moves on (the pointer stays put on the screen), and
+    /// Before each frame: gliding views move on (the pointer stays put on the screen), and
     /// windows that have arrived stop gliding.
     pub fn step_animations(&mut self) {
         let duration = self.config.animation;
         self.window_glides
             .retain(|_, (_, start)| start.elapsed() < duration);
         self.step_resize_glide();
-        if self.canvas.step() {
-            self.apply_viewport();
+        let mut current_moved = false;
+        for i in 0..self.monitor.list.len() {
+            let moved = self.monitor.list[i].canvas.step();
+            if moved {
+                self.on_monitor(i, |state| state.apply_viewport());
+            }
+            current_moved |= moved && i == self.monitor.current();
+        }
+        if current_moved {
             let screen = self.pointer_screen;
-            self.pointer_moved(self.canvas.screen_to_canvas(screen), InputTime::now());
+            self.pointer_moved(
+                self.monitor.canvas.screen_to_canvas(screen),
+                InputTime::now(),
+            );
         }
     }
 }

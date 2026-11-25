@@ -49,51 +49,59 @@ pub struct FreeSlots {
 impl InfinityDesk {
     /// Mod+F: the window covers the screen, on top of everything; again: back to its place.
     pub fn toggle_fullscreen(&mut self, window: &Window) {
-        let same = self
-            .fullscreen
-            .as_ref()
-            .is_some_and(|f| &f.window == window);
-        self.end_fullscreen();
-        if !same {
+        if !self.end_fullscreen_of(window) {
             self.start_fullscreen(window);
         }
     }
 
-    /// The window takes the size of the screen and the view goes there at 1:1. The canvas
-    /// underneath stays as it is; the window's neighbors are just covered meanwhile.
+    /// Ends fullscreen if `window` is the one; false if it is not.
+    pub fn end_fullscreen_of(&mut self, window: &Window) -> bool {
+        let monitor = self.fullscreen_monitor(window);
+        if let Some(i) = monitor {
+            self.on_monitor(i, |state| state.end_fullscreen());
+        }
+        monitor.is_some()
+    }
+
+    /// The window takes the size of the monitor it is on and the view goes there at 1:1. The
+    /// canvas underneath stays as it is; the window's neighbors are just covered meanwhile.
     pub fn start_fullscreen(&mut self, window: &Window) {
         self.finish_resize_glide();
         let Some(rect) = self.space.element_geometry(window) else {
             return;
         };
-        let view = self.canvas.target();
-        self.fullscreen = Some(Fullscreen {
-            window: window.clone(),
-            rect,
-            view,
+        let i = self.monitor_of(window);
+        self.on_monitor(i, |state| {
+            state.end_fullscreen();
+            let view = state.monitor.canvas.target();
+            state.monitor.fullscreen = Some(Fullscreen {
+                window: window.clone(),
+                rect,
+                view,
+            });
+            state.fit_fullscreen();
         });
-        self.fit_fullscreen();
         self.focus_window(window);
         self.emit("window.fullscreen", &[window], Some(true));
     }
 
     /// Sizes the fullscreen window to the screen (also when the screen changes size).
     pub fn fit_fullscreen(&mut self) {
-        let Some(window) = self.fullscreen.as_ref().map(|f| f.window.clone()) else {
+        let Some(window) = self.monitor.fullscreen.as_ref().map(|f| f.window.clone()) else {
             return;
         };
         let Some(rect) = self.space.element_geometry(&window) else {
             return;
         };
-        let screen = self.canvas.screen_size();
+        let screen = self.monitor.canvas.screen_size();
         self.glide_view(|c| c.focus_on(Rect::new(rect.loc, screen)));
-        let target = Rect::new(self.canvas.target().0.to_i32_round(), screen);
+        let target = Rect::new(self.monitor.canvas.target().0.to_i32_round(), screen);
         self.resize_to(&window, target, Some(true));
     }
 
     /// Puts the fullscreen window (if any) back to its place and restores the view.
     pub fn end_fullscreen(&mut self) {
-        let Some(Fullscreen { window, rect, view }) = self.fullscreen.take() else {
+        let Some(Fullscreen { window, rect, view }) = self.monitor.fullscreen.take() else {
             return;
         };
         self.glide_view(|c| c.set_view(view.0, view.1));
@@ -157,11 +165,11 @@ impl InfinityDesk {
         let Some(bbox) = rects.iter().copied().reduce(|a, b| a.merge(b)) else {
             return;
         };
-        let screen = self.canvas.screen_size();
+        let screen = self.monitor.canvas.screen_size();
         let gap = self.config.gaps;
         // The screen starts one gap before the cluster's top-left corner.
         let loc = bbox.loc - Point::from((gap, gap));
-        let area = Rect::new(self.canvas.clamp_window_loc(loc, screen), screen);
+        let area = Rect::new(self.monitor.canvas.clamp_window_loc(loc, screen), screen);
         let slots = layout::slots(template, area, gap);
         let active = windows.iter().position(|w| w == window).unwrap_or(0);
         let slot_of = layout::assign(&rects, active, slot, &slots);
@@ -192,7 +200,10 @@ impl InfinityDesk {
         let shifts = layout::push_aside(area, &boxes, gap);
         for ((geos, bbox), shift) in others.into_iter().zip(shifts) {
             // Never off the canvas.
-            let to = self.canvas.clamp_window_loc(bbox.loc + shift, bbox.size);
+            let to = self
+                .monitor
+                .canvas
+                .clamp_window_loc(bbox.loc + shift, bbox.size);
             self.shift_windows(geos, to - bbox.loc);
         }
         self.free_slots = Some(FreeSlots {
@@ -227,7 +238,7 @@ impl InfinityDesk {
                     .is_some_and(|i| i.size.w > TOUCH_TOLERANCE && i.size.h > TOUCH_TOLERANCE)
             })
         };
-        let viewport = self.canvas.viewport().to_i32_round();
+        let viewport = self.monitor.canvas.viewport().to_i32_round();
         free.slots
             .retain(|r| !covered(&Rect::new(r.loc + shift, r.size)));
         let i = (free.slots.iter())
@@ -265,19 +276,23 @@ impl InfinityDesk {
             return None;
         }
         let active = self.target_rect(self.active.as_ref()?)?;
+        // The active window is on another monitor: the new one belongs on the current one.
+        if self.monitor_showing(active) != self.monitor.current() {
+            return None;
+        }
         let others: Vec<Rect> = (self.space.elements())
             .filter_map(|w| self.target_rect(w))
             .collect();
-        let canvas = Rect::from_size(self.canvas.size());
-        let visible = self.canvas.viewport().to_i32_round();
+        let canvas = Rect::from_size(self.monitor.canvas.size());
+        let visible = self.monitor.canvas.viewport().to_i32_round();
         dock_spot(&active, size, &others, &visible, &canvas, self.config.gaps)
     }
 
     /// Where a new window goes that docks nowhere: the left half of the screen, around the
     /// middle of the view. New windows also get its size.
     pub fn free_slot(&self) -> Rect {
-        let screen = self.canvas.screen_size();
-        let area = Rect::new(self.canvas.centered_in_viewport(screen), screen);
+        let screen = self.monitor.canvas.screen_size();
+        let area = Rect::new(self.monitor.canvas.centered_in_viewport(screen), screen);
         layout::slots(HALF_HALF, area, self.config.gaps)[0]
     }
 
@@ -309,7 +324,7 @@ impl InfinityDesk {
         let Some(menu) = &self.layout_menu else {
             return Vec::new();
         };
-        let screen = self.canvas.screen_size();
+        let screen = self.monitor.canvas.screen_size();
         let needed = self.clusters.members(&menu.window).len();
         let mut bars = Vec::new();
         for (t, slots) in layout::menu_slots(screen).into_iter().enumerate() {

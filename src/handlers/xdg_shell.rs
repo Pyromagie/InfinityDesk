@@ -77,9 +77,7 @@ impl XdgShellHandler for InfinityDesk {
             if (self.resize_glide.as_ref()).is_some_and(|g| g.toggle.windows.contains(&window)) {
                 self.resize_glide = None;
             }
-            if self.fullscreen.as_ref().is_some_and(|f| f.window == window) {
-                self.end_fullscreen();
-            }
+            self.end_fullscreen_of(&window);
             if self
                 .layout_menu
                 .as_ref()
@@ -112,11 +110,11 @@ impl XdgShellHandler for InfinityDesk {
 
     /// The client asks to fill the screen (e.g. a video player): same as Alt+F.
     fn fullscreen_request(&mut self, surface: ToplevelSurface, _output: Option<WlOutput>) {
-        let window = self.window_for_surface(surface.wl_surface());
-        let already = self.fullscreen.as_ref().map(|f| &f.window) == window.as_ref();
-        match window {
-            Some(window) if !already && self.space.element_geometry(&window).is_some() => {
-                self.end_fullscreen();
+        match self.window_for_surface(surface.wl_surface()) {
+            Some(window)
+                if self.fullscreen_monitor(&window).is_none()
+                    && self.space.element_geometry(&window).is_some() =>
+            {
                 self.start_fullscreen(&window);
             }
             // Not placed yet or already fullscreen: the client still expects an answer.
@@ -127,8 +125,8 @@ impl XdgShellHandler for InfinityDesk {
     }
 
     fn unfullscreen_request(&mut self, surface: ToplevelSurface) {
-        if (self.fullscreen.as_ref()).is_some_and(|f| f.window.toplevel() == Some(&surface)) {
-            self.end_fullscreen();
+        if let Some(window) = self.window_for_surface(surface.wl_surface()) {
+            self.end_fullscreen_of(&window);
         }
     }
 
@@ -148,7 +146,7 @@ impl XdgShellHandler for InfinityDesk {
         let Some(window) = self.window_for_surface(surface.wl_surface()) else {
             return;
         };
-        if self.fullscreen.is_some() {
+        if self.monitor.fullscreen.is_some() {
             return;
         }
         let x = match edges {
@@ -177,7 +175,7 @@ impl XdgShellHandler for InfinityDesk {
         let Some(window) = self.window_for_surface(surface.wl_surface()) else {
             return;
         };
-        if self.fullscreen.is_some() {
+        if self.monitor.fullscreen.is_some() {
             return;
         }
         let grab = DragGrab::move_window(self, start_data, window);
@@ -243,7 +241,7 @@ impl InfinityDesk {
     /// The size of a new window: half the screen wide and full high, or as its rules say.
     /// Windows that do not dock choose their own size, unless a rule gives one.
     fn new_window_size(&self, rules: &Rules) -> Option<Size<i32, Logical>> {
-        let (screen, gap) = (self.canvas.screen_size(), self.config.gaps);
+        let (screen, gap) = (self.monitor.canvas.screen_size(), self.config.gaps);
         match (rules.full_width, rules.full_height) {
             (None, None) if !rules.dock => None,
             (None, None) => Some(self.free_slot().size),
@@ -323,14 +321,15 @@ impl InfinityDesk {
         let Ok(root) = find_popup_root_surface(&PopupKind::Xdg(popup.clone())) else {
             return;
         };
-        let Some(window_geo) = self
-            .window_for_surface(&root)
-            .and_then(|w| self.space.element_geometry(&w))
-        else {
+        let Some(window) = self.window_for_surface(&root) else {
+            return;
+        };
+        let Some(window_geo) = self.space.element_geometry(&window) else {
             return;
         };
 
-        let mut target = self.canvas.viewport().to_i32_round();
+        let monitor = &self.monitor.list[self.monitor_of(&window)];
+        let mut target = monitor.canvas.viewport().to_i32_round();
         target.loc -= get_popup_toplevel_coords(&PopupKind::Xdg(popup.clone()));
         target.loc -= window_geo.loc;
 

@@ -17,9 +17,12 @@ use std::{
 };
 
 use mlua::{AnyUserData, Function, HookTriggers, Lua, MultiValue, Table, Value, VmState};
-use smithay::{desktop::Window, utils::Point};
+use smithay::{desktop::Window, output::Output, utils::Point};
 
-use crate::{InfinityDesk, cluster::Rect, config::Action, handlers::app_id_and_title};
+use crate::{
+    InfinityDesk, canvas::Canvas, cluster::Rect, config::Action, handlers::app_id_and_title,
+    monitor::Monitor,
+};
 
 /// The events scripts can react to, and what their function gets.
 pub const EVENTS: [&str; 10] = [
@@ -48,7 +51,18 @@ const MAX_ROUNDS: usize = 32;
 /// - `windows()`: all windows, `focused()`: the active one (or nothing)
 /// - `focus_window(id)`, `close(id)`: true if the window is there
 /// - `move(id, x, y)`: moves the window's cluster so that the window's top-left corner is at x, y
-pub const REACHING: [&str; 6] = ["run", "windows", "focused", "focus_window", "close", "move"];
+/// - `outputs()`: all monitors, `focus_output(name)`: makes that one the current one (true if it
+///   is there)
+pub const REACHING: [&str; 8] = [
+    "run",
+    "windows",
+    "focused",
+    "focus_window",
+    "close",
+    "move",
+    "outputs",
+    "focus_output",
+];
 /// Where, while InfinityDesk calls into Lua, the functions behind `REACHING` are kept.
 const REACH: &str = "infinitydesk.reach";
 
@@ -218,10 +232,7 @@ impl InfinityDesk {
             title,
             rect: self.target_rect(window).unwrap_or_default(),
             focused: self.active.as_ref() == Some(window),
-            fullscreen: self
-                .fullscreen
-                .as_ref()
-                .is_some_and(|f| &f.window == window),
+            fullscreen: self.fullscreen_monitor(window).is_some(),
         }
     }
 
@@ -234,8 +245,8 @@ impl InfinityDesk {
     fn move_cluster(&mut self, window: &Window, loc: (i32, i32)) {
         self.finish_resize_glide();
         let members = self.clusters.members(window);
-        if (self.fullscreen.as_ref()).is_some_and(|f| members.contains(&f.window)) {
-            self.end_fullscreen();
+        for window in &members {
+            self.end_fullscreen_of(window);
         }
         let (windows, rects) = self.cluster_rects(window);
         let bbox = rects.iter().copied().reduce(|a, b| a.merge(b));
@@ -243,7 +254,7 @@ impl InfinityDesk {
             return;
         };
         let to = bbox.loc + (Point::from(loc) - rect.loc);
-        let shift = self.canvas.clamp_window_loc(to, bbox.size) - bbox.loc;
+        let shift = self.monitor.canvas.clamp_window_loc(to, bbox.size) - bbox.loc;
         self.shift_windows(windows.into_iter().zip(rects).collect(), shift);
     }
 
@@ -259,7 +270,7 @@ impl InfinityDesk {
         let overview = Event {
             name: "view.overview",
             windows: Vec::new(),
-            on: Some(self.overview.is_some()),
+            on: Some(self.monitor.overview.is_some()),
         };
         let text = format!("ok\n{}{}", state.json(), overview.json());
         if (&stream).write_all(text.as_bytes()).is_ok() {
@@ -355,11 +366,15 @@ impl InfinityDesk {
                 let mut s = state.borrow_mut();
                 let window = s.window_by_id(id);
                 if let Some(window) = &window {
-                    if (s.fullscreen.as_ref()).is_some_and(|f| &f.window != window) {
+                    let rect = s.target_rect(window);
+                    if let Some(rect) = rect {
+                        s.go_to_monitor_showing(rect);
+                    }
+                    if (s.monitor.fullscreen.as_ref()).is_some_and(|f| &f.window != window) {
                         s.end_fullscreen();
                     }
                     s.focus_window(window);
-                    if let Some(rect) = s.target_rect(window) {
+                    if let Some(rect) = rect {
                         s.reveal(rect);
                     }
                 }
@@ -380,11 +395,33 @@ impl InfinityDesk {
                 }
                 Ok(window.is_some())
             })?;
-            for (name, f) in
-                REACHING
-                    .into_iter()
-                    .zip([run, windows, focused, focus_window, close, move_])
-            {
+            let outputs = scope.create_function(|lua, ()| {
+                let s = state.borrow();
+                let tables = (s.monitor.list.iter().enumerate())
+                    .filter_map(|(i, m)| Some((i == s.monitor.current(), m, m.output.as_ref()?)))
+                    .map(|(focused, m, output)| output_table(lua, focused, &m.canvas, output));
+                lua.create_sequence_from(tables.collect::<mlua::Result<Vec<_>>>()?)
+            })?;
+            let focus_output = scope.create_function(|_, name: String| {
+                let mut s = state.borrow_mut();
+                let named = |m: &Monitor| m.output.as_ref().is_some_and(|o| o.name() == name);
+                let i = s.monitor.list.iter().position(named);
+                if let Some(i) = i {
+                    s.focus_monitor(i);
+                }
+                Ok(i.is_some())
+            })?;
+            let functions = [
+                run,
+                windows,
+                focused,
+                focus_window,
+                close,
+                move_,
+                outputs,
+                focus_output,
+            ];
+            for (name, f) in REACHING.into_iter().zip(functions) {
                 t.set(name, f)?;
             }
             lua.set_named_registry_value(REACH, t)?;
@@ -393,6 +430,25 @@ impl InfinityDesk {
         let _ = lua.unset_named_registry_value(REACH);
         result
     }
+}
+
+/// A monitor as scripts see it: where it stands and how large it is (in logical pixels), its
+/// scale, whether it is the current one, and the part of the canvas it shows.
+fn output_table(lua: &Lua, focused: bool, canvas: &Canvas, output: &Output) -> mlua::Result<Table> {
+    let t = lua.create_table()?;
+    t.set("name", output.name())?;
+    t.set("x", output.current_location().x)?;
+    t.set("y", output.current_location().y)?;
+    t.set("width", canvas.screen_size().w)?;
+    t.set("height", canvas.screen_size().h)?;
+    t.set("scale", output.current_scale().fractional_scale())?;
+    t.set("focused", focused)?;
+    let view = lua.create_table()?;
+    view.set("x", canvas.target().0.x)?;
+    view.set("y", canvas.target().0.y)?;
+    view.set("zoom", canvas.target().1)?;
+    t.set("view", view)?;
+    Ok(t)
 }
 
 /// Writes `value` as JSON. Tables with entries 1..n (and empty ones) become arrays, others

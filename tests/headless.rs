@@ -53,6 +53,11 @@ struct Desk {
 impl Desk {
     /// Starts it with `config` (Lua, after `local desk = require("infinitydesk")`).
     fn start(config: &str) -> Desk {
+        Desk::start_with(1, config)
+    }
+
+    /// The same with several monitors.
+    fn start_with(monitors: u32, config: &str) -> Desk {
         static RUNS: AtomicU32 = AtomicU32::new(0);
         // Short: socket paths have a length limit.
         let n = RUNS.fetch_add(1, Ordering::Relaxed);
@@ -65,7 +70,7 @@ impl Desk {
         let config_path = dir.join("init.lua");
         std::fs::write(&config_path, format!("{HELPERS}\n{config}")).unwrap();
         let child = Command::new(BIN)
-            .arg("--headless")
+            .args(["--headless", &monitors.to_string()])
             .env("XDG_RUNTIME_DIR", &dir)
             .env("INFINITYDESK_CONFIG", &config_path)
             .env("RUST_LOG", "warn,infinitydesk=debug")
@@ -768,4 +773,95 @@ fn a_window_shrinks_at_its_other_edge_to_keep_the_cluster_together() {
     settle(&mut client);
     assert_eq!(desk.rect("one"), [one[0], low[1], one[2], half]);
     assert_eq!(desk.rect("low"), low);
+}
+
+/// Two monitors: 1920×1080 (`headless`) and 1280×720 (`headless-2`), without animations.
+const TWO: &str = r#"
+desk.output { name = "headless-2", mode = "1280x720" }
+desk.animation { duration_ms = 0 }
+function view(i)
+  local o = desk.outputs()[i]
+  return math.floor(o.view.x), math.floor(o.view.y), o.view.zoom, o.focused
+end
+"#;
+
+#[test]
+fn each_monitor_has_its_own_view_of_the_canvas() {
+    let desk = Desk::start_with(2, TWO);
+    let outputs = "local r = {} for _, o in ipairs(desk.outputs()) do
+        table.insert(r, { o.name, o.x, o.y, o.width, o.height }) end return r";
+    assert_eq!(
+        desk.eval(outputs),
+        [r#"[["headless",0,0,1920,1080],["headless-2",1920,0,1280,720]]"#]
+    );
+    // The views start side by side, the first one's in the middle of the canvas.
+    let (x, y) = (30000 - 960, 18000 - 540);
+    let first = [x.to_string(), y.to_string(), "1".into(), "true".into()];
+    let second = [
+        (x + 1920).to_string(),
+        y.to_string(),
+        "1".into(),
+        "false".into(),
+    ];
+    assert_eq!(desk.eval("return view(1)"), first);
+    assert_eq!(desk.eval("return view(2)"), second);
+    // Keys act on the current monitor, the other view stays.
+    desk.eval("desk.focus_output('headless-2') desk.run(desk.pan('right'))");
+    let moved = (x + 1920 + 1280 / 4).to_string();
+    assert_eq!(desk.eval("return view(1)")[..3], first[..3]);
+    assert_eq!(desk.eval("return view(2)")[0], moved);
+    desk.eval("desk.run(desk.zoom_out)");
+    assert_eq!(desk.eval("return view(1)")[..3], first[..3]);
+    assert_ne!(desk.eval("return view(2)")[2], "1");
+    assert_eq!(desk.eval("return desk.focus_output('none')"), ["false"]);
+}
+
+#[test]
+fn new_windows_open_on_the_current_monitor_in_its_sizes() {
+    let desk = Desk::start_with(2, TWO);
+    let mut client = Client::connect(&desk);
+    let x = 30000 - 960;
+    let y = 18000 - 540;
+    client.open("one", "One");
+    assert_eq!(desk.rect("one"), [x + 16, y + 16, HALF.0, HALF.1]);
+    desk.eval("desk.focus_output('headless-2')");
+    // Not docked to the active window, which is on the other monitor.
+    client.open("two", "Two");
+    let half = ((1280 - 3 * 16) / 2, 720 - 2 * 16);
+    let left = x + 1920 + 16;
+    assert_eq!(desk.rect("two"), [left, y + 16, half.0, half.1]);
+    client.open("three", "Three");
+    let right = left + half.0 + 16;
+    assert_eq!(desk.rect("three"), [right, y + 16, half.0, half.1]);
+    // Focusing a window on the other monitor goes there instead of moving the view.
+    desk.eval("desk.focus_window(find('one').id)");
+    assert_eq!(desk.eval("return view(1)")[3], "true");
+    assert_eq!(desk.numbers("return (view(1))"), [x]);
+    assert_eq!(desk.numbers("return (view(2))"), [x + 1920]);
+    // Sizes change in steps of the window's monitor, wherever the pointer is.
+    desk.eval("desk.focus_output('headless-2') desk.run(desk.resize('right'))");
+    client.sync();
+    assert_eq!(desk.rect("one"), [x + 16, y + 16, 1920 - 32, HALF.1]);
+}
+
+#[test]
+fn fullscreen_covers_only_its_monitor() {
+    let desk = Desk::start_with(2, TWO);
+    let mut client = Client::connect(&desk);
+    let (x, y) = (30000 - 960, 18000 - 540);
+    client.open("one", "One");
+    desk.eval("desk.focus_output('headless-2')");
+    client.open("two", "Two");
+    let before = desk.rect("two");
+    // Also asked for while the pointer is on the other monitor.
+    desk.eval("desk.focus_output('headless')");
+    client.fullscreen(1, true);
+    assert_eq!(desk.rect("two")[2..], [1280, 720]);
+    // The other monitor goes on as before; moving around there does not end it.
+    desk.eval("desk.run(desk.pan('down'))");
+    assert_eq!(desk.numbers("local _, y = view(1) return y"), [y + 270]);
+    assert_eq!(desk.eval("return find('two').fullscreen"), ["true"]);
+    client.fullscreen(1, false);
+    assert_eq!(desk.rect("two"), before);
+    assert_eq!(desk.numbers("return (view(2))"), [x + 1920]);
 }

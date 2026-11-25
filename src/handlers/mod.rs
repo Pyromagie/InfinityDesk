@@ -157,10 +157,11 @@ impl InfinityDesk {
 
 impl OutputHandler for InfinityDesk {}
 
-/// An app asks for the screen's scale for one of its surfaces.
+/// An app asks for the screen's scale for one of its surfaces (a window on another monitor
+/// gets that one's with its first frame).
 impl FractionalScaleHandler for InfinityDesk {
     fn new_fractional_scale(&mut self, surface: WlSurface) {
-        if let Some(output) = &self.output {
+        if let Some(output) = &self.monitor.output {
             let scale = output.current_scale().fractional_scale();
             with_states(&surface, |states| {
                 with_fractional_scale(states, |f| f.set_preferred_scale(scale))

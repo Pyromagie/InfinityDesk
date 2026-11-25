@@ -371,9 +371,9 @@ pub fn init_udev(
         redraw_planned: false,
         frame_time: frame_time(wl_mode),
     });
-    state.set_output(output);
+    state.add_output(output);
     // The pointer starts in the middle of the screen.
-    state.pointer_moved(state.canvas.viewport_center(), InputTime::now());
+    state.pointer_moved(state.monitor.canvas.viewport_center(), InputTime::now());
     state.render_screen();
     Ok(())
 }
@@ -382,7 +382,7 @@ impl InfinityDesk {
     /// Draws the next frame if something changed. Then the screen reports when it is shown
     /// (`frame_shown`); if nothing changed, it is looked at again after one frame.
     pub fn render_screen(&mut self) {
-        let Some(output) = self.output.clone() else {
+        let Some(output) = self.monitor.output.clone() else {
             return;
         };
         self.step_animations();
@@ -413,13 +413,13 @@ impl InfinityDesk {
             &mut udev.renderer,
             &output,
             &self.space,
-            &self.canvas,
+            &self.monitor.canvas,
             &mut udev.scene,
             &self.config,
             upper_layers,
             &offsets,
             &outlines,
-            self.fullscreen.as_ref().map(|f| &f.window),
+            self.monitor.fullscreen.as_ref().map(|f| &f.window),
         ));
         let rendered = udev.compositor.render_frame(
             &mut udev.renderer,

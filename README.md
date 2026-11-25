@@ -352,6 +352,14 @@ desk.bind("Mod+B", function()
   if f then desk.move(f.id, f.x + 500, f.y) end -- moves its whole cluster, gliding
 end)
 -- desk.focus_window(id) focuses a window and brings it into view, desk.close(id) closes it.
+-- Monitors are tables { name, x, y, width, height, scale, focused, view = { x, y, zoom } }
+-- (x, y: where they stand; focused: the one the pointer is on; view: what it shows of the
+-- canvas). Keys act on that one; desk.focus_output makes another one the current one.
+desk.bind("Mod+Period", function()
+  for _, o in ipairs(desk.outputs()) do
+    if not o.focused then return desk.focus_output(o.name) end
+  end
+end)
 -- These and desk.run work only inside functions given to desk.on and desk.bind.
 -- Events and what the function gets: window.open (w), window.close (w), window.focus (w, or
 -- nothing when no window is active), window.title (w; title or app_id changed),
@@ -396,7 +404,8 @@ cargo test                           # the pure logic (canvas, clusters, resize,
                                      # scripting) and the end-to-end tests without a screen
 ```
 
-`infinitydesk --headless` runs without a screen: one made-up 1920×1080 output, nothing is drawn.
+`infinitydesk --headless` runs without a screen: one made-up 1920×1080 output (`--headless 2`: two,
+with the size from `desk.output`), nothing is drawn.
 The end-to-end tests in `tests/headless.rs` start it like that, each in a folder of its own,
 open test windows that behave like real programs (drawn in the size they are asked for) and
 check the results through `infinitydesk msg`. They need no GPU, display or input devices, so
@@ -425,6 +434,7 @@ from `desk.cursor` in the config, else from `XCURSOR_THEME` and `XCURSOR_SIZE`.
 | `src/input.rs`    | Keyboard shortcuts and mouse handling                         |
 | `src/render.rs`   | What gets drawn: windows, layers, dot grid, outlines          |
 | `src/state.rs`    | Compositor state                                              |
+| `src/monitor.rs`  | The monitors, each with its own view of the canvas            |
 | `src/config.rs`   | Settings from the Lua config (tested)                         |
 | `src/script.rs`   | Lua scripting: events, actions, windows, time limits, JSON    |
 | `src/ipc.rs`      | `infinitydesk msg`: commands from outside over a socket       |

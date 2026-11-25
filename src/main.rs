@@ -15,6 +15,7 @@ mod headless;
 mod input;
 mod ipc;
 mod layout;
+mod monitor;
 mod navigate;
 mod render;
 mod resize;
@@ -46,7 +47,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = InfinityDesk::new(&mut event_loop, display);
 
     if headless {
-        headless::init_headless(&mut event_loop, &mut state)?;
+        // `--headless 2`: that many monitors.
+        let count = args.windows(2).find(|a| a[0] == "--headless");
+        let count = count.and_then(|a| a[1].parse().ok()).unwrap_or(1);
+        headless::init_headless(&mut event_loop, &mut state, count)?;
     } else if nested {
         winit::init_winit(&mut event_loop, &mut state)?;
     } else {

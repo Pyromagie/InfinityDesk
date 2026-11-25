@@ -104,8 +104,6 @@ impl InfinityDesk {
                         }
                     },
                 );
-                // Most actions move the view or windows; the pointer stays put on the screen.
-                let screen = self.pointer_screen;
                 match action {
                     Some(KeyAction::Bind(action)) => self.run(action),
                     Some(KeyAction::Template(Some(t))) => self.choose_template(t, None),
@@ -118,22 +116,27 @@ impl InfinityDesk {
                     }
                     Some(KeyAction::Nothing) | None => return,
                 }
-                self.pointer_moved(self.canvas.screen_to_canvas(screen), event.time());
+                // Most actions move the view or windows; the pointer stays put on the screen.
+                let screen = self.pointer_screen;
+                self.pointer_moved(self.monitor.canvas.screen_to_canvas(screen), event.time());
             }
 
             // Mice and touchpads (standalone) move the pointer by an amount, within the screen.
             InputEvent::PointerMotion { event, .. } => {
-                let size = self.canvas.screen_size().to_f64();
+                let size = self.monitor.canvas.screen_size().to_f64();
                 let pos = self.pointer_screen + event.delta();
                 let pos = (
                     pos.x.clamp(0.0, size.w - 1.0),
                     pos.y.clamp(0.0, size.h - 1.0),
                 );
-                self.pointer_moved(self.canvas.screen_to_canvas(pos.into()), event.time());
+                self.pointer_moved(
+                    self.monitor.canvas.screen_to_canvas(pos.into()),
+                    event.time(),
+                );
             }
 
             InputEvent::PointerMotionAbsolute { event, .. } => {
-                let viewport = self.canvas.viewport();
+                let viewport = self.monitor.canvas.viewport();
                 let pos = event.position_transformed(viewport.size.to_i32_round()) + viewport.loc;
                 self.pointer_moved(pos, event.time());
             }
@@ -159,15 +162,15 @@ impl InfinityDesk {
                 //   left-drag on empty canvas   -> pan the viewport
                 // Where the pointer is on the canvas now (the view may have moved since the last
                 // pointer motion, e.g. by panning).
-                let location = self.canvas.screen_to_canvas(self.pointer_screen);
+                let location = self.monitor.canvas.screen_to_canvas(self.pointer_screen);
                 if location != pointer.current_location() {
                     self.pointer_moved(location, event.time());
                 }
                 // The template menu: a click on a slot chooses it, a click outside closes the menu.
                 // Only presses are taken, so a drag still running gets its release.
                 if self.layout_menu.is_some() && button_state == ButtonState::Pressed {
-                    let screen = self.canvas.screen_size();
-                    let on_screen = self.canvas.canvas_to_screen(location);
+                    let screen = self.monitor.canvas.screen_size();
+                    let on_screen = self.monitor.canvas.canvas_to_screen(location);
                     match layout::menu_hit(screen, on_screen) {
                         Some((t, s)) => self.choose_template(t, Some(s)),
                         None if !layout::menu_panel(screen).to_f64().contains(on_screen) => {
@@ -175,7 +178,7 @@ impl InfinityDesk {
                         }
                         None => {}
                     }
-                    let canvas = self.canvas.screen_to_canvas(on_screen);
+                    let canvas = self.monitor.canvas.screen_to_canvas(on_screen);
                     self.pointer_moved(canvas, event.time());
                     return;
                 }
@@ -186,16 +189,19 @@ impl InfinityDesk {
                 let plain =
                     !(self.config.mod_key()).held(&keyboard.modifier_state()) && button == BTN_LEFT;
                 if let Some(window) = (clicked.as_ref())
-                    .filter(|_| self.overview.is_some() && plain && !on_layer)
+                    .filter(|_| self.monitor.overview.is_some() && plain && !on_layer)
                     .filter(|_| button_state == ButtonState::Pressed && !pointer.is_grabbed())
                 {
-                    let on_screen = self.canvas.canvas_to_screen(location);
+                    let on_screen = self.monitor.canvas.canvas_to_screen(location);
                     self.choose_in_overview(window);
-                    self.pointer_moved(self.canvas.screen_to_canvas(on_screen), event.time());
+                    self.pointer_moved(
+                        self.monitor.canvas.screen_to_canvas(on_screen),
+                        event.time(),
+                    );
                     return;
                 }
                 // A fullscreen window just gets the click, nothing on the canvas can be grabbed.
-                let fullscreen = self.fullscreen.is_some();
+                let fullscreen = self.monitor.fullscreen.is_some();
                 if button_state == ButtonState::Pressed
                     && !pointer.is_grabbed()
                     && !on_layer
@@ -267,7 +273,7 @@ impl InfinityDesk {
                     }
                 }
 
-                let view = self.canvas.viewport_loc();
+                let view = self.monitor.canvas.viewport_loc();
                 pointer.button(
                     self,
                     &ButtonEvent {
@@ -279,9 +285,9 @@ impl InfinityDesk {
                 );
                 pointer.frame(self);
                 // The view snapped when a pan ended: the canvas moved under the pointer.
-                if self.canvas.viewport_loc() != view {
+                if self.monitor.canvas.viewport_loc() != view {
                     let screen = self.pointer_screen;
-                    self.pointer_moved(self.canvas.screen_to_canvas(screen), event.time());
+                    self.pointer_moved(self.monitor.canvas.screen_to_canvas(screen), event.time());
                 }
             }
 
@@ -300,8 +306,8 @@ impl InfinityDesk {
                 match self.gesture.take() {
                     Some(Gesture::Overview(dy))
                         if !event.cancelled()
-                            && (dy < -OVERVIEW_SWIPE && self.overview.is_none()
-                                || dy > OVERVIEW_SWIPE && self.overview.is_some()) =>
+                            && (dy < -OVERVIEW_SWIPE && self.monitor.overview.is_none()
+                                || dy > OVERVIEW_SWIPE && self.monitor.overview.is_some()) =>
                     {
                         self.toggle_overview()
                     }
@@ -309,7 +315,7 @@ impl InfinityDesk {
                     _ => return,
                 }
                 let screen = self.pointer_screen;
-                self.pointer_moved(self.canvas.screen_to_canvas(screen), event.time());
+                self.pointer_moved(self.monitor.canvas.screen_to_canvas(screen), event.time());
             }
             InputEvent::GesturePinchBegin { .. } => self.gesture_begins(Gesture::Zoom(1.0)),
             InputEvent::GesturePinchUpdate { event, .. } => {
@@ -317,9 +323,9 @@ impl InfinityDesk {
                     let factor = event.scale() / *last;
                     *last = event.scale();
                     let screen = self.pointer_screen;
-                    self.canvas.zoom_at(screen, factor);
+                    self.monitor.canvas.zoom_at(screen, factor);
                     self.apply_viewport();
-                    self.pointer_moved(self.canvas.screen_to_canvas(screen), event.time());
+                    self.pointer_moved(self.monitor.canvas.screen_to_canvas(screen), event.time());
                 }
             }
             InputEvent::GesturePinchEnd { .. } => self.gesture = None,
@@ -333,17 +339,17 @@ impl InfinityDesk {
                 ))
                 .is_some()
                     && !self.seat.get_pointer().unwrap().is_grabbed()
-                    && self.fullscreen.is_none() =>
+                    && self.monitor.fullscreen.is_none() =>
             {
                 let scroll = event.amount(Axis::Vertical).unwrap_or_else(|| {
                     event.amount_v120(Axis::Vertical).unwrap_or(0.0) * 15.0 / 120.0
                 });
                 let screen = self.pointer_screen;
                 let speed = ZOOM_SPEED * self.config.zoom_speed;
-                self.canvas.zoom_at(screen, (-scroll * speed).exp());
+                self.monitor.canvas.zoom_at(screen, (-scroll * speed).exp());
                 self.apply_viewport();
                 // The canvas moved under the pointer.
-                self.pointer_moved(self.canvas.screen_to_canvas(screen), event.time());
+                self.pointer_moved(self.monitor.canvas.screen_to_canvas(screen), event.time());
             }
 
             // Scrolling on empty canvas moves the view.
@@ -360,7 +366,7 @@ impl InfinityDesk {
                 if event.source() == AxisSource::Finger && delta == Point::default() {
                     self.snap_view();
                     let screen = self.pointer_screen;
-                    self.pointer_moved(self.canvas.screen_to_canvas(screen), event.time());
+                    self.pointer_moved(self.monitor.canvas.screen_to_canvas(screen), event.time());
                 }
             }
             InputEvent::PointerAxis { event, .. } => {
@@ -443,7 +449,7 @@ impl InfinityDesk {
         let pointer = self.seat.get_pointer().unwrap();
         let pos = pointer.current_location();
         !pointer.is_grabbed()
-            && self.fullscreen.is_none()
+            && self.monitor.fullscreen.is_none()
             && self.space.element_under(pos).is_none()
             && self.layer_surface_under(pos, self.upper_layers()).is_none()
     }
@@ -451,22 +457,23 @@ impl InfinityDesk {
     /// Moves the view by `delta` screen pixels; the pointer stays put on the screen.
     fn pan_screen(&mut self, delta: Point<f64, Logical>, time: InputTime) {
         let screen = self.pointer_screen;
-        let loc = self.canvas.viewport_loc() + delta.downscale(self.canvas.zoom());
-        self.canvas.set_viewport_loc(loc);
+        let loc = self.monitor.canvas.viewport_loc() + delta.downscale(self.monitor.canvas.zoom());
+        self.monitor.canvas.set_viewport_loc(loc);
         self.apply_viewport();
-        self.pointer_moved(self.canvas.screen_to_canvas(screen), time);
+        self.pointer_moved(self.monitor.canvas.screen_to_canvas(screen), time);
     }
 
     /// Touchpad gestures: they work everywhere, also over windows (apps get none of them).
     /// Not while a drag or fullscreen is going on.
     fn gesture_begins(&mut self, gesture: Gesture) {
-        let busy = self.seat.get_pointer().unwrap().is_grabbed() || self.fullscreen.is_some();
+        let busy =
+            self.seat.get_pointer().unwrap().is_grabbed() || self.monitor.fullscreen.is_some();
         self.gesture = (!busy).then_some(gesture);
     }
 
     /// Moves the pointer to a canvas position and updates what is under it.
     pub fn pointer_moved(&mut self, pos: Point<f64, Logical>, time: InputTime) {
-        self.pointer_screen = self.canvas.canvas_to_screen(pos);
+        self.pointer_screen = self.monitor.canvas.canvas_to_screen(pos);
         let pointer = self.seat.get_pointer().unwrap();
         let under = self.surface_under(pos);
         let serial = SERIAL_COUNTER.next_serial();
@@ -478,16 +485,16 @@ impl InfinityDesk {
         pointer.motion(self, under, &motion);
         pointer.frame(self);
 
-        let screen = self.canvas.canvas_to_screen(pos);
+        let screen = self.monitor.canvas.canvas_to_screen(pos);
         if let Some(menu) = &mut self.layout_menu {
-            menu.hover = layout::menu_hit(self.canvas.screen_size(), screen);
+            menu.hover = layout::menu_hit(self.monitor.canvas.screen_size(), screen);
         }
 
         // Show which edges a click would grab (a running drag keeps its own).
         if !pointer.is_grabbed() {
             let mods = self.seat.get_keyboard().unwrap().modifier_state();
             let on_layer = (self.layer_surface_under(pos, self.upper_layers())).is_some();
-            let free = self.layout_menu.is_none() && self.fullscreen.is_none();
+            let free = self.layout_menu.is_none() && self.monitor.fullscreen.is_none();
             let hint = match !self.config.mod_key().held(&mods) && !on_layer && free {
                 true => self.borders_under(pos),
                 false => Vec::new(),
