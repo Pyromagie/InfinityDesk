@@ -143,6 +143,8 @@ cargo run --release -- -c firefox    # with a program inside
 - **Screen lock** with swaylock, hyprlock and the like (ext-session-lock): until it unlocks, only
   the lock is shown and gets input. If it crashes, the screen stays locked (black); start
   another one from a text console (`WAYLAND_DISPLAY=wayland-1 swaylock`).
+- **Window lists** in bars and docks (wlr-foreign-toplevel-management): they show the windows, go
+  to them, close them and make them fullscreen
 - **Idle:** hypridle, swayidle and the like learn when nobody is there (ext-idle-notify), unless a
   video player in sight keeps the screen on (idle-inhibit). `desk.screens_off` switches the
   screens off until the next input:

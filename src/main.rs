@@ -87,6 +87,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     event_loop.run(None, &mut state, |state| {
         state.dispatch_events();
         state.update_idle_inhibit();
+        state.update_window_list();
         let _ = state.display_handle.flush_clients();
     })?;
     if let Some(path) = ipc_socket {

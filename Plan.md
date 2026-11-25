@@ -193,7 +193,8 @@ Pyros Auswahl: keine Titelleisten, Rahmen ums aktive Fenster, abgerundete Ecken 
    - Mittelklick-Einfügen und Zwischenablage-Verlauf (primary-selection, data-control; cliphist)
    - Bildschirm teilen (über xdg-desktop-portal-wlr; prüfen, was es braucht)
    - Mauszeiger festhalten für Spiele und 3D-Programme (pointer-constraints, relative-pointer)
-   - Fokus-Anfragen (xdg-activation), Fensterliste für Leisten (foreign-toplevel), Monitore per Werkzeug (output-management)
+   - ✅ Fensterliste für Leisten und Docks (wlr-foreign-toplevel-management; 25.11.2026, ohne Bildschirm getestet)
+   - Fokus-Anfragen (xdg-activation), Monitore per Werkzeug (output-management)
    - Nachtlicht (wlr-gamma-control; braucht die Dux Shell, siehe 7c)
    - später bei Bedarf: Eingabehilfen (text-input/input-method), Grafiktablett, Touch
 10. **Version 0.1**: Lua-Schnittstelle ab da stabil (nur ergänzen; Umbenennen oder Entfernen nur angekündigt), Installation (installiertes `infinitydesk` statt Build-Ordner), README für Fremde. Danach baut Pyro sein eigenes Setup in einem eigenen Repo darauf auf.

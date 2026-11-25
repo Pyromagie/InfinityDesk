@@ -319,6 +319,21 @@ impl InfinityDesk {
         self.apply_viewport();
     }
 
+    /// Focuses a window and shows it.
+    pub fn go_to_window(&mut self, window: &Window) {
+        let rect = self.target_rect(window);
+        if let Some(rect) = rect {
+            self.go_to_monitor_showing(rect);
+        }
+        if (self.monitor.fullscreen.as_ref()).is_some_and(|f| &f.window != window) {
+            self.end_fullscreen();
+        }
+        self.focus_window(window);
+        if let Some(rect) = rect {
+            self.reveal(rect);
+        }
+    }
+
     /// The view glides just far enough that `rect` is on the screen (see `Canvas::reveal`). Is
     /// it on another monitor already, that one becomes the current one instead.
     pub fn reveal(&mut self, rect: Rect) {

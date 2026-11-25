@@ -367,17 +367,7 @@ impl InfinityDesk {
                 let mut s = state.borrow_mut();
                 let window = s.window_by_id(id);
                 if let Some(window) = &window {
-                    let rect = s.target_rect(window);
-                    if let Some(rect) = rect {
-                        s.go_to_monitor_showing(rect);
-                    }
-                    if (s.monitor.fullscreen.as_ref()).is_some_and(|f| &f.window != window) {
-                        s.end_fullscreen();
-                    }
-                    s.focus_window(window);
-                    if let Some(rect) = rect {
-                        s.reveal(rect);
-                    }
+                    s.go_to_window(window);
                 }
                 Ok(window.is_some())
             })?;

@@ -21,7 +21,10 @@ use crate::{
     cluster::{Clusters, Rect},
     config::Config,
     grabs::ResizeGlide,
-    handlers::Lock,
+    handlers::{
+        Lock,
+        window_list::{self, WindowList, WindowListData},
+    },
     monitor::Monitors,
     render::{OUTLINE_WIDTH, Outline},
     resize::{self, Edge, Follow},
@@ -43,6 +46,7 @@ use smithay::{
             generic::Generic,
             timer::{TimeoutAction, Timer},
         },
+        wayland_protocols_wlr::foreign_toplevel::v1::server::zwlr_foreign_toplevel_manager_v1::ZwlrForeignToplevelManagerV1,
         wayland_server::{
             Display, DisplayHandle, backend::ClientData, protocol::wl_surface::WlSurface,
         },
@@ -135,6 +139,8 @@ pub struct InfinityDesk {
     pub lock: Option<Lock>,
     /// The screens are switched off until the next input (see `idle.rs`).
     pub screens_off: bool,
+    /// What bars and docks know about the windows.
+    pub window_list: WindowList,
     /// Surfaces that ask to stay awake while they can be seen.
     pub idle_inhibitors: Vec<WlSurface>,
     /// The touchpad gesture in progress.
@@ -176,6 +182,10 @@ impl InfinityDesk {
         let viewporter_state = ViewporterState::new::<Self>(&dh);
         let fractional_scale_state = FractionalScaleManagerState::new::<Self>(&dh);
         let decoration_state = XdgDecorationState::new::<Self>(&dh);
+        dh.create_global::<Self, ZwlrForeignToplevelManagerV1, _>(
+            window_list::VERSION,
+            WindowListData,
+        );
         let idle_notifier = IdleNotifierState::new(&dh, event_loop.handle());
         IdleInhibitManagerState::new::<Self>(&dh);
         let session_lock_state = SessionLockManagerState::new::<Self, _>(&dh, |_| true);
@@ -241,6 +251,7 @@ impl InfinityDesk {
             layer_focus: None,
             lock: None,
             screens_off: false,
+            window_list: WindowList::default(),
             idle_inhibitors: Vec::new(),
             gesture: None,
             resizing: HashMap::new(),

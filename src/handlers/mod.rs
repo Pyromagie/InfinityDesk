@@ -3,6 +3,7 @@
 mod compositor;
 mod layer_shell;
 mod session_lock;
+pub mod window_list;
 mod xdg_shell;
 
 pub use session_lock::Lock;
@@ -15,9 +16,13 @@ use smithay::{
         dnd::{DnDGrab, DndGrabHandler, GrabType, Source},
         pointer::{CursorImageStatus, Focus},
     },
+    output::Output,
     reexports::{
         wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode,
-        wayland_server::{Resource, protocol::wl_surface::WlSurface},
+        wayland_server::{
+            Resource,
+            protocol::{wl_output::WlOutput, wl_surface::WlSurface},
+        },
     },
     utils::Serial,
     wayland::dmabuf::{DmabufGlobal, DmabufHandler, DmabufState, ImportNotifier},
@@ -157,7 +162,11 @@ impl InfinityDesk {
 
 // --- Outputs (monitors) ---
 
-impl OutputHandler for InfinityDesk {}
+impl OutputHandler for InfinityDesk {
+    fn output_bound(&mut self, output: Output, wl_output: WlOutput) {
+        self.window_list_output(&output, &wl_output);
+    }
+}
 
 /// An app asks for the screen's scale for one of its surfaces (a window on another monitor
 /// gets that one's with its first frame).

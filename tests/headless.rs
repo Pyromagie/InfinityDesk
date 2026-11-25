@@ -39,9 +39,15 @@ use wayland_protocols::{
         shell::client::{xdg_surface, xdg_toplevel, xdg_wm_base},
     },
 };
-use wayland_protocols_wlr::layer_shell::v1::client::{
-    zwlr_layer_shell_v1::{self, Layer},
-    zwlr_layer_surface_v1::{self, KeyboardInteractivity},
+use wayland_protocols_wlr::{
+    foreign_toplevel::v1::client::{
+        zwlr_foreign_toplevel_handle_v1::{self, ZwlrForeignToplevelHandleV1},
+        zwlr_foreign_toplevel_manager_v1::{self, ZwlrForeignToplevelManagerV1},
+    },
+    layer_shell::v1::client::{
+        zwlr_layer_shell_v1::{self, Layer},
+        zwlr_layer_surface_v1::{self, KeyboardInteractivity},
+    },
 };
 
 const BIN: &str = env!("CARGO_BIN_EXE_infinitydesk");
@@ -257,6 +263,8 @@ struct Windows {
     idle_notifier: Option<ext_idle_notifier_v1::ExtIdleNotifierV1>,
     inhibit_manager: Option<zwp_idle_inhibit_manager_v1::ZwpIdleInhibitManagerV1>,
     seat: Option<wl_seat::WlSeat>,
+    /// Where the window list is (bound only by `watch_windows`).
+    window_list: Option<(wl_registry::WlRegistry, u32)>,
     outputs: Vec<wl_output::WlOutput>,
     /// Where the window contents (shared memory) are created.
     dir: PathBuf,
@@ -269,11 +277,25 @@ struct Windows {
     keys: Vec<u32>,
     /// Like swaylock: what it heard about the lock it asked for last.
     locked: bool,
+    /// Like a dock: the windows it was told about.
+    listed: Vec<Listed>,
     /// Like swayidle: nobody is there.
     idle: bool,
     /// Frames shown since `watch_frames`.
     frames: u32,
     lock_refused: bool,
+}
+
+/// A window in the list of a dock.
+struct Listed {
+    handle: ZwlrForeignToplevelHandleV1,
+    app_id: String,
+    title: String,
+    /// 2: active, 3: fullscreen.
+    states: Vec<u8>,
+    outputs: Vec<wl_output::WlOutput>,
+    parent: Option<ZwlrForeignToplevelHandleV1>,
+    done: bool,
 }
 
 type Lock = ext_session_lock_v1::ExtSessionLockV1;
@@ -439,6 +461,23 @@ impl Client {
         self.windows.idle
     }
 
+    /// Watches the windows of all programs, like a dock.
+    fn watch_windows(&mut self) -> ZwlrForeignToplevelManagerV1 {
+        let (registry, name) = self.windows.window_list.as_ref().unwrap();
+        let manager = registry.bind(*name, 3, &self.queue.handle(), ());
+        self.sync();
+        manager
+    }
+
+    /// What the dock knows about `app_id`.
+    fn listed(&mut self, app_id: &str) -> &Listed {
+        self.sync();
+        let listed = self.windows.listed.iter().find(|l| l.app_id == app_id);
+        let listed = listed.unwrap();
+        assert!(listed.done);
+        listed
+    }
+
     /// Whether window `index` has the keyboard.
     fn has_keyboard(&mut self, index: usize) -> bool {
         self.sync();
@@ -534,6 +573,9 @@ impl Dispatch<wl_registry::WlRegistry, ()> for Windows {
                 "ext_session_lock_manager_v1" => {
                     state.lock_manager = Some(registry.bind(name, 1, qh, ()));
                 }
+                "zwlr_foreign_toplevel_manager_v1" => {
+                    state.window_list = Some((registry.clone(), name));
+                }
                 "ext_idle_notifier_v1" => {
                     state.idle_notifier = Some(registry.bind(name, 1, qh, ()));
                 }
@@ -583,6 +625,64 @@ impl Dispatch<wl_pointer::WlPointer, ()> for Windows {
         match event {
             wl_pointer::Event::Enter { surface, .. } => state.pointer = Some(surface),
             wl_pointer::Event::Leave { .. } => state.pointer = None,
+            _ => {}
+        }
+    }
+}
+
+impl Dispatch<ZwlrForeignToplevelManagerV1, ()> for Windows {
+    fn event(
+        state: &mut Self,
+        _: &ZwlrForeignToplevelManagerV1,
+        event: zwlr_foreign_toplevel_manager_v1::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        if let zwlr_foreign_toplevel_manager_v1::Event::Toplevel { toplevel } = event {
+            state.listed.push(Listed {
+                handle: toplevel,
+                app_id: String::new(),
+                title: String::new(),
+                states: Vec::new(),
+                outputs: Vec::new(),
+                parent: None,
+                done: false,
+            });
+        }
+    }
+
+    wayland_client::event_created_child!(Windows, ZwlrForeignToplevelManagerV1, [
+        zwlr_foreign_toplevel_manager_v1::EVT_TOPLEVEL_OPCODE => (ZwlrForeignToplevelHandleV1, ()),
+    ]);
+}
+
+impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for Windows {
+    fn event(
+        state: &mut Self,
+        handle: &ZwlrForeignToplevelHandleV1,
+        event: zwlr_foreign_toplevel_handle_v1::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        use zwlr_foreign_toplevel_handle_v1::Event;
+        let i = state.listed.iter().position(|l| &l.handle == handle);
+        let i = i.unwrap();
+        let listed = &mut state.listed[i];
+        match event {
+            Event::AppId { app_id } => listed.app_id = app_id,
+            Event::Title { title } => listed.title = title,
+            Event::State { state } => {
+                listed.states = state.chunks(4).map(|c| c[0]).collect();
+            }
+            Event::OutputEnter { output } => listed.outputs.push(output),
+            Event::OutputLeave { output } => listed.outputs.retain(|o| o != &output),
+            Event::Parent { parent } => listed.parent = parent,
+            Event::Done => listed.done = true,
+            Event::Closed => {
+                state.listed.remove(i);
+            }
             _ => {}
         }
     }
@@ -1546,4 +1646,71 @@ fn screens_are_off_until_the_next_input() {
     locker.sync();
     desk.input("move 1 0");
     assert!(client.frames(0) > 5);
+}
+
+#[test]
+fn docks_get_the_windows_and_can_steer_them() {
+    let desk = Desk::start_with(2, &format!("{TWO} desk.animation {{ duration_ms = 0 }}"));
+    let mut client = Client::connect(&desk);
+    client.open("one", "One");
+    let mut dock = Client::connect(&desk);
+    let manager = dock.watch_windows();
+    let first = dock.windows.outputs[0].clone();
+    let one = dock.listed("one");
+    assert_eq!((one.title.as_str(), &one.states[..]), ("One", &[2][..]));
+    assert!(one.outputs.contains(&first));
+    // Opened later, changed, as a dialog of the first one.
+    client.open_with("two", "Two", Some(0));
+    assert_eq!(dock.listed("one").states, [0; 0]);
+    let one = dock.listed("one").handle.clone();
+    let two = dock.listed("two");
+    assert_eq!(
+        (&two.states[..], &two.parent),
+        (&[2][..], &Some(one.clone()))
+    );
+    let two = two.handle.clone();
+    client.windows.list[1].toplevel.set_title("New".into());
+    client.sync();
+    assert_eq!(dock.listed("two").title, "New");
+    // The dock activates, also far away: the view goes there.
+    let view = desk.eval("return view(1)");
+    for _ in 0..5 {
+        desk.eval("desk.run(desk.pan('right'))");
+    }
+    assert!(dock.listed("one").outputs.is_empty());
+    one.activate(dock.windows.seat.as_ref().unwrap());
+    assert!(dock.listed("one").outputs.contains(&first));
+    assert_eq!(desk.eval("return desk.focused().app_id"), [r#""one""#]);
+    assert_eq!(desk.eval("return view(1)")[1..], view[1..]);
+    // Fullscreen and back.
+    one.set_fullscreen(None);
+    assert_eq!(dock.listed("one").states, [2, 3]);
+    assert_eq!(desk.eval("return find('one').fullscreen"), ["true"]);
+    one.unset_fullscreen();
+    assert_eq!(dock.listed("one").states, [2]);
+    // A monitor that comes later: the windows seen there are told when the dock knows it.
+    desk.eval("desk.focus_output('headless-2')");
+    for _ in 0..4 {
+        desk.eval("desk.run(desk.pan('left'))");
+    }
+    assert_eq!(dock.listed("one").outputs.len(), 2);
+    desk.input("unplug headless-2");
+    assert_eq!(dock.listed("one").outputs, [first]);
+    desk.input("plug headless-2");
+    dock.sync();
+    let second = dock.windows.outputs.last().unwrap().clone();
+    assert!(dock.listed("one").outputs.contains(&second));
+    // Closed, by the dock and by the program.
+    two.close();
+    dock.sync();
+    client.sync();
+    assert!(!client.is_open(1));
+    dock.sync();
+    assert_eq!(dock.windows.listed.len(), 1);
+    // Told to stop, it hears about no new windows, but still about the ones it knows.
+    manager.stop();
+    dock.sync();
+    client.open("three", "Three");
+    assert_eq!(dock.listed("one").states, [0; 0]);
+    assert_eq!(dock.windows.listed.len(), 1);
 }
