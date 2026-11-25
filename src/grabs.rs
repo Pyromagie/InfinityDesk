@@ -10,6 +10,7 @@ use smithay::{
         GestureSwipeBeginEvent, GestureSwipeEndEvent, GestureSwipeUpdateEvent, GrabStartData,
         MotionEvent, PointerGrab, PointerInnerHandle, RelativeMotionEvent,
     },
+    output::Output,
     reexports::wayland_protocols::xdg::shell::server::xdg_toplevel,
     reexports::wayland_server::protocol::wl_surface::WlSurface,
     utils::{Logical, Point, Rectangle, Size},
@@ -141,21 +142,20 @@ impl Toggle {
 }
 
 impl InfinityDesk {
-    /// Windows dragged from monitor `from` to the current one go along with the pointer, from
+    /// Windows dragged from a monitor of size `from` to the current one go along with the pointer, from
     /// `old` to `new`, and take the current one's sizes: half stays half, full stays full.
     /// Windows with a size of their own (dialogs, undocked ones) keep it.
     fn take_to_monitor(
         &mut self,
         members: &mut [DraggedWindow],
-        from: usize,
+        from: Size<i32, Logical>,
         old: Point<f64, Logical>,
         new: Point<f64, Logical>,
     ) {
         let rects: Vec<Rect> = (members.iter())
             .map(|m| self.target_rect(&m.window).unwrap_or(m.initial_geo))
             .collect();
-        let (from, to) = (&self.monitor.list[from].canvas, &self.monitor.canvas);
-        let (from, to) = (from.screen_size(), to.screen_size());
+        let to = self.monitor.canvas.screen_size();
         let mut moved = resize::to_screen(&rects, old, from, to, self.config.gaps);
         let fits = members.iter().zip(&moved).all(|(m, r)| {
             let toplevel = m.window.toplevel().unwrap();
@@ -317,8 +317,8 @@ enum DragKind {
         /// Last pointer position and time, and the pointer speed (screen pixels per second).
         last: (Point<f64, Logical>, Instant),
         speed: f64,
-        /// The monitor the pointer was on.
-        monitor: usize,
+        /// The monitor the pointer was on, and its size.
+        monitor: (Option<Output>, Size<i32, Logical>),
     },
     /// A window's size changes between half and full; its cluster neighbors follow. Which
     /// window and edges is decided on the first movement (see `choose_resize`); then the edges
@@ -387,7 +387,7 @@ impl DragGrab {
                 members,
                 pressed,
                 speed: 0.0,
-                monitor: state.monitor.current(),
+                monitor: state.monitor.output_and_size(),
             },
         }
     }
@@ -487,9 +487,9 @@ impl PointerGrab<InfinityDesk> for DragGrab {
                     }
                 }
 
-                if *monitor != data.monitor.current() {
-                    data.take_to_monitor(members, *monitor, last_pos, event.location);
-                    *monitor = data.monitor.current();
+                if monitor.0 != data.monitor.output {
+                    data.take_to_monitor(members, monitor.1, last_pos, event.location);
+                    *monitor = data.monitor.output_and_size();
                     self.start_data.location = event.location;
                     pointer_delta = Point::default();
                 }

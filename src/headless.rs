@@ -49,7 +49,7 @@ pub fn init_headless(
     Ok(())
 }
 
-fn add_output(state: &mut InfinityDesk, name: String) {
+pub fn add_output(state: &mut InfinityDesk, name: String) {
     // The size is fixed from the start, so tests know it; the scale can change.
     let settings = state.config.output(&name);
     let size = (settings.mode).map_or((1920, 1080), |m| (m.width, m.height));
@@ -67,7 +67,6 @@ fn add_output(state: &mut InfinityDesk, name: String) {
             serial_number: "Unknown".into(),
         },
     );
-    let _global = output.create_global::<InfinityDesk>(&state.display_handle);
     output.change_current_state(
         Some(mode),
         Some(Transform::Normal),

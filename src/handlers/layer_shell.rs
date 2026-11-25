@@ -28,12 +28,14 @@ impl WlrLayerShellHandler for InfinityDesk {
         _layer: Layer,
         namespace: String,
     ) {
-        // On the monitor it asks for, else on the current one.
-        let wanted = output.as_ref().and_then(Output::from_resource);
-        if let Some(output) = wanted.as_ref().or(self.monitor.output.as_ref()) {
-            layer_map_for_output(output)
+        // On the monitor it asks for (if still connected), else on the current one.
+        let wanted = (output.as_ref().and_then(Output::from_resource))
+            .filter(|wanted| self.monitor.outputs().any(|o| o == wanted));
+        match wanted.as_ref().or(self.monitor.output.as_ref()) {
+            Some(output) => layer_map_for_output(output)
                 .map_layer(&LayerSurface::new(surface, namespace))
-                .unwrap();
+                .unwrap(),
+            None => surface.send_close(),
         }
     }
 

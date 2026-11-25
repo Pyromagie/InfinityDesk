@@ -25,7 +25,7 @@ use crate::{
 };
 
 /// The events scripts can react to, and what their function gets.
-pub const EVENTS: [&str; 10] = [
+pub const EVENTS: [&str; 11] = [
     "window.open",       // (window)
     "window.close",      // (window)
     "window.focus",      // (window), or nothing when no window is active any more
@@ -34,6 +34,7 @@ pub const EVENTS: [&str; 10] = [
     "cluster.dock",      // (window, window): the two docked to each other
     "cluster.undock",    // (window): pulled out of its cluster
     "view.overview",     // (on)
+    "output.changed",    // (): monitors connected, disconnected or with other settings
     "config.reloaded",   // ()
     "desk.start",        // (): once, after the programs to start were started
 ];

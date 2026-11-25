@@ -1,13 +1,16 @@
 //! The monitors. All show the same canvas, each with a view (viewport and zoom) of its own.
 
-use std::ops::{Deref, DerefMut};
+use std::{
+    collections::HashMap,
+    ops::{Deref, DerefMut},
+};
 
 use smithay::{
     backend::input::InputTime,
     desktop::{Window, WindowSurfaceType, layer_map_for_output},
     input::pointer::ClickGrab,
     output::Output,
-    reexports::wayland_server::protocol::wl_surface::WlSurface,
+    reexports::wayland_server::{backend::GlobalId, protocol::wl_surface::WlSurface},
     utils::{Logical, Point, Size},
     wayland::{
         compositor::{TraversalAction, with_surface_tree_downward},
@@ -16,7 +19,11 @@ use smithay::{
 };
 
 use crate::{
-    InfinityDesk, arrange::Fullscreen, canvas::Canvas, cluster::Rect, grabs::DragGrab,
+    InfinityDesk,
+    arrange::{Fullscreen, LayoutMenu},
+    canvas::{Canvas, View},
+    cluster::Rect,
+    grabs::DragGrab,
     navigate::Overview,
 };
 
@@ -29,6 +36,23 @@ pub struct Monitor {
     pub fullscreen: Option<Fullscreen>,
     /// The open overview (Mod+Tab).
     pub overview: Option<Overview>,
+    /// The open template menu (Mod+R).
+    pub layout_menu: Option<LayoutMenu>,
+    /// How programs find it.
+    global: Option<GlobalId>,
+}
+
+impl Monitor {
+    fn new(canvas: Canvas) -> Self {
+        Self {
+            output: None,
+            canvas,
+            fullscreen: None,
+            overview: None,
+            layout_menu: None,
+            global: None,
+        }
+    }
 }
 
 /// All monitors (at least one). Stands for the current one, the one the pointer is on: keys,
@@ -36,6 +60,8 @@ pub struct Monitor {
 pub struct Monitors {
     pub list: Vec<Monitor>,
     current: usize,
+    /// The views of disconnected monitors (by name), should they come back.
+    views: HashMap<String, View>,
 }
 
 impl Deref for Monitors {
@@ -56,17 +82,13 @@ impl Monitors {
     /// No monitor yet; the view starts in the middle of the canvas, leaving room in every
     /// direction.
     pub fn new(canvas_size: Size<i32, Logical>) -> Self {
-        let mut monitor = Monitor {
-            output: None,
-            canvas: Canvas::new(canvas_size),
-            fullscreen: None,
-            overview: None,
-        };
+        let mut canvas = Canvas::new(canvas_size);
         let size = canvas_size.to_f64();
-        (monitor.canvas).center_viewport_on((size.w / 2.0, size.h / 2.0).into());
+        canvas.center_viewport_on((size.w / 2.0, size.h / 2.0).into());
         Self {
-            list: vec![monitor],
+            list: vec![Monitor::new(canvas)],
             current: 0,
+            views: HashMap::new(),
         }
     }
 
@@ -74,11 +96,16 @@ impl Monitors {
         self.current
     }
 
+    /// The current monitor's output and size.
+    pub fn output_and_size(&self) -> (Option<Output>, Size<i32, Logical>) {
+        (self.output.clone(), self.canvas.screen_size())
+    }
+
     pub fn outputs(&self) -> impl Iterator<Item = &Output> {
         self.list.iter().filter_map(|m| m.output.as_ref())
     }
 
-    fn position(&self, output: &Output) -> Option<usize> {
+    pub fn position(&self, output: &Output) -> Option<usize> {
         (self.list.iter()).position(|m| m.output.as_ref() == Some(output))
     }
 }
@@ -125,28 +152,68 @@ impl InfinityDesk {
         self.monitor.outputs().find(shows).cloned()
     }
 
-    /// A monitor was connected. Its view starts beside the first one's, as the monitors stand.
+    /// A monitor was connected. Its view starts where it was when it was disconnected, else
+    /// beside the first one's, as the monitors stand.
     pub fn add_output(&mut self, output: Output) {
-        let first = &self.monitor.list[0];
-        match &first.output {
-            None => self.monitor.list[0].output = Some(output.clone()),
-            Some(first_output) => {
-                let canvas = Canvas::new(first.canvas.size());
-                let (loc, first_output) = (first.canvas.target().0, first_output.clone());
-                self.monitor.list.push(Monitor {
-                    output: Some(output.clone()),
-                    canvas,
-                    fullscreen: None,
-                    overview: None,
-                });
-                self.arrange_outputs();
-                let offset = output.current_location() - first_output.current_location();
-                let canvas = &mut self.monitor.list.last_mut().unwrap().canvas;
-                canvas.set_screen_size(screen_size(&output));
-                canvas.set_view(loc + offset.to_f64(), 1.0);
-            }
+        let global = output.create_global::<Self>(&self.display_handle);
+        let first = self.monitor.list[0].output.clone();
+        if first.is_some() {
+            let canvas = Canvas::new(self.monitor.canvas.size());
+            self.monitor.list.push(Monitor::new(canvas));
+        }
+        let new = self.monitor.list.last_mut().unwrap();
+        new.output = Some(output.clone());
+        new.global = Some(global);
+        new.canvas.set_screen_size(screen_size(&output));
+        self.arrange_outputs();
+        if let Some(first) = first {
+            let (loc, zoom) = match self.monitor.views.remove(&output.name()) {
+                Some(view) => view,
+                None => {
+                    let offset = output.current_location() - first.current_location();
+                    let loc = self.monitor.list[0].canvas.target().0;
+                    (loc + offset.to_f64(), 1.0)
+                }
+            };
+            let canvas = &mut self.monitor.list.last_mut().unwrap().canvas;
+            canvas.set_view(loc, zoom);
         }
         self.output_changed(&output);
+    }
+
+    /// A monitor was disconnected. What it showed stays on the canvas; the other monitors' views
+    /// stay as they are. The view of the last one is kept for the next one connected.
+    pub fn remove_output(&mut self, output: &Output) {
+        let Some(i) = self.monitor.position(output) else {
+            return;
+        };
+        self.on_monitor(i, |state| state.end_fullscreen());
+        // Bars and wallpapers there close; their programs open them where they belong now.
+        for layer in layer_map_for_output(output).layers() {
+            layer.layer_surface().send_close();
+        }
+        self.space.unmap_output(output);
+        output.leave_all();
+        // Not removed: programs may be about to use it, which would be an error then.
+        if let Some(global) = self.monitor.list[i].global.take() {
+            self.display_handle.disable_global::<Self>(global);
+        }
+        if self.monitor.list.len() == 1 {
+            self.monitor.list[0].output = None;
+        } else {
+            let gone = self.monitor.list.remove(i);
+            (self.monitor.views).insert(output.name(), gone.canvas.target());
+            let current = self.monitor.current;
+            self.monitor.current = current.saturating_sub((i <= current) as usize);
+            if i == current {
+                self.pointer_moved(self.monitor.canvas.viewport_center(), InputTime::now());
+            }
+            self.arrange_outputs();
+        }
+        for window in self.space.elements() {
+            self.update_scale(window);
+        }
+        self.emit("output.changed", &[], None);
     }
 
     /// The monitors stand where the config says, the others to the right of them side by side,
@@ -219,6 +286,7 @@ impl InfinityDesk {
         for window in self.space.elements() {
             self.update_scale(window);
         }
+        self.emit("output.changed", &[], None);
     }
 
     /// Tells a window the scale of its monitor.

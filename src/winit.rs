@@ -49,7 +49,6 @@ pub fn init_winit(
             serial_number: "Unknown".into(),
         },
     );
-    let _global = output.create_global::<InfinityDesk>(&state.display_handle);
     // Nested, only the scale from the config counts: the host decides size and orientation.
     let scale = state.config.output(&output.name()).scale;
     output.change_current_state(

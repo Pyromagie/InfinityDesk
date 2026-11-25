@@ -81,8 +81,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     state.emit("desk.start", &[], None);
 
-    // Between two turns of the loop, scripts get what happened.
-    event_loop.run(None, &mut state, |state| state.dispatch_events())?;
+    // Between two turns of the loop, scripts get what happened, and programs what was sent to them.
+    event_loop.run(None, &mut state, |state| {
+        state.dispatch_events();
+        let _ = state.display_handle.flush_clients();
+    })?;
     if let Some(path) = ipc_socket {
         let _ = std::fs::remove_file(path);
     }

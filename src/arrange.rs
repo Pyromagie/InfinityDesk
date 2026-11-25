@@ -131,11 +131,11 @@ impl InfinityDesk {
 
     /// Mod+R: opens the template menu for the cluster of `window`, or closes it.
     pub fn toggle_layout_menu(&mut self, window: Option<Window>) {
-        if self.layout_menu.take().is_some() {
+        if self.monitor.layout_menu.take().is_some() {
             return;
         }
         self.end_fullscreen();
-        self.layout_menu = window.map(|window| LayoutMenu {
+        self.monitor.layout_menu = window.map(|window| LayoutMenu {
             window,
             hover: None,
         });
@@ -143,14 +143,14 @@ impl InfinityDesk {
 
     /// Number of windows in the cluster the menu was opened for.
     fn menu_cluster_len(&self) -> usize {
-        (self.layout_menu.as_ref()).map_or(0, |m| self.clusters.members(&m.window).len())
+        (self.monitor.layout_menu.as_ref()).map_or(0, |m| self.clusters.members(&m.window).len())
     }
 
     /// Chooses a template in the open menu, with the active window into `slot` (or wherever it
     /// fits best). Templates with too few slots do nothing.
     pub fn choose_template(&mut self, template: usize, slot: Option<usize>) {
         let enough = layout::TEMPLATES[template].len() >= self.menu_cluster_len();
-        if let Some(menu) = self.layout_menu.take_if(|_| enough) {
+        if let Some(menu) = self.monitor.layout_menu.take_if(|_| enough) {
             self.apply_template(&menu.window, template, slot);
         }
     }
@@ -321,7 +321,7 @@ impl InfinityDesk {
     /// Solid rectangles drawn on top of everything (screen coordinates, front to back): the
     /// template menu.
     pub fn menu_bars(&self) -> Vec<(Rect, [f32; 4])> {
-        let Some(menu) = &self.layout_menu else {
+        let Some(menu) = &self.monitor.layout_menu else {
             return Vec::new();
         };
         let screen = self.monitor.canvas.screen_size();

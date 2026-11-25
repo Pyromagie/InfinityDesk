@@ -1047,3 +1047,50 @@ fn windows_dragged_to_another_monitor_take_its_sizes() {
     let moved = [dialog[0] + 1000, dialog[1], dialog[2], dialog[3]];
     assert_eq!(desk.rect("dialog"), moved);
 }
+
+#[test]
+fn monitors_come_and_go_while_running() {
+    let desk = Desk::start_with(2, TWO);
+    let mut client = Client::connect(&desk);
+    let (x, y) = (30000 - 960, 18000 - 540);
+    client.open("one", "One");
+    desk.eval("desk.focus_output('headless-2') desk.run(desk.pan('right'))");
+    client.open("two", "Two");
+    client.fullscreen(1, true);
+    let view = desk.eval("return view(1)");
+    let events = desk.watch();
+    events.next();
+    events.next();
+    // Its fullscreen window goes back to its place, the pointer to the other monitor, whose
+    // view stays.
+    desk.input("unplug headless-2");
+    client.sync();
+    assert_eq!(current(&desk), "headless");
+    assert_eq!(desk.numbers("return #desk.outputs()"), [1]);
+    assert_eq!(desk.eval("return find('two').fullscreen"), ["false"]);
+    assert_eq!(desk.rect("two")[2..], [(1280 - 48) / 2, 720 - 32]);
+    assert_eq!(desk.eval("return view(1)")[..3], view[..3]);
+    assert!(events.next().contains("window.fullscreen"));
+    assert!(events.next().contains("output.changed"));
+    // Back: with the view it had.
+    desk.input("plug headless-2");
+    let second = "local x, y = view(2) return x, y";
+    assert_eq!(desk.numbers(second), [x + 1920 + 320, y]);
+    // The first one goes: the second one moves to its place, its view stays.
+    desk.input("unplug headless");
+    assert_eq!(current(&desk), "headless-2");
+    let place = "local o = desk.outputs()[1] return o.x, o.width";
+    assert_eq!(desk.numbers(place), [0, 1280]);
+    assert_eq!(desk.eval("return view(1)")[0], (x + 1920 + 320).to_string());
+    // The last one, too: everything goes on without a screen, also the pointer.
+    desk.input("unplug headless-2; move 10 10; button left down; button left up");
+    client.open("three", "Three");
+    assert_eq!(
+        desk.numbers("return #desk.outputs(), #desk.windows()"),
+        [0, 3]
+    );
+    desk.eval("desk.run(desk.zoom_out) desk.run(desk.overview) desk.run(desk.overview)");
+    desk.input("plug headless-2");
+    assert_eq!(current(&desk), "headless-2");
+    desk.eval("desk.focus_window(find('one').id)");
+}

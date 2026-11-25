@@ -1,8 +1,8 @@
 //! Standalone backend: InfinityDesk drives the screen and the input devices itself, started from
 //! a console or a login manager with no other compositor underneath.
 //!
-//! Kept to what one monitor on one graphics card needs: the first connected monitor, at its own
-//! resolution with the highest refresh rate it offers there. Several monitors come later.
+//! One graphics card with all its monitors, each at its own resolution with the highest refresh
+//! rate it offers there. Monitors can come and go while running.
 
 use std::{error::Error, path::Path, time::Duration};
 
@@ -13,7 +13,7 @@ use smithay::{
             gbm::{GbmAllocator, GbmBufferFlags, GbmDevice},
         },
         drm::{
-            DrmDevice, DrmDeviceFd, DrmDeviceNotifier, DrmEvent,
+            DrmDevice, DrmDeviceFd, DrmDeviceNotifier, DrmEvent, DrmNode,
             compositor::{DrmCompositor, FrameFlags},
             exporter::gbm::GbmFramebufferExporter,
         },
@@ -22,7 +22,7 @@ use smithay::{
         libinput::{LibinputInputBackend, LibinputSessionInterface},
         renderer::{ImportDma, ImportMemWl, element::solid::SolidColorBuffer, gles::GlesRenderer},
         session::{Event as SessionEvent, Session, libseat::LibSeatSession},
-        udev::all_gpus,
+        udev::{UdevBackend, UdevEvent, all_gpus},
     },
     output::{Mode as WlMode, Output, PhysicalProperties, Scale, Subpixel},
     reexports::{
@@ -34,7 +34,7 @@ use smithay::{
         input::{AccelProfile, Device as InputDevice, DeviceCapability, Libinput},
         rustix::fs::OFlags,
     },
-    utils::DeviceFd,
+    utils::{DeviceFd, Logical, Point},
     wayland::dmabuf::DmabufFeedbackBuilder,
 };
 
@@ -48,22 +48,34 @@ use crate::{
 type Compositor =
     DrmCompositor<GbmAllocator<DrmDeviceFd>, GbmFramebufferExporter<DrmDeviceFd>, (), DrmDeviceFd>;
 
-/// The screen, the graphics card and the input devices.
+/// The graphics card with its monitors, and the input devices.
 pub struct Udev {
     session: LibSeatSession,
     libinput: Libinput,
     /// Connected input devices, so changed touchpad and mouse settings reach them.
     devices: Vec<InputDevice>,
     drm: DrmDevice,
+    gbm: GbmDevice<DrmDeviceFd>,
+    render_node: Option<DrmNode>,
     pub renderer: GlesRenderer,
+    screens: Vec<Screen>,
+    handle: LoopHandle<'static, InfinityDesk>,
+}
+
+/// A connected monitor.
+struct Screen {
+    connector: connector::Handle,
+    /// The display controller that drives it.
+    crtc: crtc::Handle,
+    output: Output,
     compositor: Compositor,
     scene: Scene,
     /// Buffers of the solid bars, kept so that unchanged outlines are not redrawn.
     bar_buffers: Vec<SolidColorBuffer>,
+    /// Pointer images for its scale.
     cursors: Cursors,
     /// What the monitor can show (resolutions and refresh rates).
     modes: Vec<DrmMode>,
-    handle: LoopHandle<'static, InfinityDesk>,
     /// A frame is on its way to the screen; the next one is drawn when it got there.
     frame_pending: bool,
     /// Nothing had changed: a look again is planned (after `frame_time`).
@@ -81,8 +93,11 @@ impl Udev {
 
     /// Another pointer theme or size from the config.
     pub fn set_cursor_theme(&mut self, config: &Config) {
-        let scale = self.cursors.scale();
-        self.cursors = Cursors::load(config.cursor_theme.as_deref(), config.cursor_size, scale);
+        for screen in &mut self.screens {
+            let scale = screen.cursors.scale();
+            screen.cursors =
+                Cursors::load(config.cursor_theme.as_deref(), config.cursor_size, scale);
+        }
     }
 
     /// Changed `desk.output` settings: resolution and refresh rate, scale, orientation.
@@ -92,19 +107,22 @@ impl Udev {
         new: &OutputSettings,
         config: &Config,
     ) {
-        let mode = choose_mode(&self.modes, new.mode);
+        let Some(screen) = self.screens.iter_mut().find(|s| &s.output == output) else {
+            return;
+        };
+        let mode = choose_mode(&screen.modes, new.mode);
         let wl_mode = WlMode::from(mode);
         if output.current_mode() != Some(wl_mode) {
-            match self.compositor.use_mode(mode) {
-                Ok(()) => self.frame_time = frame_time(wl_mode),
+            match screen.compositor.use_mode(mode) {
+                Ok(()) => screen.frame_time = frame_time(wl_mode),
                 Err(err) => tracing::warn!("Cannot switch the screen's mode: {err:?}"),
             }
         }
-        let mode = self.compositor.pending_mode();
+        let mode = screen.compositor.pending_mode();
         let scale = Scale::Fractional(new.scale);
         output.change_current_state(Some(mode.into()), Some(new.transform), Some(scale), None);
         let theme = config.cursor_theme.as_deref();
-        self.cursors = Cursors::load(theme, config.cursor_size, new.scale);
+        screen.cursors = Cursors::load(theme, config.cursor_size, new.scale);
     }
 
     /// Applies the touchpad and mouse settings to every connected device.
@@ -147,13 +165,11 @@ fn set_up_device(device: &mut InputDevice, config: &Config) {
     }
 }
 
-/// A graphics card with a monitor connected, and the display controller (CRTC) for it.
+/// A graphics card with a monitor connected.
 struct Gpu {
     drm: DrmDevice,
     notifier: DrmDeviceNotifier,
     fd: DrmDeviceFd,
-    connector: connector::Info,
-    crtc: crtc::Handle,
 }
 
 /// Opens a graphics card; `None` if no monitor is connected to it.
@@ -161,25 +177,17 @@ fn open_gpu(session: &mut LibSeatSession, path: &Path) -> Result<Option<Gpu>, Bo
     let flags = OFlags::RDWR | OFlags::CLOEXEC | OFlags::NOCTTY | OFlags::NONBLOCK;
     let fd = DrmDeviceFd::new(DeviceFd::from(session.open(path, flags)?));
     let (drm, notifier) = DrmDevice::new(fd.clone(), true)?;
+    let connected = !connected(&drm)?.is_empty();
+    Ok(connected.then_some(Gpu { drm, notifier, fd }))
+}
+
+/// The connectors a monitor is connected to.
+fn connected(drm: &DrmDevice) -> std::io::Result<Vec<connector::Info>> {
     let res = drm.resource_handles()?;
-    let connected = (res.connectors().iter())
+    Ok((res.connectors().iter())
         .filter_map(|c| drm.get_connector(*c, true).ok())
-        .find(|c| c.state() == connector::State::Connected && !c.modes().is_empty());
-    let Some(connector) = connected else {
-        return Ok(None);
-    };
-    let crtc = (connector.encoders().iter())
-        .filter_map(|e| drm.get_encoder(*e).ok())
-        .flat_map(|e| res.filter_crtcs(e.possible_crtcs()))
-        .next()
-        .ok_or("no display controller (CRTC) for the monitor")?;
-    Ok(Some(Gpu {
-        drm,
-        notifier,
-        fd,
-        connector,
-        crtc,
-    }))
+        .filter(|c| c.state() == connector::State::Connected && !c.modes().is_empty())
+        .collect())
 }
 
 pub fn init_udev(
@@ -206,77 +214,13 @@ pub fn init_udev(
             Err(err) => tracing::warn!("{}: {err}", path.display()),
         }
     }
-    let Gpu {
-        mut drm,
-        notifier,
-        fd,
-        connector,
-        crtc,
-    } = gpu.ok_or("no graphics card with a connected monitor found")?;
+    let Gpu { drm, notifier, fd } = gpu.ok_or("no graphics card with a connected monitor found")?;
 
     let gbm = GbmDevice::new(fd)?;
     let egl = unsafe { EGLDisplay::new(gbm.clone())? };
     let render_node = (EGLDevice::device_for_display(&egl).ok())
         .and_then(|d| d.try_get_render_node().ok().flatten());
-    let mut renderer = unsafe { GlesRenderer::new(EGLContext::new(&egl)?)? };
-
-    let name = format!(
-        "{}-{}",
-        connector.interface().as_str(),
-        connector.interface_id()
-    );
-    let settings = state.config.output(&name);
-    let modes = connector.modes().to_vec();
-    let mode = choose_mode(&modes, settings.mode);
-    let wl_mode = WlMode::from(mode);
-    tracing::info!(
-        "Screen {name}: {}x{} at {:.2} Hz",
-        wl_mode.size.w,
-        wl_mode.size.h,
-        wl_mode.refresh as f64 / 1000.0
-    );
-    let (w, h) = connector.size().unwrap_or((0, 0));
-    let output = Output::new(
-        name,
-        PhysicalProperties {
-            size: (w as i32, h as i32).into(),
-            subpixel: Subpixel::Unknown,
-            make: "Unknown".into(),
-            model: "Unknown".into(),
-            serial_number: "Unknown".into(),
-        },
-    );
-    let _global = output.create_global::<InfinityDesk>(&state.display_handle);
-    output.change_current_state(
-        Some(wl_mode),
-        Some(settings.transform),
-        Some(Scale::Fractional(settings.scale)),
-        Some((0, 0).into()),
-    );
-    output.set_preferred(wl_mode);
-
-    let surface = drm.create_surface(crtc, mode, &[connector.handle()])?;
-    let mut planes = drm.planes(&crtc)?;
-    // Overlay planes are not needed, and they break on NVIDIA.
-    planes.overlay.clear();
-    let allocator = GbmAllocator::new(
-        gbm.clone(),
-        GbmBufferFlags::RENDERING | GbmBufferFlags::SCANOUT,
-    );
-    let exporter = GbmFramebufferExporter::new(gbm.clone(), render_node.into());
-    let render_formats = renderer.egl_context().dmabuf_render_formats().clone();
-    let compositor = DrmCompositor::new(
-        &output,
-        surface,
-        Some(planes),
-        allocator,
-        exporter,
-        [Fourcc::Xrgb8888, Fourcc::Argb8888],
-        render_formats,
-        drm.cursor_size(),
-        Some(gbm),
-    )
-    .map_err(|e| format!("cannot drive the screen: {e:?}"))?;
+    let renderer = unsafe { GlesRenderer::new(EGLContext::new(&egl)?)? };
 
     // What apps may send: pixel buffers in memory, and GPU buffers (dmabuf).
     state.shm_state.update_formats(renderer.shm_formats());
@@ -335,100 +279,268 @@ pub fn init_udev(
                     tracing::warn!("The screen could not be taken back: {err}");
                 }
                 // The other console may have changed the screen setup.
-                if let Err(err) = udev.compositor.reset_state() {
-                    tracing::warn!("Resetting the screen state failed: {err}");
+                for screen in &mut udev.screens {
+                    if let Err(err) = screen.compositor.reset_state() {
+                        tracing::warn!("Resetting the screen state failed: {err}");
+                    }
+                    screen.frame_pending = false;
                 }
-                udev.frame_pending = false;
-                state.render_screen();
+                let crtcs: Vec<crtc::Handle> = udev.screens.iter().map(|s| s.crtc).collect();
+                // Monitors may have come and gone meanwhile.
+                state.update_screens();
+                for crtc in crtcs {
+                    state.render_screen(crtc);
+                }
             }
         }
     })?;
 
     // A frame reached the screen.
     handle.insert_source(notifier, |event, _, state| match event {
-        DrmEvent::VBlank(_) => state.frame_shown(),
+        DrmEvent::VBlank(crtc) => state.frame_shown(crtc),
         DrmEvent::Error(err) => tracing::warn!("Screen error: {err}"),
     })?;
 
-    let scene = Scene::new(&mut renderer);
+    // Monitors are connected and disconnected.
+    let device = drm.device_id();
+    handle.insert_source(UdevBackend::new(session.seat())?, move |event, _, state| {
+        // While another console is shown: when it is our turn again.
+        let active = state.udev.as_ref().is_some_and(|u| u.session.is_active());
+        if let UdevEvent::Changed { device_id } = event
+            && device_id == device
+            && active
+        {
+            state.update_screens();
+        }
+    })?;
+
     state.udev = Some(Udev {
         session,
         libinput,
         devices: Vec::new(),
         drm,
+        gbm,
+        render_node,
         renderer,
-        compositor,
-        scene,
-        bar_buffers: Vec::new(),
-        cursors: Cursors::load(
-            state.config.cursor_theme.as_deref(),
-            state.config.cursor_size,
-            settings.scale,
-        ),
-        modes,
+        screens: Vec::new(),
         handle,
-        frame_pending: false,
-        redraw_planned: false,
-        frame_time: frame_time(wl_mode),
     });
-    state.add_output(output);
-    // The pointer starts in the middle of the screen.
+    state.update_screens();
+    if state.monitor.output.is_none() {
+        return Err("no screen could be used".into());
+    }
+    // The pointer starts in the middle of the first screen.
     state.pointer_moved(state.monitor.canvas.viewport_center(), InputTime::now());
-    state.render_screen();
     Ok(())
 }
 
+impl Udev {
+    /// Sets up a newly connected monitor.
+    fn add_screen(
+        &mut self,
+        connector: &connector::Info,
+        config: &Config,
+    ) -> Result<Output, Box<dyn Error>> {
+        let name = format!(
+            "{}-{}",
+            connector.interface().as_str(),
+            connector.interface_id()
+        );
+        // A display controller (CRTC) that can drive it and no other monitor uses.
+        let res = self.drm.resource_handles()?;
+        let crtc = (connector.encoders().iter())
+            .filter_map(|e| self.drm.get_encoder(*e).ok())
+            .flat_map(|e| res.filter_crtcs(e.possible_crtcs()))
+            .find(|crtc| self.screens.iter().all(|s| s.crtc != *crtc))
+            .ok_or("no display controller (CRTC) is free for it")?;
+
+        let settings = config.output(&name);
+        let modes = connector.modes().to_vec();
+        let mode = choose_mode(&modes, settings.mode);
+        let wl_mode = WlMode::from(mode);
+        tracing::info!(
+            "Screen {name}: {}x{} at {:.2} Hz",
+            wl_mode.size.w,
+            wl_mode.size.h,
+            wl_mode.refresh as f64 / 1000.0
+        );
+        let (w, h) = connector.size().unwrap_or((0, 0));
+        let output = Output::new(
+            name,
+            PhysicalProperties {
+                size: (w as i32, h as i32).into(),
+                subpixel: Subpixel::Unknown,
+                make: "Unknown".into(),
+                model: "Unknown".into(),
+                serial_number: "Unknown".into(),
+            },
+        );
+        output.change_current_state(
+            Some(wl_mode),
+            Some(settings.transform),
+            Some(Scale::Fractional(settings.scale)),
+            Some((0, 0).into()),
+        );
+        output.set_preferred(wl_mode);
+
+        let surface = (self.drm).create_surface(crtc, mode, &[connector.handle()])?;
+        let mut planes = self.drm.planes(&crtc)?;
+        // Overlay planes are not needed, and they break on NVIDIA.
+        planes.overlay.clear();
+        let allocator = GbmAllocator::new(
+            self.gbm.clone(),
+            GbmBufferFlags::RENDERING | GbmBufferFlags::SCANOUT,
+        );
+        let exporter = GbmFramebufferExporter::new(self.gbm.clone(), self.render_node.into());
+        let formats = (self.renderer.egl_context().dmabuf_render_formats()).clone();
+        let compositor = DrmCompositor::new(
+            &output,
+            surface,
+            Some(planes),
+            allocator,
+            exporter,
+            [Fourcc::Xrgb8888, Fourcc::Argb8888],
+            formats,
+            self.drm.cursor_size(),
+            Some(self.gbm.clone()),
+        )
+        .map_err(|e| format!("cannot drive it: {e:?}"))?;
+        self.screens.push(Screen {
+            connector: connector.handle(),
+            crtc,
+            output: output.clone(),
+            compositor,
+            scene: Scene::new(&mut self.renderer),
+            bar_buffers: Vec::new(),
+            cursors: Cursors::load(
+                config.cursor_theme.as_deref(),
+                config.cursor_size,
+                settings.scale,
+            ),
+            modes,
+            frame_pending: false,
+            redraw_planned: false,
+            frame_time: frame_time(wl_mode),
+        });
+        Ok(output)
+    }
+}
+
 impl InfinityDesk {
-    /// Draws the next frame if something changed. Then the screen reports when it is shown
-    /// (`frame_shown`); if nothing changed, it is looked at again after one frame.
-    pub fn render_screen(&mut self) {
-        let Some(output) = self.monitor.output.clone() else {
+    /// Sets up monitors that were connected, and forgets disconnected ones.
+    fn update_screens(&mut self) {
+        let Some(udev) = &mut self.udev else {
+            return;
+        };
+        let connectors = match connected(&udev.drm) {
+            Ok(connectors) => connectors,
+            Err(err) => return tracing::warn!("Looking for monitors failed: {err}"),
+        };
+        let is_gone = |s: &Screen| connectors.iter().all(|c| c.handle() != s.connector);
+        let gone: Vec<Output> = (udev.screens.extract_if(.., |s| is_gone(s)))
+            .map(|s| s.output)
+            .collect();
+        for output in gone {
+            tracing::info!("Screen {}: disconnected", output.name());
+            self.remove_output(&output);
+        }
+        for connector in connectors {
+            let Some(udev) = &mut self.udev else {
+                return;
+            };
+            if udev
+                .screens
+                .iter()
+                .any(|s| s.connector == connector.handle())
+            {
+                continue;
+            }
+            match udev.add_screen(&connector, &self.config) {
+                Ok(output) => {
+                    let crtc = udev.screens.last().unwrap().crtc;
+                    self.add_output(output);
+                    self.render_screen(crtc);
+                }
+                Err(err) => {
+                    let (name, id) = (connector.interface().as_str(), connector.interface_id());
+                    tracing::warn!("Screen {name}-{id}: {err}");
+                }
+            }
+        }
+    }
+
+    /// Draws the next frame of a screen if something changed. Then it reports when the frame is
+    /// shown (`frame_shown`); if nothing changed, it is looked at again after one frame.
+    fn render_screen(&mut self, crtc: crtc::Handle) {
+        let Some(output) = self.screen(crtc).map(|s| s.output.clone()) else {
+            return;
+        };
+        let Some(i) = self.monitor.position(&output) else {
             return;
         };
         self.step_animations();
+        // The pointer is only on the current monitor.
+        let pointer = (i == self.monitor.current()).then_some(self.pointer_screen);
+        self.on_monitor(i, |state| state.draw_screen(crtc, &output, pointer));
+    }
+
+    /// The same, as part of `render_screen` on the screen's monitor.
+    fn draw_screen(
+        &mut self,
+        crtc: crtc::Handle,
+        output: &Output,
+        pointer: Option<Point<f64, Logical>>,
+    ) {
         let bars = self.bars();
         let outlines = self.outlines();
         let offsets = self.window_offsets();
         let upper_layers = self.upper_layers();
-        let pointer = self.pointer_screen;
         let Some(udev) = self.udev.as_mut() else {
             return;
         };
-        if udev.frame_pending || !udev.session.is_active() {
-            return;
-        }
         if self.redraw_all {
             self.redraw_all = false;
-            udev.compositor.reset_buffers();
+            for screen in &mut udev.screens {
+                screen.compositor.reset_buffers();
+            }
         }
-        let mut elements = (udev.cursors).elements(
-            &mut udev.renderer,
-            pointer,
-            self.cursor,
-            &self.client_cursor,
-        );
+        let Some(screen) = udev.screens.iter_mut().find(|s| s.crtc == crtc) else {
+            return;
+        };
+        if screen.frame_pending || !udev.session.is_active() {
+            return;
+        }
+        let mut elements = match pointer {
+            Some(pointer) => (screen.cursors).elements(
+                &mut udev.renderer,
+                pointer,
+                self.cursor,
+                &self.client_cursor,
+            ),
+            None => Vec::new(),
+        };
         let scale = output.current_scale().fractional_scale();
-        elements.extend(bar_elements(&mut udev.bar_buffers, &bars, scale));
+        elements.extend(bar_elements(&mut screen.bar_buffers, &bars, scale));
         elements.extend(desk_elements(
             &mut udev.renderer,
-            &output,
+            output,
             &self.space,
             &self.monitor.canvas,
-            &mut udev.scene,
+            &mut screen.scene,
             &self.config,
             upper_layers,
             &offsets,
             &outlines,
             self.monitor.fullscreen.as_ref().map(|f| &f.window),
         ));
-        let rendered = udev.compositor.render_frame(
+        let rendered = screen.compositor.render_frame(
             &mut udev.renderer,
             &elements,
             self.config.background,
             FrameFlags::DEFAULT,
         );
-        udev.frame_pending = match rendered {
-            Ok(frame) if !frame.is_empty => match udev.compositor.queue_frame(()) {
+        screen.frame_pending = match rendered {
+            Ok(frame) if !frame.is_empty => match screen.compositor.queue_frame(()) {
                 Ok(()) => true,
                 Err(err) => {
                     tracing::warn!("Showing the frame failed: {err:?}");
@@ -441,32 +553,37 @@ impl InfinityDesk {
                 false
             }
         };
-        if !udev.frame_pending && !udev.redraw_planned {
-            udev.redraw_planned = true;
-            let timer = Timer::from_duration(udev.frame_time);
-            let planned = udev.handle.insert_source(timer, |_, _, state| {
-                if let Some(udev) = &mut state.udev {
-                    udev.redraw_planned = false;
+        if !screen.frame_pending && !screen.redraw_planned {
+            screen.redraw_planned = true;
+            let timer = Timer::from_duration(screen.frame_time);
+            let planned = udev.handle.insert_source(timer, move |_, _, state| {
+                if let Some(screen) = state.screen(crtc) {
+                    screen.redraw_planned = false;
                 }
-                state.render_screen();
+                state.render_screen(crtc);
                 TimeoutAction::Drop
             });
             if planned.is_err() {
-                udev.redraw_planned = false;
+                screen.redraw_planned = false;
             }
         }
-        self.send_frames(&output);
+        self.send_frames(output);
+    }
+
+    fn screen(&mut self, crtc: crtc::Handle) -> Option<&mut Screen> {
+        let udev = self.udev.as_mut()?;
+        udev.screens.iter_mut().find(|s| s.crtc == crtc)
     }
 
     /// The last frame is on the screen now: on to the next one.
-    fn frame_shown(&mut self) {
-        if let Some(udev) = &mut self.udev {
-            if let Err(err) = udev.compositor.frame_submitted() {
+    fn frame_shown(&mut self, crtc: crtc::Handle) {
+        if let Some(screen) = self.screen(crtc) {
+            if let Err(err) = screen.compositor.frame_submitted() {
                 tracing::warn!("Frame bookkeeping failed: {err:?}");
             }
-            udev.frame_pending = false;
+            screen.frame_pending = false;
         }
-        self.render_screen();
+        self.render_screen(crtc);
     }
 }
 

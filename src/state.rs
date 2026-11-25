@@ -17,7 +17,7 @@ const BORDER_OUTSIDE: f64 = 10.0;
 const BORDER_INSIDE: f64 = 5.0;
 
 use crate::{
-    arrange::{FreeSlots, LayoutMenu},
+    arrange::FreeSlots,
     cluster::{Clusters, Rect},
     config::Config,
     grabs::ResizeGlide,
@@ -109,8 +109,6 @@ pub struct InfinityDesk {
     pub headless: bool,
     /// The next frame is drawn whole (after the config changed: e.g. other corners).
     pub redraw_all: bool,
-    /// The open template menu (Mod+R).
-    pub layout_menu: Option<LayoutMenu>,
     /// What happened since the last turn of the event loop, for scripts (see `script.rs`).
     pub events: Vec<crate::script::Event>,
     /// The programs watching events (`infinitydesk msg events`).
@@ -212,7 +210,6 @@ impl InfinityDesk {
             udev: None,
             headless: false,
             redraw_all: false,
-            layout_menu: None,
             events: Vec::new(),
             event_streams: Vec::new(),
             free_slots: None,
@@ -402,7 +399,6 @@ impl InfinityDesk {
         }
         self.space.refresh();
         self.popups.cleanup();
-        let _ = self.display_handle.flush_clients();
     }
 
     /// Moves the (current) output within the space to the canvas viewport position.

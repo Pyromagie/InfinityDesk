@@ -1,4 +1,4 @@
-//! Made-up mouse and keyboard for the end-to-end tests (`--headless` only): `infinitydesk msg
+//! Made-up mouse, keyboard and monitor plugs for the end-to-end tests (`--headless` only): `infinitydesk msg
 //! input '<event>'` acts like a real device.
 
 use std::path::PathBuf;
@@ -18,8 +18,21 @@ impl InfinityDesk {
     /// One or more events, separated by `;`:
     /// - `move <dx> <dy>` (pixels on the screen), `scroll <x> <y>` (notches)
     /// - `button <left|right> <down|up>`, `key <code> <down|up>` (linux/input-event-codes.h)
+    /// - `plug <name>`, `unplug <name>`: a monitor is connected or disconnected
     pub fn test_input(&mut self, events: &str) -> Result<String, String> {
         for text in events.split(';') {
+            match text.trim().split_once(' ') {
+                Some(("plug", name)) => {
+                    crate::headless::add_output(self, name.to_string());
+                    continue;
+                }
+                Some(("unplug", name)) => {
+                    let output = self.monitor.outputs().find(|o| o.name() == name).cloned();
+                    self.remove_output(&output.ok_or("no such monitor")?);
+                    continue;
+                }
+                _ => {}
+            }
             let event = parse(text).ok_or_else(|| format!("unknown input: {text}"))?;
             self.process_input_event(event);
         }

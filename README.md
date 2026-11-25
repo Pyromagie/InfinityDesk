@@ -9,8 +9,8 @@ Inspired by [niri](https://github.com/YaLTeR/niri) (freedom to scroll horizontal
 step further into two dimensions. Built in Rust on [Smithay](https://github.com/Smithay/smithay).
 
 > **Status: early development.** InfinityDesk can be chosen as a session in your login screen
-> or tried as a window inside your current session. The standalone session is new: one monitor
-> for now.
+> or tried as a window inside your current session. The standalone session is new
+> (several monitors untested on real hardware).
 
 ## The idea
 
@@ -104,8 +104,12 @@ cargo run --release -- -c firefox    # with a program inside
 
 ## What works today
 
-- Standalone session on the screen (login manager entry, one monitor at its own resolution and
+- Standalone session on the screen (login manager entry, monitors at their own resolution and
   highest refresh rate, GPU buffers from apps, console switching) or nested as a window
+- Several monitors: all show the same canvas, each its own part of it. Keys act on the one with
+  the pointer; new windows open there in its sizes. The pointer crosses where monitors touch and
+  takes dragged windows along (half stays half, full stays full). Monitors can come and go
+  while running; their windows stay on the canvas.
 - xdg-shell windows, popups and menus, keyboard, mouse and touchpad, clipboard and drag and drop
   between apps
 - Canvas with a dot grid, panning and zooming around the pointer (drawn on the GPU, only
@@ -366,6 +370,7 @@ end)
 -- Events and what the function gets: window.open (w), window.close (w), window.focus (w, or
 -- nothing when no window is active), window.title (w; title or app_id changed),
 -- window.fullscreen (w, on), cluster.dock (w, w), cluster.undock (w), view.overview (on),
+-- output.changed (; monitors connected, disconnected or with other settings),
 -- config.reloaded (), desk.start ()
 ```
 
@@ -395,7 +400,6 @@ settings stay. If the canvas gets smaller, clusters outside it move back in as a
 
 - **More Lua:** maybe a converter for niri configs later
 - **Final default controls**, configurable gestures
-- **Standalone session:** several monitors
 - Visual polish: cluster outlines, decorations
 
 ## Development
@@ -419,7 +423,7 @@ Every push is checked on GitHub the same way as before a commit: `cargo fmt --ch
 Started inside a session (`WAYLAND_DISPLAY` or `DISPLAY` set), InfinityDesk opens as a window
 there. Started from a text console, it takes over the screen and the input devices:
 `target/release/infinitydesk 2> ~/infinitydesk.log`. It uses the first graphics card with a
-monitor connected (`INFINITYDESK_DRM_DEVICE=/dev/dri/cardN` picks one). The pointer image comes
+monitor connected (`INFINITYDESK_DRM_DEVICE=/dev/dri/cardN` picks one) and all monitors on it. The pointer image comes
 from `desk.cursor` in the config, else from `XCURSOR_THEME` and `XCURSOR_SIZE`.
 
 ## Code overview

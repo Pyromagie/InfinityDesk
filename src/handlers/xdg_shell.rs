@@ -78,15 +78,12 @@ impl XdgShellHandler for InfinityDesk {
                 self.resize_glide = None;
             }
             self.end_fullscreen_of(&window);
-            if self
-                .layout_menu
-                .as_ref()
-                .is_some_and(|m| m.window == window)
-            {
-                self.layout_menu = None;
+            for monitor in &mut self.monitor.list {
+                monitor.layout_menu.take_if(|m| m.window == window);
             }
             self.forget_slot_anchor(&window);
             self.forget_recent(&window);
+            self.space.unmap_elem(&window);
             if self.active.as_ref() == Some(&window) {
                 self.active = None;
                 self.emit("window.focus", &[], None);

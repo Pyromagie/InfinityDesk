@@ -84,7 +84,7 @@ impl InfinityDesk {
                         if vt < 12 {
                             return FilterResult::Intercept(KeyAction::SwitchVt(vt as i32 + 1));
                         }
-                        match (state.layout_menu.is_some(), bound) {
+                        match (state.monitor.layout_menu.is_some(), bound) {
                             // The template menu takes all keys while it is open; its own shortcut
                             // closes it again.
                             (true, Some(Action::LayoutMenu)) => {
@@ -107,7 +107,7 @@ impl InfinityDesk {
                 match action {
                     Some(KeyAction::Bind(action)) => self.run(action),
                     Some(KeyAction::Template(Some(t))) => self.choose_template(t, None),
-                    Some(KeyAction::Template(None)) => self.layout_menu = None,
+                    Some(KeyAction::Template(None)) => self.monitor.layout_menu = None,
                     Some(KeyAction::SwitchVt(vt)) => {
                         if let Some(udev) = &mut self.udev {
                             udev.switch_vt(vt);
@@ -159,13 +159,13 @@ impl InfinityDesk {
                 }
                 // The template menu: a click on a slot chooses it, a click outside closes the menu.
                 // Only presses are taken, so a drag still running gets its release.
-                if self.layout_menu.is_some() && button_state == ButtonState::Pressed {
+                if self.monitor.layout_menu.is_some() && button_state == ButtonState::Pressed {
                     let screen = self.monitor.canvas.screen_size();
                     let on_screen = self.monitor.canvas.canvas_to_screen(location);
                     match layout::menu_hit(screen, on_screen) {
                         Some((t, s)) => self.choose_template(t, Some(s)),
                         None if !layout::menu_panel(screen).to_f64().contains(on_screen) => {
-                            self.layout_menu = None;
+                            self.monitor.layout_menu = None;
                         }
                         None => {}
                     }
@@ -477,15 +477,16 @@ impl InfinityDesk {
         pointer.frame(self);
 
         let screen = self.monitor.canvas.canvas_to_screen(pos);
-        if let Some(menu) = &mut self.layout_menu {
-            menu.hover = layout::menu_hit(self.monitor.canvas.screen_size(), screen);
+        let size = self.monitor.canvas.screen_size();
+        if let Some(menu) = &mut self.monitor.layout_menu {
+            menu.hover = layout::menu_hit(size, screen);
         }
 
         // Show which edges a click would grab (a running drag keeps its own).
         if !pointer.is_grabbed() {
             let mods = self.seat.get_keyboard().unwrap().modifier_state();
             let on_layer = (self.layer_surface_under(pos, self.upper_layers())).is_some();
-            let free = self.layout_menu.is_none() && self.monitor.fullscreen.is_none();
+            let free = self.monitor.layout_menu.is_none() && self.monitor.fullscreen.is_none();
             let hint = match !self.config.mod_key().held(&mods) && !on_layer && free {
                 true => self.borders_under(pos),
                 false => Vec::new(),
