@@ -15,6 +15,7 @@ use smithay::{
     wayland::{
         compositor::{TraversalAction, with_surface_tree_downward},
         fractional_scale::with_fractional_scale,
+        session_lock::LockSurface,
     },
 };
 
@@ -38,6 +39,8 @@ pub struct Monitor {
     pub overview: Option<Overview>,
     /// The open template menu (Mod+R).
     pub layout_menu: Option<LayoutMenu>,
+    /// What is shown while the screen is locked.
+    pub lock_surface: Option<LockSurface>,
     /// How programs find it.
     global: Option<GlobalId>,
 }
@@ -50,6 +53,7 @@ impl Monitor {
             fullscreen: None,
             overview: None,
             layout_menu: None,
+            lock_surface: None,
             global: None,
         }
     }
@@ -200,12 +204,15 @@ impl InfinityDesk {
         }
         if self.monitor.list.len() == 1 {
             self.monitor.list[0].output = None;
+            self.monitor.list[0].lock_surface = None;
+            self.refocus();
         } else {
             let gone = self.monitor.list.remove(i);
             (self.monitor.views).insert(output.name(), gone.canvas.target());
             let current = self.monitor.current;
             self.monitor.current = current.saturating_sub((i <= current) as usize);
             if i == current {
+                self.refocus();
                 self.pointer_moved(self.monitor.canvas.viewport_center(), InputTime::now());
             }
             self.arrange_outputs();
@@ -213,6 +220,8 @@ impl InfinityDesk {
         for window in self.space.elements() {
             self.update_scale(window);
         }
+        // Maybe only this one had to be drawn locked yet.
+        self.confirm_lock();
         self.emit("output.changed", &[], None);
     }
 
@@ -255,7 +264,11 @@ impl InfinityDesk {
         let current = self.monitor.current;
         let pos = match across(&rects, current, pos) {
             Some((i, pos)) if i == current || !stays.unwrap_or(false) => {
-                self.monitor.current = i;
+                if i != current {
+                    self.monitor.current = i;
+                    // The screen lock on the monitor with the pointer has the keyboard.
+                    self.refocus();
+                }
                 pos
             }
             _ => {
@@ -280,6 +293,7 @@ impl InfinityDesk {
             state.apply_viewport();
             state.fit_fullscreen();
         });
+        self.size_lock_surface(i);
         for layer in layer_map_for_output(output).layers() {
             set_scale(layer.wl_surface(), output);
         }
@@ -302,6 +316,7 @@ impl InfinityDesk {
             return;
         }
         self.monitor.current = i;
+        self.refocus();
         let middle = self.monitor.canvas.viewport_center();
         self.pointer_moved(middle, InputTime::now());
     }

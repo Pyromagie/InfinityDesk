@@ -205,6 +205,9 @@ impl XdgShellHandler for InfinityDesk {
         let Some(seat) = Seat::<Self>::from_resource(&seat) else {
             return;
         };
+        if self.lock.is_some() {
+            return;
+        }
         let kind = PopupKind::Xdg(surface);
         let Ok(root) = find_popup_root_surface(&kind) else {
             return;

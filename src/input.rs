@@ -11,8 +11,8 @@ use smithay::{
         keyboard::{FilterResult, Keysym, ModifiersState},
         pointer::{AxisFrame, ButtonEvent, Focus, GrabStartData, MotionEvent},
     },
-    reexports::wayland_server::protocol::wl_surface::WlSurface,
     utils::{Logical, Point, SERIAL_COUNTER},
+    wayland::shell::wlr_layer::Layer,
 };
 
 use crate::{
@@ -83,6 +83,10 @@ impl InfinityDesk {
                         let vt = sym.raw().wrapping_sub(Keysym::XF86_Switch_VT_1.raw());
                         if vt < 12 {
                             return FilterResult::Intercept(KeyAction::SwitchVt(vt as i32 + 1));
+                        }
+                        // No other shortcuts while the screen is locked.
+                        if state.lock.is_some() {
+                            return FilterResult::Forward;
                         }
                         match (state.monitor.layout_menu.is_some(), bound) {
                             // The template menu takes all keys while it is open; its own shortcut
@@ -157,9 +161,14 @@ impl InfinityDesk {
                 if location != pointer.current_location() {
                     self.pointer_moved(location, event.time());
                 }
+                // While the screen is locked, the lock just gets the click.
+                let locked = self.lock.is_some();
                 // The template menu: a click on a slot chooses it, a click outside closes the menu.
                 // Only presses are taken, so a drag still running gets its release.
-                if self.monitor.layout_menu.is_some() && button_state == ButtonState::Pressed {
+                if self.monitor.layout_menu.is_some()
+                    && button_state == ButtonState::Pressed
+                    && !locked
+                {
                     let screen = self.monitor.canvas.screen_size();
                     let on_screen = self.monitor.canvas.canvas_to_screen(location);
                     match layout::menu_hit(screen, on_screen) {
@@ -174,13 +183,24 @@ impl InfinityDesk {
                     return;
                 }
                 // Launchers and bars on top of everything just get the click.
-                let on_layer = (self.layer_surface_under(location, self.upper_layers())).is_some();
+                let upper = self.upper_layers();
+                let on_layer = (self.layer_surface_under(location, upper)).is_some();
+                if button_state == ButtonState::Pressed && !pointer.is_grabbed() && !locked {
+                    let windows_under = self.space.element_under(location).is_some();
+                    self.click_layer(
+                        location,
+                        match on_layer || windows_under {
+                            true => upper,
+                            false => &[Layer::Bottom, Layer::Background],
+                        },
+                    );
+                }
                 // In the overview, a click on a window chooses it (and is not passed on).
                 let clicked = self.space.element_under(location).map(|(w, _)| w.clone());
                 let plain =
                     !(self.config.mod_key()).held(&keyboard.modifier_state()) && button == BTN_LEFT;
                 if let Some(window) = (clicked.as_ref())
-                    .filter(|_| self.monitor.overview.is_some() && plain && !on_layer)
+                    .filter(|_| self.monitor.overview.is_some() && plain && !on_layer && !locked)
                     .filter(|_| button_state == ButtonState::Pressed && !pointer.is_grabbed())
                 {
                     let on_screen = self.monitor.canvas.canvas_to_screen(location);
@@ -197,6 +217,7 @@ impl InfinityDesk {
                     && !pointer.is_grabbed()
                     && !on_layer
                     && !fullscreen
+                    && !locked
                 {
                     let mods = keyboard.modifier_state();
                     let alt = self.config.mod_key().held(&mods);
@@ -249,10 +270,10 @@ impl InfinityDesk {
                         self.space.elements().for_each(|w| {
                             w.toplevel().unwrap().send_pending_configure();
                         });
-                        keyboard.set_focus(self, Option::<WlSurface>::None, serial);
                         if self.active.take().is_some() {
                             self.emit("window.focus", &[], None);
                         }
+                        self.refocus();
                         if bound == Some(Action::DragSelect) {
                             let grab = DragGrab::select(self, start_data);
                             pointer.set_grab(self, grab, serial, Focus::Clear);
@@ -329,6 +350,7 @@ impl InfinityDesk {
                     self.on_empty_canvas(),
                 ))
                 .is_some()
+                    && self.lock.is_none()
                     && !self.seat.get_pointer().unwrap().is_grabbed()
                     && self.monitor.fullscreen.is_none() =>
             {
@@ -440,6 +462,7 @@ impl InfinityDesk {
         let pointer = self.seat.get_pointer().unwrap();
         let pos = pointer.current_location();
         !pointer.is_grabbed()
+            && self.lock.is_none()
             && self.monitor.fullscreen.is_none()
             && self.space.element_under(pos).is_none()
             && self.layer_surface_under(pos, self.upper_layers()).is_none()
@@ -457,8 +480,9 @@ impl InfinityDesk {
     /// Touchpad gestures: they work everywhere, also over windows (apps get none of them).
     /// Not while a drag or fullscreen is going on.
     fn gesture_begins(&mut self, gesture: Gesture) {
-        let busy =
-            self.seat.get_pointer().unwrap().is_grabbed() || self.monitor.fullscreen.is_some();
+        let busy = self.seat.get_pointer().unwrap().is_grabbed()
+            || self.monitor.fullscreen.is_some()
+            || self.lock.is_some();
         self.gesture = (!busy).then_some(gesture);
     }
 
@@ -486,7 +510,9 @@ impl InfinityDesk {
         if !pointer.is_grabbed() {
             let mods = self.seat.get_keyboard().unwrap().modifier_state();
             let on_layer = (self.layer_surface_under(pos, self.upper_layers())).is_some();
-            let free = self.monitor.layout_menu.is_none() && self.monitor.fullscreen.is_none();
+            let free = self.monitor.layout_menu.is_none()
+                && self.monitor.fullscreen.is_none()
+                && self.lock.is_none();
             let hint = match !self.config.mod_key().held(&mods) && !on_layer && free {
                 true => self.borders_under(pos),
                 false => Vec::new(),

@@ -9,6 +9,7 @@ mod canvas;
 mod cluster;
 mod config;
 mod cursor;
+mod focus;
 mod grabs;
 mod handlers;
 mod headless;

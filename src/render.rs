@@ -20,6 +20,7 @@ use smithay::{
     },
     desktop::{PopupManager, Space, Window, layer_map_for_output},
     output::Output,
+    reexports::wayland_server::protocol::wl_surface::WlSurface,
     utils::{
         Buffer, Logical, Physical, Point, Rectangle, Scale, Transform, user_data::UserDataMap,
     },
@@ -450,6 +451,23 @@ fn layer_elements(
             l.render_elements(renderer, loc, Scale::from(scale), 1.0)
         })
         .collect()
+}
+
+/// While the screen is locked: only the lock.
+pub fn lock_elements(
+    renderer: &mut GlesRenderer,
+    output: &Output,
+    surface: Option<WlSurface>,
+) -> Vec<DeskElement> {
+    let scale = output.current_scale().fractional_scale();
+    let surface = surface.into_iter();
+    let elements: Vec<WaylandSurfaceRenderElement<_>> = surface
+        .flat_map(|s| {
+            let kind = Kind::Unspecified;
+            render_elements_from_surface_tree(renderer, &s, (0, 0), scale, 1.0, kind)
+        })
+        .collect();
+    elements.into_iter().map(DeskElement::Surface).collect()
 }
 
 /// The elements of a frame behind the bars, front to back: the upper layers, frames without a

@@ -140,6 +140,9 @@ cargo run --release -- -c firefox    # with a program inside
   if it is already full). The direction you pull decides: between two windows, the one
   that can change its size that way does; at a corner, width and height together, or else just
   the one that can. If nothing can change, the window bumps and the pointer shows "not allowed".
+- **Screen lock** with swaylock, hyprlock and the like (ext-session-lock): until it unlocks, only
+  the lock is shown and gets input. If it crashes, the screen stays locked (black); start
+  another one from a text console (`WAYLAND_DISPLAY=wayland-1 swaylock`).
 - **Layout templates:** Mod + R opens a menu of templates (whole screen, half | half, a half
   and two quarters, four quarters). Picking one arranges the active window's
   cluster so it fills exactly one screen, shown at 1:1. Click the slot the active window should
@@ -440,6 +443,7 @@ from `desk.cursor` in the config, else from `XCURSOR_THEME` and `XCURSOR_SIZE`.
 | `src/input.rs`    | Keyboard shortcuts and mouse handling                         |
 | `src/render.rs`   | What gets drawn: windows, layers, dot grid, outlines          |
 | `src/state.rs`    | Compositor state                                              |
+| `src/focus.rs`    | Who gets the keyboard                                         |
 | `src/monitor.rs`  | The monitors, each with its own view of the canvas            |
 | `src/config.rs`   | Settings from the Lua config (tested)                         |
 | `src/script.rs`   | Lua scripting: events, actions, windows, time limits, JSON    |

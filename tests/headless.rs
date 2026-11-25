@@ -21,11 +21,23 @@ use std::{
 
 use wayland_client::{
     Connection, Dispatch, EventQueue, QueueHandle, delegate_noop,
-    protocol::{wl_buffer, wl_compositor, wl_registry, wl_shm, wl_shm_pool, wl_surface},
+    protocol::{
+        wl_buffer, wl_compositor, wl_keyboard, wl_output, wl_pointer, wl_registry, wl_seat, wl_shm,
+        wl_shm_pool, wl_surface,
+    },
 };
-use wayland_protocols::xdg::{
-    decoration::zv1::client::{zxdg_decoration_manager_v1, zxdg_toplevel_decoration_v1},
-    shell::client::{xdg_surface, xdg_toplevel, xdg_wm_base},
+use wayland_protocols::{
+    ext::session_lock::v1::client::{
+        ext_session_lock_manager_v1, ext_session_lock_surface_v1, ext_session_lock_v1,
+    },
+    xdg::{
+        decoration::zv1::client::{zxdg_decoration_manager_v1, zxdg_toplevel_decoration_v1},
+        shell::client::{xdg_surface, xdg_toplevel, xdg_wm_base},
+    },
+};
+use wayland_protocols_wlr::layer_shell::v1::client::{
+    zwlr_layer_shell_v1::{self, Layer},
+    zwlr_layer_surface_v1::{self, KeyboardInteractivity},
 };
 
 const BIN: &str = env!("CARGO_BIN_EXE_infinitydesk");
@@ -236,10 +248,28 @@ struct Windows {
     shm: Option<wl_shm::WlShm>,
     wm_base: Option<xdg_wm_base::XdgWmBase>,
     decorations: Option<zxdg_decoration_manager_v1::ZxdgDecorationManagerV1>,
+    layer_shell: Option<zwlr_layer_shell_v1::ZwlrLayerShellV1>,
+    lock_manager: Option<ext_session_lock_manager_v1::ExtSessionLockManagerV1>,
+    outputs: Vec<wl_output::WlOutput>,
     /// Where the window contents (shared memory) are created.
     dir: PathBuf,
     list: Vec<TestWindow>,
+    /// The surface with the keyboard, if it is one of this program.
+    focus: Option<wl_surface::WlSurface>,
+    /// The surface under the pointer, if it is one of this program.
+    pointer: Option<wl_surface::WlSurface>,
+    /// The keys pressed and let go here.
+    keys: Vec<u32>,
+    /// Like swaylock: what it heard about the lock it asked for last.
+    locked: bool,
+    lock_refused: bool,
 }
+
+type Lock = ext_session_lock_v1::ExtSessionLockV1;
+type Bar = (
+    wl_surface::WlSurface,
+    zwlr_layer_surface_v1::ZwlrLayerSurfaceV1,
+);
 
 struct TestWindow {
     surface: wl_surface::WlSurface,
@@ -330,6 +360,61 @@ impl Client {
         self.sync();
     }
 
+    /// Asks to lock the screen, with a surface on each monitor (in the order of `outputs`).
+    fn lock(&mut self) -> (Lock, Vec<wl_surface::WlSurface>) {
+        let qh = self.queue.handle();
+        let w = &mut self.windows;
+        (w.locked, w.lock_refused) = (false, false);
+        let lock = w.lock_manager.as_ref().unwrap().lock(&qh, ());
+        let mut surfaces = Vec::new();
+        for output in &w.outputs {
+            let surface = w.compositor.as_ref().unwrap().create_surface(&qh, ());
+            lock.get_lock_surface(&surface, output, &qh, surface.clone());
+            surfaces.push(surface);
+        }
+        // The answer comes after a few frames.
+        let start = Instant::now();
+        while !self.windows.locked && !self.windows.lock_refused {
+            assert!(start.elapsed() < Duration::from_secs(5), "no answer");
+            self.sync();
+        }
+        (lock, surfaces)
+    }
+
+    /// Opens a bar along the top edge, 40 high.
+    fn open_bar(&mut self, keyboard: KeyboardInteractivity) -> Bar {
+        let qh = self.queue.handle();
+        let w = &mut self.windows;
+        let surface = w.compositor.as_ref().unwrap().create_surface(&qh, ());
+        let bar = w.layer_shell.as_ref().unwrap().get_layer_surface(
+            &surface,
+            None,
+            Layer::Top,
+            "bar".into(),
+            &qh,
+            surface.clone(),
+        );
+        use zwlr_layer_surface_v1::Anchor;
+        bar.set_anchor(Anchor::Top | Anchor::Left | Anchor::Right);
+        bar.set_size(0, 40);
+        bar.set_keyboard_interactivity(keyboard);
+        surface.commit();
+        self.sync();
+        (surface, bar)
+    }
+
+    /// Whether window `index` has the keyboard.
+    fn has_keyboard(&mut self, index: usize) -> bool {
+        self.sync();
+        self.windows.focus.as_ref() == Some(&self.windows.list[index].surface)
+    }
+
+    /// The keys that came here since the last call.
+    fn keys(&mut self) -> Vec<u32> {
+        self.sync();
+        std::mem::take(&mut self.windows.keys)
+    }
+
     fn is_open(&self, index: usize) -> bool {
         self.windows.list[index].open
     }
@@ -362,7 +447,12 @@ impl Windows {
             (w, h) if w > 0 && h > 0 => (w, h),
             _ => (640, 480),
         };
-        let path = self.dir.join(format!("shm-{index}-{w}x{h}"));
+        self.fill(&self.list[index].surface, w, h, qh);
+    }
+
+    /// Draws a surface plain black.
+    fn fill(&self, surface: &wl_surface::WlSurface, w: i32, h: i32, qh: &QueueHandle<Self>) {
+        let path = self.dir.join(format!("shm-{}-{w}x{h}", std::process::id()));
         let file = File::options()
             .read(true)
             .write(true)
@@ -375,7 +465,6 @@ impl Windows {
         let pool = (self.shm.as_ref().unwrap()).create_pool(file.as_fd(), w * h * 4, qh, ());
         let buffer = pool.create_buffer(0, w, h, w * 4, wl_shm::Format::Xrgb8888, qh, ());
         pool.destroy();
-        let surface = &self.list[index].surface;
         surface.attach(Some(&buffer), 0, 0);
         surface.damage(0, 0, w, h);
         surface.commit();
@@ -403,8 +492,115 @@ impl Dispatch<wl_registry::WlRegistry, ()> for Windows {
                 "zxdg_decoration_manager_v1" => {
                     state.decorations = Some(registry.bind(name, 1, qh, ()));
                 }
+                "zwlr_layer_shell_v1" => {
+                    state.layer_shell = Some(registry.bind(name, 1, qh, ()));
+                }
+                "ext_session_lock_manager_v1" => {
+                    state.lock_manager = Some(registry.bind(name, 1, qh, ()));
+                }
+                "wl_output" => state.outputs.push(registry.bind(name, 1, qh, ())),
+                "wl_seat" => {
+                    let seat: wl_seat::WlSeat = registry.bind(name, 1, qh, ());
+                    seat.get_keyboard(qh, ());
+                    seat.get_pointer(qh, ());
+                }
                 _ => {}
             }
+        }
+    }
+}
+
+impl Dispatch<wl_keyboard::WlKeyboard, ()> for Windows {
+    fn event(
+        state: &mut Self,
+        _: &wl_keyboard::WlKeyboard,
+        event: wl_keyboard::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        match event {
+            wl_keyboard::Event::Enter { surface, .. } => state.focus = Some(surface),
+            wl_keyboard::Event::Leave { .. } => state.focus = None,
+            wl_keyboard::Event::Key { key, .. } => state.keys.push(key),
+            _ => {}
+        }
+    }
+}
+
+impl Dispatch<wl_pointer::WlPointer, ()> for Windows {
+    fn event(
+        state: &mut Self,
+        _: &wl_pointer::WlPointer,
+        event: wl_pointer::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        match event {
+            wl_pointer::Event::Enter { surface, .. } => state.pointer = Some(surface),
+            wl_pointer::Event::Leave { .. } => state.pointer = None,
+            _ => {}
+        }
+    }
+}
+
+impl Dispatch<ext_session_lock_v1::ExtSessionLockV1, ()> for Windows {
+    fn event(
+        state: &mut Self,
+        _: &ext_session_lock_v1::ExtSessionLockV1,
+        event: ext_session_lock_v1::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        match event {
+            ext_session_lock_v1::Event::Locked => state.locked = true,
+            _ => state.lock_refused = true,
+        }
+    }
+}
+
+impl Dispatch<ext_session_lock_surface_v1::ExtSessionLockSurfaceV1, wl_surface::WlSurface>
+    for Windows
+{
+    fn event(
+        state: &mut Self,
+        lock: &ext_session_lock_surface_v1::ExtSessionLockSurfaceV1,
+        event: ext_session_lock_surface_v1::Event,
+        surface: &wl_surface::WlSurface,
+        _: &Connection,
+        qh: &QueueHandle<Self>,
+    ) {
+        if let ext_session_lock_surface_v1::Event::Configure {
+            serial,
+            width,
+            height,
+        } = event
+        {
+            lock.ack_configure(serial);
+            state.fill(surface, width as i32, height as i32, qh);
+        }
+    }
+}
+
+impl Dispatch<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1, wl_surface::WlSurface> for Windows {
+    fn event(
+        state: &mut Self,
+        layer: &zwlr_layer_surface_v1::ZwlrLayerSurfaceV1,
+        event: zwlr_layer_surface_v1::Event,
+        surface: &wl_surface::WlSurface,
+        _: &Connection,
+        qh: &QueueHandle<Self>,
+    ) {
+        if let zwlr_layer_surface_v1::Event::Configure {
+            serial,
+            width,
+            height,
+        } = event
+        {
+            layer.ack_configure(serial);
+            state.fill(surface, width as i32, height as i32, qh);
         }
     }
 }
@@ -488,6 +684,10 @@ impl Dispatch<zxdg_toplevel_decoration_v1::ZxdgToplevelDecorationV1, usize> for 
 }
 
 delegate_noop!(Windows: ignore zxdg_decoration_manager_v1::ZxdgDecorationManagerV1);
+delegate_noop!(Windows: ignore zwlr_layer_shell_v1::ZwlrLayerShellV1);
+delegate_noop!(Windows: ignore ext_session_lock_manager_v1::ExtSessionLockManagerV1);
+delegate_noop!(Windows: ignore wl_output::WlOutput);
+delegate_noop!(Windows: ignore wl_seat::WlSeat);
 delegate_noop!(Windows: ignore wl_compositor::WlCompositor);
 delegate_noop!(Windows: ignore wl_surface::WlSurface);
 delegate_noop!(Windows: ignore wl_shm::WlShm);
@@ -1093,4 +1293,130 @@ fn monitors_come_and_go_while_running() {
     desk.input("plug headless-2");
     assert_eq!(current(&desk), "headless-2");
     desk.eval("desk.focus_window(find('one').id)");
+}
+
+/// Presses and lets go a key (its code as in linux/input-event-codes.h).
+fn press(desk: &Desk, key: u32) {
+    desk.input(&format!("key {key} down; key {key} up"));
+}
+
+#[test]
+fn a_locked_screen_gives_input_only_to_the_lock() {
+    let desk = Desk::start_with(2, TWO);
+    let mut client = Client::connect(&desk);
+    client.open("one", "One");
+    desk.input("move -300 0");
+    assert!(client.has_keyboard(0) && client.windows.pointer.is_some());
+    press(&desk, 30);
+    assert_eq!(client.keys(), [30, 30]);
+
+    let mut locker = Client::connect(&desk);
+    // Held since before: the move ends.
+    desk.input(&format!("key {MOD} down; button left down; move 10 0"));
+    let (lock, surfaces) = locker.lock();
+    assert!(locker.windows.locked);
+    let rect = desk.rect("one");
+    desk.input(&format!(
+        "move 500 0; button left up; key {MOD} up; move -500 0"
+    ));
+    assert_eq!(desk.rect("one"), rect);
+    assert_eq!(locker.windows.focus.as_ref(), Some(&surfaces[0]));
+    client.keys();
+    locker.keys();
+
+    // Keys and clicks go to the lock, no shortcut works: Mod+O would open the overview, Mod+drag
+    // move the window.
+    press(&desk, 30);
+    assert_eq!(locker.keys(), [30, 30]);
+    desk.input(&format!(
+        "key {MOD} down; key 24 down; key 24 up; button left down; move 50 0; \
+         button left up; key {MOD} up; move -50 0; button left down; button left up"
+    ));
+    assert!(!client.has_keyboard(0) && client.windows.pointer.is_none());
+    locker.sync();
+    assert_eq!(locker.windows.pointer.as_ref(), Some(&surfaces[0]));
+    assert_eq!(desk.numbers("return desk.outputs()[1].view.zoom"), [1]);
+    assert_eq!(client.keys(), [0; 0]);
+    assert_eq!(desk.rect("one"), rect);
+    // Neither new windows nor scripts nor launchers get the keyboard.
+    client.open("two", "Two");
+    desk.eval("desk.focus_window(find('one').id)");
+    client.open_bar(KeyboardInteractivity::Exclusive);
+    assert!(client.windows.focus.is_none());
+    // The lock on the other monitor.
+    desk.input("move 1500 0");
+    locker.sync();
+    assert_eq!(locker.windows.focus.as_ref(), Some(&surfaces[1]));
+    desk.input("move -1500 0");
+
+    // Only one can lock.
+    let mut second = Client::connect(&desk);
+    second.lock();
+    assert!(second.windows.lock_refused);
+    // It crashes: the screen stays locked until another one takes over and unlocks.
+    drop(lock);
+    drop(locker);
+    press(&desk, 30);
+    assert_eq!(client.keys(), [0; 0]);
+    assert!(client.windows.focus.is_none());
+    let (lock, surfaces) = second.lock();
+    assert!(second.windows.locked);
+    second.sync();
+    assert_eq!(second.windows.focus.as_ref(), Some(&surfaces[0]));
+    lock.unlock_and_destroy();
+    second.sync();
+    assert!(second.windows.focus.is_none());
+    press(&desk, 30);
+    assert_eq!(client.keys(), [30, 30]);
+}
+
+#[test]
+fn the_screen_can_be_locked_while_monitors_come_and_go() {
+    let desk = Desk::start_with(1, TWO);
+    let mut client = Client::connect(&desk);
+    client.open("one", "One");
+    let mut locker = Client::connect(&desk);
+    desk.input("unplug headless");
+    locker.windows.outputs.clear();
+    let (lock, _) = locker.lock();
+    assert!(locker.windows.locked);
+    desk.input("plug headless-2");
+    press(&desk, 30);
+    assert_eq!(client.keys(), [0; 0]);
+    // The lock gets a surface on the new monitor.
+    locker.sync();
+    let surface =
+        (locker.windows.compositor.as_ref().unwrap()).create_surface(&locker.queue.handle(), ());
+    let output = locker.windows.outputs.last().unwrap();
+    lock.get_lock_surface(&surface, output, &locker.queue.handle(), surface.clone());
+    locker.sync();
+    assert_eq!(locker.windows.focus.as_ref(), Some(&surface));
+    lock.unlock_and_destroy();
+    locker.sync();
+    assert!(client.has_keyboard(0));
+}
+
+#[test]
+fn bars_and_launchers_get_the_keyboard_as_they_ask() {
+    let desk = Desk::start("");
+    let mut client = Client::connect(&desk);
+    client.open("one", "One");
+    // A bar that takes it on a click, until another one.
+    let (bar, _) = client.open_bar(KeyboardInteractivity::OnDemand);
+    assert!(client.has_keyboard(0));
+    desk.input("move 0 -530; button left down; button left up");
+    client.sync();
+    assert_eq!(client.windows.focus.as_ref(), Some(&bar));
+    desk.input("move -300 530; button left down; button left up");
+    assert!(client.has_keyboard(0));
+    // A launcher keeps it, whatever is clicked, until it closes.
+    let mut other = Client::connect(&desk);
+    let (launcher, layer) = other.open_bar(KeyboardInteractivity::Exclusive);
+    desk.input("button left down; button left up");
+    other.sync();
+    assert_eq!(other.windows.focus.as_ref(), Some(&launcher));
+    layer.destroy();
+    launcher.destroy();
+    other.sync();
+    assert!(client.has_keyboard(0));
 }

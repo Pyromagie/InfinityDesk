@@ -2,8 +2,10 @@
 
 mod compositor;
 mod layer_shell;
+mod session_lock;
 mod xdg_shell;
 
+pub use session_lock::Lock;
 pub use xdg_shell::app_id_and_title;
 
 use smithay::{

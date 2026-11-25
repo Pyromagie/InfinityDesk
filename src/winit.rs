@@ -22,7 +22,7 @@ use smithay::{
 
 use crate::{
     InfinityDesk,
-    render::{Scene, bar_elements, desk_elements},
+    render::{Scene, bar_elements, desk_elements, lock_elements},
 };
 
 /// How long to wait before looking again when nothing changed: one frame at 60 Hz.
@@ -116,26 +116,31 @@ pub fn init_winit(
                 let damage = match backend.bind() {
                     Ok((renderer, mut framebuffer)) => {
                         let scale = output.current_scale().fractional_scale();
-                        let mut elements = bar_elements(&mut bar_buffers, &bars, scale);
-                        elements.extend(desk_elements(
-                            renderer,
-                            &output,
-                            &state.space,
-                            &state.monitor.canvas,
-                            &mut scene,
-                            &state.config,
-                            state.upper_layers(),
-                            &offsets,
-                            &outlines,
-                            state.fullscreen_window(),
-                        ));
+                        let mut elements;
+                        if state.lock.is_some() {
+                            elements = lock_elements(renderer, &output, state.lock_surface());
+                        } else {
+                            elements = bar_elements(&mut bar_buffers, &bars, scale);
+                            elements.extend(desk_elements(
+                                renderer,
+                                &output,
+                                &state.space,
+                                &state.monitor.canvas,
+                                &mut scene,
+                                &state.config,
+                                state.upper_layers(),
+                                &offsets,
+                                &outlines,
+                                state.fullscreen_window(),
+                            ));
+                        }
                         damage_tracker
                             .render_output(
                                 renderer,
                                 &mut framebuffer,
                                 age,
                                 &elements,
-                                state.config.background,
+                                state.background(),
                             )
                             .map(|result| result.damage.cloned())
                             .unwrap_or_else(|err| {

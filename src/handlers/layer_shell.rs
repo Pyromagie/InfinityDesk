@@ -4,12 +4,11 @@ use smithay::{
     desktop::{LayerSurface, WindowSurfaceType, layer_map_for_output},
     output::Output,
     reexports::wayland_server::protocol::{wl_output::WlOutput, wl_surface::WlSurface},
-    utils::{IsAlive, SERIAL_COUNTER},
     wayland::{
         compositor::with_states,
         shell::wlr_layer::{
-            KeyboardInteractivity, Layer, LayerSurface as WlrLayerSurface, LayerSurfaceData,
-            WlrLayerShellHandler, WlrLayerShellState,
+            Layer, LayerSurface as WlrLayerSurface, LayerSurfaceData, WlrLayerShellHandler,
+            WlrLayerShellState,
         },
     },
 };
@@ -51,17 +50,11 @@ impl WlrLayerShellHandler for InfinityDesk {
             }
         }
 
-        // Give the keyboard back to the window that was active (e.g. after the launcher closed),
-        // unless another surface has it (e.g. a wallpaper tool restarted while the launcher is open).
-        let keyboard = self.seat.get_keyboard().unwrap();
-        let focus = keyboard.current_focus();
-        if focus.is_some_and(|f| f.alive() && &f != surface.wl_surface()) {
-            return;
+        if self.layer_focus.as_ref() == Some(surface.wl_surface()) {
+            self.layer_focus = None;
         }
-        match self.active.clone() {
-            Some(window) => self.focus_window(&window),
-            None => keyboard.set_focus(self, None, SERIAL_COUNTER.next_serial()),
-        }
+        // The keyboard goes back to the active window (e.g. after the launcher closed).
+        self.refocus();
     }
 }
 
@@ -85,15 +78,13 @@ impl InfinityDesk {
             let data = states.data_map.get::<LayerSurfaceData>().unwrap();
             data.lock().unwrap().initial_configure_sent
         });
-        if initial_configure_sent {
-            return;
+        if !initial_configure_sent {
+            layer.layer_surface().send_configure();
         }
-        layer.layer_surface().send_configure();
-
-        // Launchers ask for exclusive keyboard focus.
-        if layer.cached_state().keyboard_interactivity == KeyboardInteractivity::Exclusive {
-            let keyboard = self.seat.get_keyboard().unwrap();
-            keyboard.set_focus(self, Some(surface.clone()), SERIAL_COUNTER.next_serial());
+        // It may want the keyboard now, or no longer.
+        if self.layer_focus.as_ref() == Some(surface) && !layer.can_receive_keyboard_focus() {
+            self.layer_focus = None;
         }
+        self.refocus();
     }
 }

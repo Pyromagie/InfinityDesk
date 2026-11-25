@@ -21,13 +21,17 @@ use crate::{
     cluster::{Clusters, Rect},
     config::Config,
     grabs::ResizeGlide,
+    handlers::Lock,
     monitor::Monitors,
     render::{OUTLINE_WIDTH, Outline},
     resize::{self, Edge, Follow},
     xwayland::XDisplay,
 };
 use smithay::{
-    desktop::{PopupManager, Space, Window, WindowSurfaceType, layer_map_for_output},
+    desktop::{
+        PopupManager, Space, Window, WindowSurfaceType, layer_map_for_output,
+        utils::{send_frames_surface_tree, under_from_surface_tree},
+    },
     input::{
         Seat, SeatState,
         pointer::{CursorIcon, CursorImageStatus},
@@ -43,13 +47,14 @@ use smithay::{
             Display, DisplayHandle, backend::ClientData, protocol::wl_surface::WlSurface,
         },
     },
-    utils::{Logical, Point, Rectangle, SERIAL_COUNTER},
+    utils::{Logical, Point, Rectangle},
     wayland::{
         compositor::{CompositorClientState, CompositorState},
         dmabuf::DmabufState,
         fractional_scale::FractionalScaleManagerState,
         output::OutputManagerState,
         selection::data_device::DataDeviceState,
+        session_lock::SessionLockManagerState,
         shell::{
             wlr_layer::{Layer, WlrLayerShellState},
             xdg::{XdgShellState, decoration::XdgDecorationState},
@@ -122,6 +127,10 @@ pub struct InfinityDesk {
     pub recent: Vec<Window>,
     /// While Alt+Tab is held: the position in `recent` of the window shown now.
     pub switching: Option<usize>,
+    /// The bar or menu that got the keyboard by a click (see `focus.rs`).
+    pub layer_focus: Option<WlSurface>,
+    /// The screen is locked.
+    pub lock: Option<Lock>,
     /// The touchpad gesture in progress.
     pub gesture: Option<crate::input::Gesture>,
 
@@ -137,6 +146,8 @@ pub struct InfinityDesk {
     pub viewporter_state: ViewporterState,
     /// Tells apps the screen's scale (e.g. 1.5), so they draw crisp at it.
     pub fractional_scale_state: FractionalScaleManagerState,
+    /// Lets a program lock the screen.
+    pub session_lock_state: SessionLockManagerState,
     /// Lets apps leave out their titlebar (see `titlebars` in the config).
     pub decoration_state: XdgDecorationState,
     /// Apps hand over GPU buffers directly (standalone only; offered by `udev`).
@@ -157,6 +168,7 @@ impl InfinityDesk {
         let viewporter_state = ViewporterState::new::<Self>(&dh);
         let fractional_scale_state = FractionalScaleManagerState::new::<Self>(&dh);
         let decoration_state = XdgDecorationState::new::<Self>(&dh);
+        let session_lock_state = SessionLockManagerState::new::<Self, _>(&dh, |_| true);
 
         let config = Config::load();
         let mut seat_state = SeatState::new();
@@ -216,6 +228,8 @@ impl InfinityDesk {
             active: None,
             recent: Vec::new(),
             switching: None,
+            layer_focus: None,
+            lock: None,
             gesture: None,
             resizing: HashMap::new(),
             window_glides: HashMap::new(),
@@ -230,6 +244,7 @@ impl InfinityDesk {
             viewporter_state,
             fractional_scale_state,
             decoration_state,
+            session_lock_state,
             dmabuf_state: DmabufState::new(),
             seat,
         }
@@ -379,6 +394,15 @@ impl InfinityDesk {
     /// After a frame: tells apps they may draw their next one, and tidies up.
     pub fn send_frames(&mut self, output: &Output) {
         let time = self.start_time.elapsed();
+        self.lock_drawn(output);
+        let lock_surface = (self.monitor.position(output))
+            .and_then(|i| self.monitor.list[i].lock_surface.as_ref());
+        if let Some(surface) = lock_surface.filter(|s| s.alive()) {
+            let throttle = Some(Duration::ZERO);
+            send_frames_surface_tree(surface.wl_surface(), output, time, throttle, |_, _| {
+                Some(output.clone())
+            });
+        }
         // Each window draws at the pace (and scale) of its own monitor.
         let several = self.monitor.list.len() > 1;
         for window in self.space.elements() {
@@ -478,9 +502,8 @@ impl InfinityDesk {
             self.recent.insert(0, window.clone());
         }
         self.raise_cluster(window);
-        let surface = window.toplevel().unwrap().wl_surface().clone();
-        let keyboard = self.seat.get_keyboard().unwrap();
-        keyboard.set_focus(self, Some(surface), SERIAL_COUNTER.next_serial());
+        self.layer_focus = None;
+        self.refocus();
         // Tell all windows whether they are active now.
         self.space.elements().for_each(|w| {
             w.toplevel().unwrap().send_pending_configure();
@@ -728,11 +751,23 @@ impl InfinityDesk {
         }
     }
 
-    /// Finds the surface under a canvas point: launchers/bars on top, then windows, then wallpapers.
+    /// Finds the surface under a canvas point: launchers/bars on top, then windows, then
+    /// wallpapers; while the screen is locked, only the lock.
     pub fn surface_under(
         &self,
         pos: Point<f64, Logical>,
     ) -> Option<(WlSurface, Point<f64, Logical>)> {
+        if self.lock.is_some() {
+            let screen = self.monitor.canvas.canvas_to_screen(pos);
+            return under_from_surface_tree(
+                &self.lock_surface()?,
+                screen,
+                (0, 0),
+                WindowSurfaceType::ALL,
+            )
+            // Unzoomed, like layers.
+            .map(|(s, p)| (s, pos - screen + p.to_f64()));
+        }
         self.layer_surface_under(pos, self.upper_layers())
             .or_else(|| {
                 self.space
@@ -763,6 +798,14 @@ impl InfinityDesk {
             bars.extend(self.edge_highlights().into_iter().map(|r| (r, accent)));
         }
         bars
+    }
+
+    /// Behind everything: the config's color, black while the screen is locked.
+    pub fn background(&self) -> [f32; 4] {
+        match self.lock {
+            Some(_) => [0.0, 0.0, 0.0, 1.0],
+            None => self.config.background,
+        }
     }
 
     /// The fullscreen window, if there is one.

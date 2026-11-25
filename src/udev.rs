@@ -42,7 +42,7 @@ use crate::{
     InfinityDesk,
     config::{Config, OutputMode, OutputSettings},
     cursor::Cursors,
-    render::{Scene, bar_elements, desk_elements},
+    render::{Scene, bar_elements, desk_elements, lock_elements},
 };
 
 type Compositor =
@@ -495,6 +495,8 @@ impl InfinityDesk {
         let outlines = self.outlines();
         let offsets = self.window_offsets();
         let upper_layers = self.upper_layers();
+        let (locked, lock_surface) = (self.lock.is_some(), self.lock_surface());
+        let background = self.background();
         let Some(udev) = self.udev.as_mut() else {
             return;
         };
@@ -520,23 +522,27 @@ impl InfinityDesk {
             None => Vec::new(),
         };
         let scale = output.current_scale().fractional_scale();
-        elements.extend(bar_elements(&mut screen.bar_buffers, &bars, scale));
-        elements.extend(desk_elements(
-            &mut udev.renderer,
-            output,
-            &self.space,
-            &self.monitor.canvas,
-            &mut screen.scene,
-            &self.config,
-            upper_layers,
-            &offsets,
-            &outlines,
-            self.monitor.fullscreen.as_ref().map(|f| &f.window),
-        ));
+        if locked {
+            elements.extend(lock_elements(&mut udev.renderer, output, lock_surface));
+        } else {
+            elements.extend(bar_elements(&mut screen.bar_buffers, &bars, scale));
+            elements.extend(desk_elements(
+                &mut udev.renderer,
+                output,
+                &self.space,
+                &self.monitor.canvas,
+                &mut screen.scene,
+                &self.config,
+                upper_layers,
+                &offsets,
+                &outlines,
+                self.monitor.fullscreen.as_ref().map(|f| &f.window),
+            ));
+        }
         let rendered = screen.compositor.render_frame(
             &mut udev.renderer,
             &elements,
-            self.config.background,
+            background,
             FrameFlags::DEFAULT,
         );
         screen.frame_pending = match rendered {
