@@ -161,8 +161,10 @@ pub fn init_winit(
                     Some(None) => true,
                     None => false,
                 };
-                if shown {
-                    state.lock_shown(&output);
+                match shown {
+                    true => state.lock_shown(&output),
+                    // The next frame must not count as unchanged.
+                    false => state.redraw_all = true,
                 }
                 state.send_frames(&output);
                 if changed {

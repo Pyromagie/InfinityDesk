@@ -291,6 +291,7 @@ pub fn init_udev(
                     screen.frame_pending = false;
                 }
                 state.screens_off = false;
+                state.redraw_all = true;
                 // Monitors may have come and gone meanwhile.
                 state.update_screens();
                 state.wake_screens();
@@ -573,12 +574,13 @@ impl InfinityDesk {
             background,
             FrameFlags::DEFAULT,
         );
-        let mut unchanged = false;
+        let (mut unchanged, mut failed) = (false, false);
         screen.frame_pending = match rendered {
             Ok(frame) if !frame.is_empty => match screen.compositor.queue_frame(locked) {
                 Ok(()) => true,
                 Err(err) => {
                     tracing::warn!("Showing the frame failed: {err:?}");
+                    failed = true;
                     false
                 }
             },
@@ -588,9 +590,14 @@ impl InfinityDesk {
             }
             Err(err) => {
                 tracing::warn!("Drawing the frame failed: {err:?}");
+                failed = true;
                 false
             }
         };
+        // It is not on the screen: the next one must not count as unchanged.
+        if failed {
+            screen.compositor.reset_buffers();
+        }
         if !screen.frame_pending && !screen.redraw_planned {
             screen.redraw_planned = true;
             let timer = Timer::from_duration(screen.frame_time);
@@ -628,7 +635,10 @@ impl InfinityDesk {
                     self.lock_shown(&output);
                 }
                 Ok(_) => {}
-                Err(err) => tracing::warn!("Frame bookkeeping failed: {err:?}"),
+                Err(err) => {
+                    tracing::warn!("Frame bookkeeping failed: {err:?}");
+                    screen.compositor.reset_buffers();
+                }
             }
         }
         self.render_screen(crtc);
