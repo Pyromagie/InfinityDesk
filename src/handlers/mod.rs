@@ -9,6 +9,8 @@ mod xdg_shell;
 pub use session_lock::Lock;
 pub use xdg_shell::app_id_and_title;
 
+use std::sync::Arc;
+
 use smithay::{
     backend::{allocator::dmabuf::Dmabuf, renderer::ImportDma},
     input::{
@@ -31,6 +33,9 @@ use smithay::{
         fractional_scale::{FractionalScaleHandler, with_fractional_scale},
         output::OutputHandler,
         pointer_constraints::PointerConstraintsHandler,
+        security_context::{
+            SecurityContext, SecurityContextHandler, SecurityContextListenerSource,
+        },
         selection::{
             SelectionHandler,
             data_device::{
@@ -46,7 +51,7 @@ use smithay::{
     },
 };
 
-use crate::InfinityDesk;
+use crate::{InfinityDesk, state::ClientState};
 
 // --- Seat (keyboard + pointer) ---
 
@@ -107,6 +112,24 @@ impl wlr_data_control::DataControlHandler for InfinityDesk {
 }
 
 impl DndGrabHandler for InfinityDesk {}
+
+/// Flatpak opens a socket of its own for the programs in its sandbox.
+impl SecurityContextHandler for InfinityDesk {
+    fn context_created(&mut self, source: SecurityContextListenerSource, _: SecurityContext) {
+        let inserted = self.loop_handle.insert_source(source, |stream, _, state| {
+            let data = ClientState {
+                sandboxed: true,
+                ..Default::default()
+            };
+            if let Err(err) = state.display_handle.insert_client(stream, Arc::new(data)) {
+                tracing::warn!("A program in a sandbox could not connect: {err}");
+            }
+        });
+        if let Err(err) = inserted {
+            tracing::warn!("No socket for a sandbox: {err}");
+        }
+    }
+}
 
 impl WaylandDndGrabHandler for InfinityDesk {
     fn dnd_requested<S: Source>(

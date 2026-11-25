@@ -42,13 +42,13 @@ use smithay::{
     output::{Output, Scale},
     reexports::{
         calloop::{
-            EventLoop, Interest, LoopSignal, Mode, PostAction,
+            EventLoop, Interest, LoopHandle, LoopSignal, Mode, PostAction,
             generic::Generic,
             timer::{TimeoutAction, Timer},
         },
         wayland_protocols_wlr::foreign_toplevel::v1::server::zwlr_foreign_toplevel_manager_v1::ZwlrForeignToplevelManagerV1,
         wayland_server::{
-            Display, DisplayHandle, backend::ClientData, protocol::wl_surface::WlSurface,
+            Client, Display, DisplayHandle, backend::ClientData, protocol::wl_surface::WlSurface,
         },
     },
     utils::{Logical, Point, Rectangle},
@@ -59,6 +59,7 @@ use smithay::{
         idle_inhibit::IdleInhibitManagerState,
         idle_notify::IdleNotifierState,
         output::OutputManagerState,
+        security_context::SecurityContextState,
         selection::{
             data_device::DataDeviceState, ext_data_control,
             primary_selection::PrimarySelectionState, wlr_data_control,
@@ -82,6 +83,7 @@ pub struct InfinityDesk {
     pub xdisplay: Option<XDisplay>,
     pub display_handle: DisplayHandle,
     pub loop_signal: LoopSignal,
+    pub loop_handle: LoopHandle<'static, InfinityDesk>,
 
     /// The monitors, each with its view of the canvas; the current one.
     pub monitor: Monitors,
@@ -181,16 +183,16 @@ impl InfinityDesk {
 
         let compositor_state = CompositorState::new::<Self>(&dh);
         let xdg_shell_state = XdgShellState::new::<Self>(&dh);
-        let layer_shell_state = WlrLayerShellState::new::<Self>(&dh);
+        let layer_shell_state = WlrLayerShellState::new_with_filter::<Self, _>(&dh, trusted);
         let shm_state = ShmState::new::<Self>(&dh, vec![]);
         let output_manager_state = OutputManagerState::new_with_xdg_output::<Self>(&dh);
         let data_device_state = DataDeviceState::new::<Self>(&dh);
         let primary_selection_state = PrimarySelectionState::new::<Self>(&dh);
         let primary = Some(&primary_selection_state);
         let data_control_state =
-            ext_data_control::DataControlState::new::<Self, _>(&dh, primary, |_| true);
+            ext_data_control::DataControlState::new::<Self, _>(&dh, primary, trusted);
         let wlr_data_control_state =
-            wlr_data_control::DataControlState::new::<Self, _>(&dh, primary, |_| true);
+            wlr_data_control::DataControlState::new::<Self, _>(&dh, primary, trusted);
         let viewporter_state = ViewporterState::new::<Self>(&dh);
         let fractional_scale_state = FractionalScaleManagerState::new::<Self>(&dh);
         let decoration_state = XdgDecorationState::new::<Self>(&dh);
@@ -198,9 +200,10 @@ impl InfinityDesk {
             window_list::VERSION,
             WindowListData,
         );
+        SecurityContextState::new::<Self, _>(&dh, trusted);
         let idle_notifier = IdleNotifierState::new(&dh, event_loop.handle());
         IdleInhibitManagerState::new::<Self>(&dh);
-        let session_lock_state = SessionLockManagerState::new::<Self, _>(&dh, |_| true);
+        let session_lock_state = SessionLockManagerState::new::<Self, _>(&dh, trusted);
 
         let config = Config::load();
         let mut seat_state = SeatState::new();
@@ -238,6 +241,7 @@ impl InfinityDesk {
             xdisplay: None,
             display_handle: dh,
             loop_signal: event_loop.get_signal(),
+            loop_handle: event_loop.handle(),
             monitor: Monitors::new(config.canvas_size.into()),
             space: Space::default(),
             popups: PopupManager::default(),
@@ -874,6 +878,14 @@ impl InfinityDesk {
 #[derive(Default)]
 pub struct ClientState {
     pub compositor_state: CompositorClientState,
+    /// A program in a sandbox (Flatpak): it gets no access to other programs.
+    pub sandboxed: bool,
+}
+
+/// Whether a program may look at and steer other programs (window list, clipboard history, screen
+/// lock, bars).
+pub fn trusted(client: &Client) -> bool {
+    (client.get_data::<ClientState>()).is_some_and(|state| !state.sandboxed)
 }
 
 impl ClientData for ClientState {}

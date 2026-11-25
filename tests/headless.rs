@@ -10,7 +10,7 @@ use std::{
         fd::AsFd,
         unix::{fs::PermissionsExt, net::UnixStream},
     },
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Child, ChildStdout, Command, Stdio},
     sync::{
         atomic::{AtomicU32, Ordering},
@@ -43,6 +43,7 @@ use wayland_protocols::{
             zwp_primary_selection_device_manager_v1, zwp_primary_selection_device_v1,
             zwp_primary_selection_offer_v1,
         },
+        security_context::v1::client::{wp_security_context_manager_v1, wp_security_context_v1},
     },
     xdg::{
         decoration::zv1::client::{zxdg_decoration_manager_v1, zxdg_toplevel_decoration_v1},
@@ -272,6 +273,7 @@ struct Windows {
     lock_manager: Option<ext_session_lock_manager_v1::ExtSessionLockManagerV1>,
     idle_notifier: Option<ext_idle_notifier_v1::ExtIdleNotifierV1>,
     inhibit_manager: Option<zwp_idle_inhibit_manager_v1::ZwpIdleInhibitManagerV1>,
+    security: Option<wp_security_context_manager_v1::WpSecurityContextManagerV1>,
     data_control: Option<ext_data_control_manager_v1::ExtDataControlManagerV1>,
     primary: Option<zwp_primary_selection_device_manager_v1::ZwpPrimarySelectionDeviceManagerV1>,
     /// What a middle click would paste.
@@ -334,7 +336,12 @@ struct TestWindow {
 
 impl Client {
     fn connect(desk: &Desk) -> Client {
-        let connection = Connection::from_socket(UnixStream::connect(&desk.wayland).unwrap());
+        Client::connect_to(desk, &desk.wayland)
+    }
+
+    /// The same, through the socket of a sandbox.
+    fn connect_to(desk: &Desk, socket: &Path) -> Client {
+        let connection = Connection::from_socket(UnixStream::connect(socket).unwrap());
         let connection = connection.unwrap();
         let mut queue = connection.new_event_queue();
         connection.display().get_registry(&queue.handle(), ());
@@ -589,6 +596,9 @@ impl Dispatch<wl_registry::WlRegistry, ()> for Windows {
                 }
                 "zwlr_foreign_toplevel_manager_v1" => {
                     state.window_list = Some((registry.clone(), name));
+                }
+                "wp_security_context_manager_v1" => {
+                    state.security = Some(registry.bind(name, 1, qh, ()));
                 }
                 "ext_data_control_manager_v1" => {
                     state.data_control = Some(registry.bind(name, 1, qh, ()));
@@ -928,6 +938,8 @@ impl Dispatch<zxdg_toplevel_decoration_v1::ZxdgToplevelDecorationV1, usize> for 
 
 delegate_noop!(Windows: ignore zxdg_decoration_manager_v1::ZxdgDecorationManagerV1);
 delegate_noop!(Windows: ignore zwlr_layer_shell_v1::ZwlrLayerShellV1);
+delegate_noop!(Windows: ignore wp_security_context_manager_v1::WpSecurityContextManagerV1);
+delegate_noop!(Windows: ignore wp_security_context_v1::WpSecurityContextV1);
 delegate_noop!(Windows: ignore ext_data_control_manager_v1::ExtDataControlManagerV1);
 delegate_noop!(Windows: ignore ext_data_control_offer_v1::ExtDataControlOfferV1);
 delegate_noop!(Windows: ignore zwp_primary_selection_device_manager_v1::ZwpPrimarySelectionDeviceManagerV1);
@@ -1776,6 +1788,24 @@ fn docks_get_the_windows_and_can_steer_them() {
     dock.sync();
     let second = dock.windows.outputs.last().unwrap().clone();
     assert!(dock.listed("one").outputs.contains(&second));
+    // A title as long as a message can be.
+    let long = "x".repeat(4000);
+    client.windows.list[1].toplevel.set_title(long.clone());
+    client.sync();
+    assert_eq!(dock.listed("two").title, long);
+    // Behind the screen lock, nothing happens.
+    let (lock, _) = Client::connect(&desk).lock();
+    let mut locker = Client::connect(&desk);
+    drop(lock);
+    two.close();
+    two.set_fullscreen(None);
+    dock.sync();
+    client.sync();
+    assert!(client.is_open(1));
+    assert_eq!(desk.eval("return find('two').fullscreen"), ["false"]);
+    let (lock, _) = locker.lock();
+    lock.unlock_and_destroy();
+    locker.sync();
     // Closed, by the dock and by the program.
     two.close();
     dock.sync();
@@ -1822,4 +1852,28 @@ fn a_clipboard_tool_gives_a_window_what_it_pastes() {
     let mut text = String::new();
     read.read_to_string(&mut text).unwrap();
     assert_eq!(text, "pasted");
+}
+
+#[test]
+fn programs_in_a_sandbox_have_no_access_to_others() {
+    let desk = Desk::start("");
+    let flatpak = Client::connect(&desk);
+    let socket = desk.dir.join("sandbox");
+    let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+    let (_open, close) = std::io::pipe().unwrap();
+    let qh = flatpak.queue.handle();
+    let manager = flatpak.windows.security.as_ref().unwrap();
+    let context = manager.create_listener(listener.as_fd(), close.as_fd(), &qh, ());
+    context.commit();
+    let mut flatpak = flatpak;
+    flatpak.sync();
+
+    let mut inside = Client::connect_to(&desk, &socket);
+    let w = &inside.windows;
+    assert!(w.lock_manager.is_none() && w.window_list.is_none());
+    assert!(w.data_control.is_none() && w.layer_shell.is_none() && w.security.is_none());
+    // Everything else is there.
+    assert!(w.primary.is_some() && w.idle_notifier.is_some());
+    inside.open("one", "One");
+    assert_eq!(desk.rect("one")[2..], [HALF.0, HALF.1]);
 }

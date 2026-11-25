@@ -16,7 +16,7 @@ use smithay::{
     wayland::{Dispatch2, GlobalDispatch2},
 };
 
-use crate::{InfinityDesk, handlers::app_id_and_title};
+use crate::{InfinityDesk, handlers::app_id_and_title, state::trusted};
 
 /// Version 3 knows the parents of dialogs.
 pub const VERSION: u32 = 3;
@@ -62,6 +62,10 @@ impl GlobalDispatch2<Manager, InfinityDesk> for WindowListData {
         let manager = data_init.init(manager, WindowListData);
         state.window_list.managers.push(manager);
     }
+
+    fn can_view(&self, client: &Client) -> bool {
+        trusted(client)
+    }
 }
 
 impl Dispatch2<Manager, InfinityDesk> for WindowListData {
@@ -92,6 +96,10 @@ impl Dispatch2<Handle, InfinityDesk> for WindowListData {
         _: &mut DataInit<'_, InfinityDesk>,
     ) {
         use zwlr_foreign_toplevel_handle_v1::Request;
+        // Nothing happens behind the screen lock.
+        if state.lock.is_some() {
+            return;
+        }
         let mut entries = state.window_list.entries.iter();
         let Some(entry) = entries.find(|e| &e.handle == handle) else {
             return;
