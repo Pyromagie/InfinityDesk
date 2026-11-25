@@ -6,6 +6,7 @@
 use std::time::Duration;
 
 use smithay::{
+    backend::input::InputTime,
     output::{Mode, Output, PhysicalProperties, Scale, Subpixel},
     reexports::calloop::{
         EventLoop,
@@ -28,6 +29,10 @@ pub fn init_headless(
         };
         add_output(state, name);
     }
+
+    state.headless = true;
+    // The pointer starts in the middle of the first screen.
+    state.pointer_moved(state.monitor.canvas.viewport_center(), InputTime::now());
 
     // What a frame does, without drawing it.
     let frame = Duration::from_micros(16_667);

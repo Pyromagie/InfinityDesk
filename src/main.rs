@@ -21,6 +21,7 @@ mod render;
 mod resize;
 mod script;
 mod state;
+mod test_input;
 mod udev;
 mod winit;
 mod xwayland;

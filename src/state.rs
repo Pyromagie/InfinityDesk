@@ -105,6 +105,8 @@ pub struct InfinityDesk {
     pub client_cursor: CursorImageStatus,
     /// The screen, GPU and input devices when running standalone (`None`: nested).
     pub udev: Option<crate::udev::Udev>,
+    /// Without a screen, for tests (`headless.rs`).
+    pub headless: bool,
     /// The next frame is drawn whole (after the config changed: e.g. other corners).
     pub redraw_all: bool,
     /// The open template menu (Mod+R).
@@ -208,6 +210,7 @@ impl InfinityDesk {
             pointer_screen: (0.0, 0.0).into(),
             client_cursor: CursorImageStatus::default_named(),
             udev: None,
+            headless: false,
             redraw_all: false,
             layout_menu: None,
             events: Vec::new(),

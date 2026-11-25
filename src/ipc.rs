@@ -88,6 +88,7 @@ fn serve(handle: &LoopHandle<'static, InfinityDesk>, stream: UnixStream) -> std:
         }
         let reply = match request.split_once(' ') {
             Some(("eval", code)) => state.eval_lua(code),
+            Some(("input", events)) if state.headless => state.test_input(events),
             _ => Err(format!("unknown request: {request}")),
         };
         answer(stream, reply);
@@ -112,7 +113,8 @@ fn answer(mut stream: &UnixStream, reply: Result<String, String>) {
 pub fn send(args: &[String]) -> i32 {
     let usage = "usage: infinitydesk msg eval '<lua code>'\n       infinitydesk msg events";
     let request = match args {
-        [what, code] if what == "eval" => format!("eval {code}"),
+        // (`input` is for the tests, see `test_input.rs`.)
+        [what, code] if what == "eval" || what == "input" => format!("{what} {code}"),
         [what] if what == "events" => what.clone(),
         _ => return fail(usage),
     };

@@ -441,6 +441,7 @@ from `desk.cursor` in the config, else from `XCURSOR_THEME` and `XCURSOR_SIZE`.
 | `src/winit.rs`    | Nested backend                                                |
 | `src/udev.rs`     | Standalone backend: screen, GPU, input devices, consoles      |
 | `src/headless.rs` | Without a screen, for the end-to-end tests                    |
+| `src/test_input.rs` | Made-up mouse and keyboard for these tests                  |
 | `src/cursor.rs`   | The pointer image (standalone)                                |
 | `src/xwayland.rs` | X11 programs through xwayland-satellite                       |
 | `src/handlers/`   | Wayland protocol handlers                                     |

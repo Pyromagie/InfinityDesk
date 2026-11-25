@@ -1,6 +1,7 @@
 //! End-to-end tests without a screen: each test starts InfinityDesk headless (`--headless`, a
 //! 1920×1080 output) in a folder of its own, opens test windows that behave like real programs,
-//! and looks and steers through `infinitydesk msg`. No GPU, display or input devices needed.
+//! and looks and steers (also with a made-up mouse and keyboard) through `infinitydesk msg`. No
+//! GPU, display or input devices needed.
 
 use std::{
     fs::File,
@@ -135,6 +136,12 @@ impl Desk {
         let (ok, out, err) = self.msg(&["eval", code]);
         assert!(ok, "eval {code}: {err}\n{}", self.log());
         out.lines().map(String::from).collect()
+    }
+
+    /// Acts like a mouse and a keyboard (see `src/test_input.rs`).
+    fn input(&self, events: &str) {
+        let (ok, _, err) = self.msg(&["input", events]);
+        assert!(ok, "input {events}: {err}\n{}", self.log());
     }
 
     /// `eval` for code that returns numbers.
@@ -864,4 +871,93 @@ fn fullscreen_covers_only_its_monitor() {
     client.fullscreen(1, false);
     assert_eq!(desk.rect("two"), before);
     assert_eq!(desk.numbers("return (view(2))"), [x + 1920]);
+}
+
+/// Mod (Super) as the tests press it.
+const MOD: u32 = 125;
+
+#[test]
+fn windows_are_dragged_dock_and_come_out_by_holding() {
+    let desk = Desk::start("desk.animation { duration_ms = 0 }");
+    let mut client = Client::connect(&desk);
+    client.open("one", "One");
+    client.open("two", "Two");
+    let (one, two) = (desk.rect("one"), desk.rect("two"));
+    // The pointer is in the middle of the screen, in the gap between the two. Dragging two
+    // without holding still, both move: 300 up, 200 left.
+    desk.input(&format!(
+        "key {MOD} down; move 100 0; button left down; move -100 -150; move -100 -150; button left up"
+    ));
+    assert_eq!(
+        desk.rect("one")[..2],
+        [one[0] - 200, one[1] - 300],
+        "the cluster moves"
+    );
+    // Held still first, only two comes out: far away, it docks nowhere.
+    desk.input("button left down");
+    std::thread::sleep(Duration::from_millis(400));
+    desk.input("move 300 200; move 200 100; button left up");
+    assert_eq!(desk.rect("one")[..2], [one[0] - 200, one[1] - 300]);
+    assert_eq!(desk.rect("two")[..2], [two[0] + 300, two[1]]);
+    // Slowly back to 10 px beside the old place: it snaps with the gap and docks.
+    let events = desk.watch();
+    events.next();
+    events.next();
+    desk.input("button left down; move -200 -100");
+    for _ in 0..28 {
+        desk.input("move -10 -7");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    std::thread::sleep(Duration::from_millis(100));
+    desk.input("move -10 -1; button left up");
+    desk.input(&format!("key {MOD} up"));
+    assert_eq!(desk.rect("two")[..2], [two[0] - 200, two[1] - 300]);
+    assert!(events.next().contains("cluster.dock"));
+}
+
+#[test]
+fn the_border_between_two_windows_is_dragged_with_the_mouse() {
+    let desk = Desk::start("desk.animation { duration_ms = 0 }");
+    let mut client = Client::connect(&desk);
+    client.open("one", "One");
+    client.open("two", "Two");
+    let (one, two) = (desk.rect("one"), desk.rect("two"));
+    // Grabbed at the right edge of one (4 px left of the middle of the 16 px gap): pulled left,
+    // two gets full width. Less than half the way goes back.
+    let full = 2 * HALF.0 + 16;
+    desk.input("move -6 0; button left down; move -100 0; move -100 0; button left up");
+    client.sync();
+    assert_eq!((desk.rect("one"), desk.rect("two")), (one.clone(), two));
+    desk.input("move 200 0; button left down; move 100 0; move 600 0; button left up");
+    client.sync();
+    assert_eq!(desk.rect("one"), [one[0], one[1], full, one[3]]);
+}
+
+#[test]
+fn keys_focus_the_next_window_and_alt_tab_goes_back() {
+    let desk = Desk::start("");
+    let mut client = Client::connect(&desk);
+    client.open("one", "One");
+    client.open("two", "Two");
+    let focused = || desk.eval("return desk.focused().app_id");
+    // Mod+Left (105).
+    desk.input(&format!(
+        "key {MOD} down; key 105 down; key 105 up; key {MOD} up"
+    ));
+    assert_eq!(focused(), [r#""one""#]);
+    // Alt (56) + Tab (15).
+    desk.input("key 56 down; key 15 down; key 15 up; key 56 up");
+    assert_eq!(focused(), [r#""two""#]);
+}
+
+#[test]
+fn a_click_in_the_overview_chooses_the_window() {
+    let desk = Desk::start("desk.animation { duration_ms = 0 }");
+    let mut client = Client::connect(&desk);
+    client.open("one", "One");
+    client.open("two", "Two");
+    desk.eval("desk.run(desk.overview)");
+    desk.input("move -200 0; button left down; button left up");
+    assert_eq!(desk.eval("return desk.focused().app_id"), [r#""one""#]);
+    assert_eq!(desk.numbers("return desk.outputs()[1].view.zoom"), [1]);
 }
