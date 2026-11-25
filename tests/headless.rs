@@ -22,14 +22,18 @@ use std::{
 use wayland_client::{
     Connection, Dispatch, EventQueue, QueueHandle, delegate_noop,
     protocol::{
-        wl_buffer, wl_compositor, wl_keyboard, wl_output, wl_pointer, wl_registry, wl_seat, wl_shm,
-        wl_shm_pool, wl_surface,
+        wl_buffer, wl_callback, wl_compositor, wl_keyboard, wl_output, wl_pointer, wl_registry,
+        wl_seat, wl_shm, wl_shm_pool, wl_surface,
     },
 };
 use wayland_protocols::{
-    ext::session_lock::v1::client::{
-        ext_session_lock_manager_v1, ext_session_lock_surface_v1, ext_session_lock_v1,
+    ext::{
+        idle_notify::v1::client::{ext_idle_notification_v1, ext_idle_notifier_v1},
+        session_lock::v1::client::{
+            ext_session_lock_manager_v1, ext_session_lock_surface_v1, ext_session_lock_v1,
+        },
     },
+    wp::idle_inhibit::zv1::client::{zwp_idle_inhibit_manager_v1, zwp_idle_inhibitor_v1},
     xdg::{
         decoration::zv1::client::{zxdg_decoration_manager_v1, zxdg_toplevel_decoration_v1},
         shell::client::{xdg_surface, xdg_toplevel, xdg_wm_base},
@@ -250,6 +254,9 @@ struct Windows {
     decorations: Option<zxdg_decoration_manager_v1::ZxdgDecorationManagerV1>,
     layer_shell: Option<zwlr_layer_shell_v1::ZwlrLayerShellV1>,
     lock_manager: Option<ext_session_lock_manager_v1::ExtSessionLockManagerV1>,
+    idle_notifier: Option<ext_idle_notifier_v1::ExtIdleNotifierV1>,
+    inhibit_manager: Option<zwp_idle_inhibit_manager_v1::ZwpIdleInhibitManagerV1>,
+    seat: Option<wl_seat::WlSeat>,
     outputs: Vec<wl_output::WlOutput>,
     /// Where the window contents (shared memory) are created.
     dir: PathBuf,
@@ -262,6 +269,10 @@ struct Windows {
     keys: Vec<u32>,
     /// Like swaylock: what it heard about the lock it asked for last.
     locked: bool,
+    /// Like swayidle: nobody is there.
+    idle: bool,
+    /// Frames shown since `watch_frames`.
+    frames: u32,
     lock_refused: bool,
 }
 
@@ -403,6 +414,31 @@ impl Client {
         (surface, bar)
     }
 
+    /// How many frames window `index` gets in 200 ms.
+    fn frames(&mut self, index: usize) -> u32 {
+        let surface = self.windows.list[index].surface.clone();
+        surface.frame(&self.queue.handle(), surface.clone());
+        surface.commit();
+        self.sync();
+        self.windows.frames = 0;
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_millis(200) {
+            self.sync();
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        self.windows.frames
+    }
+
+    /// Whether the program hears within half a second that nobody is there.
+    fn gets_idle(&mut self) -> bool {
+        let start = Instant::now();
+        while !self.windows.idle && start.elapsed() < Duration::from_millis(500) {
+            self.sync();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        self.windows.idle
+    }
+
     /// Whether window `index` has the keyboard.
     fn has_keyboard(&mut self, index: usize) -> bool {
         self.sync();
@@ -498,11 +534,18 @@ impl Dispatch<wl_registry::WlRegistry, ()> for Windows {
                 "ext_session_lock_manager_v1" => {
                     state.lock_manager = Some(registry.bind(name, 1, qh, ()));
                 }
+                "ext_idle_notifier_v1" => {
+                    state.idle_notifier = Some(registry.bind(name, 1, qh, ()));
+                }
+                "zwp_idle_inhibit_manager_v1" => {
+                    state.inhibit_manager = Some(registry.bind(name, 1, qh, ()));
+                }
                 "wl_output" => state.outputs.push(registry.bind(name, 1, qh, ())),
                 "wl_seat" => {
                     let seat: wl_seat::WlSeat = registry.bind(name, 1, qh, ());
                     seat.get_keyboard(qh, ());
                     seat.get_pointer(qh, ());
+                    state.seat = Some(seat);
                 }
                 _ => {}
             }
@@ -542,6 +585,34 @@ impl Dispatch<wl_pointer::WlPointer, ()> for Windows {
             wl_pointer::Event::Leave { .. } => state.pointer = None,
             _ => {}
         }
+    }
+}
+
+impl Dispatch<ext_idle_notification_v1::ExtIdleNotificationV1, ()> for Windows {
+    fn event(
+        state: &mut Self,
+        _: &ext_idle_notification_v1::ExtIdleNotificationV1,
+        event: ext_idle_notification_v1::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        state.idle = matches!(event, ext_idle_notification_v1::Event::Idled);
+    }
+}
+
+impl Dispatch<wl_callback::WlCallback, wl_surface::WlSurface> for Windows {
+    fn event(
+        state: &mut Self,
+        _: &wl_callback::WlCallback,
+        _: wl_callback::Event,
+        surface: &wl_surface::WlSurface,
+        _: &Connection,
+        qh: &QueueHandle<Self>,
+    ) {
+        state.frames += 1;
+        surface.frame(qh, surface.clone());
+        surface.commit();
     }
 }
 
@@ -685,6 +756,9 @@ impl Dispatch<zxdg_toplevel_decoration_v1::ZxdgToplevelDecorationV1, usize> for 
 
 delegate_noop!(Windows: ignore zxdg_decoration_manager_v1::ZxdgDecorationManagerV1);
 delegate_noop!(Windows: ignore zwlr_layer_shell_v1::ZwlrLayerShellV1);
+delegate_noop!(Windows: ignore ext_idle_notifier_v1::ExtIdleNotifierV1);
+delegate_noop!(Windows: ignore zwp_idle_inhibit_manager_v1::ZwpIdleInhibitManagerV1);
+delegate_noop!(Windows: ignore zwp_idle_inhibitor_v1::ZwpIdleInhibitorV1);
 delegate_noop!(Windows: ignore ext_session_lock_manager_v1::ExtSessionLockManagerV1);
 delegate_noop!(Windows: ignore wl_output::WlOutput);
 delegate_noop!(Windows: ignore wl_seat::WlSeat);
@@ -1419,4 +1493,57 @@ fn bars_and_launchers_get_the_keyboard_as_they_ask() {
     launcher.destroy();
     other.sync();
     assert!(client.has_keyboard(0));
+}
+
+#[test]
+fn programs_learn_when_nobody_is_there() {
+    let desk = Desk::start("desk.animation { duration_ms = 0 }");
+    let mut client = Client::connect(&desk);
+    client.open("one", "One");
+    let qh = client.queue.handle();
+    let w = &client.windows;
+    let (notifier, seat) = (w.idle_notifier.clone().unwrap(), w.seat.clone().unwrap());
+    let manager = w.inhibit_manager.clone().unwrap();
+    notifier.get_idle_notification(100, &seat, &qh, ());
+    assert!(client.gets_idle());
+    desk.input("move 1 0");
+    client.sync();
+    assert!(!client.windows.idle);
+    // A video keeps it awake, as long as it can be seen.
+    let surface = client.windows.list[0].surface.clone();
+    let inhibitor = manager.create_inhibitor(&surface, &qh, ());
+    client.sync();
+    assert!(!client.gets_idle());
+    for _ in 0..4 {
+        desk.eval("desk.run(desk.pan('right'))");
+    }
+    assert!(client.gets_idle());
+    for _ in 0..4 {
+        desk.eval("desk.run(desk.pan('left'))");
+    }
+    client.sync();
+    assert!(!client.gets_idle());
+    inhibitor.destroy();
+    assert!(client.gets_idle());
+}
+
+#[test]
+fn screens_are_off_until_the_next_input() {
+    let desk = Desk::start("desk.bind('Mod+X', desk.screens_off)");
+    let mut client = Client::connect(&desk);
+    client.open("one", "One");
+    assert!(client.frames(0) > 5);
+    // Letting go the keys (Mod+X) does not switch them on again.
+    desk.input(&format!(
+        "key {MOD} down; key 45 down; key 45 up; key {MOD} up"
+    ));
+    assert!(client.frames(0) < 2);
+    // The screen can be locked meanwhile.
+    let mut locker = Client::connect(&desk);
+    let (lock, _) = locker.lock();
+    assert!(locker.windows.locked);
+    lock.unlock_and_destroy();
+    locker.sync();
+    desk.input("move 1 0");
+    assert!(client.frames(0) > 5);
 }

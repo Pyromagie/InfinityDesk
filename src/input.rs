@@ -55,6 +55,7 @@ enum KeyAction {
 
 impl InfinityDesk {
     pub fn process_input_event<I: InputBackend>(&mut self, event: InputEvent<I>) {
+        self.activity(&event);
         match event {
             InputEvent::Keyboard { event, .. } => {
                 let pressed = event.state() == KeyState::Pressed;
@@ -428,6 +429,7 @@ impl InfinityDesk {
                 }
             }
             Action::LayoutMenu => self.toggle_layout_menu(focused),
+            Action::ScreensOff => self.switch_screens_off(),
             Action::Quit => self.loop_signal.stop(),
             Action::Lua(f) => self.call_lua(&f, mlua::MultiValue::new(), "key binding"),
             // Moving around ends fullscreen first.

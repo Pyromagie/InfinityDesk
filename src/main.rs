@@ -13,6 +13,7 @@ mod focus;
 mod grabs;
 mod handlers;
 mod headless;
+mod idle;
 mod input;
 mod ipc;
 mod layout;
@@ -85,6 +86,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Between two turns of the loop, scripts get what happened, and programs what was sent to them.
     event_loop.run(None, &mut state, |state| {
         state.dispatch_events();
+        state.update_idle_inhibit();
         let _ = state.display_handle.flush_clients();
     })?;
     if let Some(path) = ipc_socket {

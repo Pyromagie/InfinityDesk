@@ -52,6 +52,8 @@ use smithay::{
         compositor::{CompositorClientState, CompositorState},
         dmabuf::DmabufState,
         fractional_scale::FractionalScaleManagerState,
+        idle_inhibit::IdleInhibitManagerState,
+        idle_notify::IdleNotifierState,
         output::OutputManagerState,
         selection::data_device::DataDeviceState,
         session_lock::SessionLockManagerState,
@@ -131,6 +133,10 @@ pub struct InfinityDesk {
     pub layer_focus: Option<WlSurface>,
     /// The screen is locked.
     pub lock: Option<Lock>,
+    /// The screens are switched off until the next input (see `idle.rs`).
+    pub screens_off: bool,
+    /// Surfaces that ask to stay awake while they can be seen.
+    pub idle_inhibitors: Vec<WlSurface>,
     /// The touchpad gesture in progress.
     pub gesture: Option<crate::input::Gesture>,
 
@@ -148,6 +154,8 @@ pub struct InfinityDesk {
     pub fractional_scale_state: FractionalScaleManagerState,
     /// Lets a program lock the screen.
     pub session_lock_state: SessionLockManagerState,
+    /// Tells programs when nobody is there.
+    pub idle_notifier: IdleNotifierState<Self>,
     /// Lets apps leave out their titlebar (see `titlebars` in the config).
     pub decoration_state: XdgDecorationState,
     /// Apps hand over GPU buffers directly (standalone only; offered by `udev`).
@@ -156,7 +164,7 @@ pub struct InfinityDesk {
 }
 
 impl InfinityDesk {
-    pub fn new(event_loop: &mut EventLoop<Self>, display: Display<Self>) -> Self {
+    pub fn new(event_loop: &mut EventLoop<'static, Self>, display: Display<Self>) -> Self {
         let dh = display.handle();
 
         let compositor_state = CompositorState::new::<Self>(&dh);
@@ -168,6 +176,8 @@ impl InfinityDesk {
         let viewporter_state = ViewporterState::new::<Self>(&dh);
         let fractional_scale_state = FractionalScaleManagerState::new::<Self>(&dh);
         let decoration_state = XdgDecorationState::new::<Self>(&dh);
+        let idle_notifier = IdleNotifierState::new(&dh, event_loop.handle());
+        IdleInhibitManagerState::new::<Self>(&dh);
         let session_lock_state = SessionLockManagerState::new::<Self, _>(&dh, |_| true);
 
         let config = Config::load();
@@ -230,6 +240,8 @@ impl InfinityDesk {
             switching: None,
             layer_focus: None,
             lock: None,
+            screens_off: false,
+            idle_inhibitors: Vec::new(),
             gesture: None,
             resizing: HashMap::new(),
             window_glides: HashMap::new(),
@@ -245,6 +257,7 @@ impl InfinityDesk {
             fractional_scale_state,
             decoration_state,
             session_lock_state,
+            idle_notifier,
             dmabuf_state: DmabufState::new(),
             seat,
         }
@@ -394,7 +407,6 @@ impl InfinityDesk {
     /// After a frame: tells apps they may draw their next one, and tidies up.
     pub fn send_frames(&mut self, output: &Output) {
         let time = self.start_time.elapsed();
-        self.lock_drawn(output);
         let lock_surface = (self.monitor.position(output))
             .and_then(|i| self.monitor.list[i].lock_surface.as_ref());
         if let Some(surface) = lock_surface.filter(|s| s.alive()) {

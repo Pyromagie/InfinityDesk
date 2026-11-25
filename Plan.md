@@ -189,7 +189,7 @@ Pyros Auswahl: keine Titelleisten, Rahmen ums aktive Fenster, abgerundete Ecken 
 9. **Schnittstellen für Alltagsprogramme** (Pyro, 23.11.2026; wie Hyprland und niri): InfinityDesk bietet nur die Standard-Protokolle an, die Programme selbst wählt jeder in seiner eigenen Config (Pyro in einem eigenen Repo, z. B. `desk.bind("Mod+L", desk.spawn("hyprlock"))`). Smithay bringt die meisten fertig mit. Ungefähr nach Wichtigkeit:
    - ✅ Bildschirm sperren (ext-session-lock; hyprlock, swaylock; 25.11.2026, mit swaylock genestet geprüft). Stürzt das Sperrprogramm ab, bleibt der Bildschirm schwarz gesperrt; ein neues kann übernehmen (andere Konsole: `WAYLAND_DISPLAY=wayland-1 swaylock`). Tastenkürzel gehen gesperrt nicht, nur der Konsolenwechsel
    - Screenshots (wlr-screencopy / ext-image-copy-capture; grim, hyprshot)
-   - Leerlauf und Bildschirm aus (ext-idle-notify, idle-inhibit; hypridle, swayidle; Videoplayer verhindern es)
+   - ✅ Leerlauf und Bildschirm aus (ext-idle-notify, idle-inhibit; hypridle, swayidle; Videoplayer verhindern es, solange sie zu sehen sind; 25.11.2026, ohne Bildschirm getestet). Aktion `desk.screens_off`: aus bis zur nächsten Eingabe (nur eigenständig, auf echter Hardware noch ungetestet)
    - Mittelklick-Einfügen und Zwischenablage-Verlauf (primary-selection, data-control; cliphist)
    - Bildschirm teilen (über xdg-desktop-portal-wlr; prüfen, was es braucht)
    - Mauszeiger festhalten für Spiele und 3D-Programme (pointer-constraints, relative-pointer)

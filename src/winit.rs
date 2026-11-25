@@ -143,24 +143,27 @@ pub fn init_winit(
                                 state.background(),
                             )
                             .map(|result| result.damage.cloned())
-                            .unwrap_or_else(|err| {
-                                tracing::error!("rendering failed: {err:?}");
-                                None
-                            })
+                            .inspect_err(|err| tracing::error!("rendering failed: {err:?}"))
+                            .ok()
                     }
                     Err(err) => {
                         tracing::error!("binding the back buffer failed: {err:?}");
                         None
                     }
                 };
-                let changed = damage.is_some();
-                // Nothing changed: nothing to show.
-                if let Some(damage) = damage
-                    && let Err(err) = backend.submit(Some(&damage))
-                {
-                    tracing::warn!("submitting the frame failed: {err:?}");
+                let changed = matches!(damage, Some(Some(_)));
+                let shown = match damage {
+                    Some(Some(damage)) => backend
+                        .submit(Some(&damage))
+                        .inspect_err(|err| tracing::warn!("submitting the frame failed: {err:?}"))
+                        .is_ok(),
+                    // Nothing changed: nothing to show.
+                    Some(None) => true,
+                    None => false,
+                };
+                if shown {
+                    state.lock_shown(&output);
                 }
-
                 state.send_frames(&output);
                 if changed {
                     // Showing the frame waits for the host's next one, so this does not spin.

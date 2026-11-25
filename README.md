@@ -143,6 +143,10 @@ cargo run --release -- -c firefox    # with a program inside
 - **Screen lock** with swaylock, hyprlock and the like (ext-session-lock): until it unlocks, only
   the lock is shown and gets input. If it crashes, the screen stays locked (black); start
   another one from a text console (`WAYLAND_DISPLAY=wayland-1 swaylock`).
+- **Idle:** hypridle, swayidle and the like learn when nobody is there (ext-idle-notify), unless a
+  video player in sight keeps the screen on (idle-inhibit). `desk.screens_off` switches the
+  screens off until the next input:
+  `swayidle timeout 300 "infinitydesk msg eval 'desk.run(desk.screens_off)'"`
 - **Layout templates:** Mod + R opens a menu of templates (whole screen, half | half, a half
   and two quarters, four quarters). Picking one arranges the active window's
   cluster so it fills exactly one screen, shown at 1:1. Click the slot the active window should
@@ -295,7 +299,7 @@ desk.colors { background = "#1a1a1f", grid = "#474752", accent = "#59a6ff", bord
 -- Actions: desk.spawn("command line"), desk.close_window, desk.fullscreen, desk.layout_menu,
 -- desk.focus(dir), desk.swap(dir), desk.resize(dir), desk.pan(dir) with dir "left", "right",
 -- "up" or "down", desk.zoom_in, desk.zoom_out, desk.center, desk.overview, desk.recent_windows,
--- desk.quit
+-- desk.screens_off, desk.quit
 desk.bind("Mod+B", desk.spawn("firefox"))
 desk.bind("Mod+L", desk.focus("right"))
 desk.unbind("Mod+Tab")
@@ -436,6 +440,7 @@ from `desk.cursor` in the config, else from `XCURSOR_THEME` and `XCURSOR_SIZE`.
 | `src/canvas.rs`   | Canvas, viewport and zoom (pure logic, tested)                |
 | `src/cluster.rs`  | Cluster membership, docking and snapping (pure logic, tested) |
 | `src/resize.rs`   | Resizing inside a cluster (pure logic, tested)                |
+| `src/idle.rs`     | Idle programs, switching screens off                          |
 | `src/layout.rs`   | Layout templates and their menu (pure logic, tested)          |
 | `src/arrange.rs`  | Applying templates and fullscreen to windows                  |
 | `src/navigate.rs` | Keyboard navigation and the overview (direction search tested)|

@@ -23,8 +23,8 @@ pub struct Lock {
     client: ExtSessionLockV1,
     /// It is told once every monitor shows nothing else any more.
     waiting: Option<SessionLocker>,
-    /// How many frames each monitor was drawn since.
-    drawn: Vec<(Output, u32)>,
+    /// The monitors that show nothing else.
+    shown: Vec<Output>,
 }
 
 impl SessionLockHandler for InfinityDesk {
@@ -54,7 +54,7 @@ impl SessionLockHandler for InfinityDesk {
         self.lock = Some(Lock {
             client: confirmation.ext_session_lock().clone(),
             waiting: Some(confirmation),
-            drawn: Vec::new(),
+            shown: Vec::new(),
         });
         self.lock_changed();
         self.confirm_lock();
@@ -98,26 +98,23 @@ impl InfinityDesk {
         }
     }
 
-    /// A monitor was drawn while the screen is locked.
-    pub fn lock_drawn(&mut self, output: &Output) {
-        let Some(lock) = self.lock.as_mut().filter(|l| l.waiting.is_some()) else {
-            return;
-        };
-        match lock.drawn.iter_mut().find(|(o, _)| o == output) {
-            Some((_, frames)) => *frames += 1,
-            None => lock.drawn.push((output.clone(), 1)),
+    /// A frame drawn while the screen was locked is really on a monitor now.
+    pub fn lock_shown(&mut self, output: &Output) {
+        if let Some(lock) = &mut self.lock
+            && lock.waiting.is_some()
+            && !lock.shown.contains(output)
+        {
+            lock.shown.push(output.clone());
+            self.confirm_lock();
         }
-        self.confirm_lock();
     }
 
-    /// After a monitor's second frame, the first one is shown for sure. Once all monitors are that
-    /// far, the program learns that the screen is locked.
+    /// Once all monitors show the lock (or are off), the program learns that the screen is locked.
     pub fn confirm_lock(&mut self) {
         let Some(lock) = &mut self.lock else {
             return;
         };
-        let done = |o: &Output| lock.drawn.iter().any(|(d, frames)| d == o && *frames > 1);
-        if self.monitor.outputs().all(done)
+        if (self.screens_off || self.monitor.outputs().all(|o| lock.shown.contains(o)))
             && let Some(confirmation) = lock.waiting.take()
         {
             confirmation.lock();

@@ -40,8 +40,12 @@ pub fn init_headless(
         .handle()
         .insert_source(Timer::immediate(), move |_, _, state| {
             state.step_animations();
-            let outputs: Vec<Output> = state.monitor.outputs().cloned().collect();
+            let outputs: Vec<Output> = match state.screens_off {
+                true => Vec::new(),
+                false => state.monitor.outputs().cloned().collect(),
+            };
             for output in &outputs {
+                state.lock_shown(output);
                 state.send_frames(output);
             }
             TimeoutAction::ToDuration(frame)

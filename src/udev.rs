@@ -45,8 +45,13 @@ use crate::{
     render::{Scene, bar_elements, desk_elements, lock_elements},
 };
 
-type Compositor =
-    DrmCompositor<GbmAllocator<DrmDeviceFd>, GbmFramebufferExporter<DrmDeviceFd>, (), DrmDeviceFd>;
+/// With each frame, it keeps whether it was drawn while the screen is locked.
+type Compositor = DrmCompositor<
+    GbmAllocator<DrmDeviceFd>,
+    GbmFramebufferExporter<DrmDeviceFd>,
+    bool,
+    DrmDeviceFd,
+>;
 
 /// The graphics card with its monitors, and the input devices.
 pub struct Udev {
@@ -285,12 +290,10 @@ pub fn init_udev(
                     }
                     screen.frame_pending = false;
                 }
-                let crtcs: Vec<crtc::Handle> = udev.screens.iter().map(|s| s.crtc).collect();
+                state.screens_off = false;
                 // Monitors may have come and gone meanwhile.
                 state.update_screens();
-                for crtc in crtcs {
-                    state.render_screen(crtc);
-                }
+                state.wake_screens();
             }
         }
     })?;
@@ -469,6 +472,31 @@ impl InfinityDesk {
         }
     }
 
+    /// Draws all screens again (standalone), which also switches them on.
+    pub fn wake_screens(&mut self) {
+        let screens = self.udev.iter().flat_map(|udev| &udev.screens);
+        let crtcs: Vec<crtc::Handle> = screens.map(|s| s.crtc).collect();
+        for crtc in crtcs {
+            self.render_screen(crtc);
+        }
+    }
+
+    /// Switches all screens off (standalone); drawing them switches them on again. Whether it
+    /// worked.
+    pub fn darken_screens(&mut self) -> bool {
+        let mut all = true;
+        for screen in self.udev.iter_mut().flat_map(|udev| &mut udev.screens) {
+            match screen.compositor.clear() {
+                Ok(()) => screen.frame_pending = false,
+                Err(err) => {
+                    tracing::warn!("Switching a screen off failed: {err}");
+                    all = false;
+                }
+            }
+        }
+        all
+    }
+
     /// Draws the next frame of a screen if something changed. Then it reports when the frame is
     /// shown (`frame_shown`); if nothing changed, it is looked at again after one frame.
     fn render_screen(&mut self, crtc: crtc::Handle) {
@@ -509,7 +537,7 @@ impl InfinityDesk {
         let Some(screen) = udev.screens.iter_mut().find(|s| s.crtc == crtc) else {
             return;
         };
-        if screen.frame_pending || !udev.session.is_active() {
+        if screen.frame_pending || !udev.session.is_active() || self.screens_off {
             return;
         }
         let mut elements = match pointer {
@@ -545,15 +573,19 @@ impl InfinityDesk {
             background,
             FrameFlags::DEFAULT,
         );
+        let mut unchanged = false;
         screen.frame_pending = match rendered {
-            Ok(frame) if !frame.is_empty => match screen.compositor.queue_frame(()) {
+            Ok(frame) if !frame.is_empty => match screen.compositor.queue_frame(locked) {
                 Ok(()) => true,
                 Err(err) => {
                     tracing::warn!("Showing the frame failed: {err:?}");
                     false
                 }
             },
-            Ok(_) => false,
+            Ok(_) => {
+                unchanged = true;
+                false
+            }
             Err(err) => {
                 tracing::warn!("Drawing the frame failed: {err:?}");
                 false
@@ -573,6 +605,10 @@ impl InfinityDesk {
                 screen.redraw_planned = false;
             }
         }
+        // What is shown already looks like that.
+        if locked && unchanged {
+            self.lock_shown(output);
+        }
         self.send_frames(output);
     }
 
@@ -584,10 +620,16 @@ impl InfinityDesk {
     /// The last frame is on the screen now: on to the next one.
     fn frame_shown(&mut self, crtc: crtc::Handle) {
         if let Some(screen) = self.screen(crtc) {
-            if let Err(err) = screen.compositor.frame_submitted() {
-                tracing::warn!("Frame bookkeeping failed: {err:?}");
-            }
             screen.frame_pending = false;
+            match screen.compositor.frame_submitted() {
+                // Drawn while locked.
+                Ok(Some(true)) => {
+                    let output = screen.output.clone();
+                    self.lock_shown(&output);
+                }
+                Ok(_) => {}
+                Err(err) => tracing::warn!("Frame bookkeeping failed: {err:?}"),
+            }
         }
         self.render_screen(crtc);
     }

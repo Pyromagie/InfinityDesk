@@ -507,6 +507,8 @@ pub enum Action {
     Overview,
     /// Goes back through the windows in the order they were used, while the modifiers are held.
     RecentWindows,
+    /// Switches the screens off until the next input.
+    ScreensOff,
     /// Ends InfinityDesk (and with it the session).
     Quit,
     /// Mouse button: drags the cluster under the pointer (held still first: pulls the window out),
@@ -542,7 +544,7 @@ impl Action {
 impl UserData for Action {}
 
 /// The actions that need no argument, by their Lua name.
-const SIMPLE_ACTIONS: [(&str, Action); 13] = [
+const SIMPLE_ACTIONS: [(&str, Action); 14] = [
     ("close_window", Action::CloseWindow),
     ("fullscreen", Action::Fullscreen),
     ("layout_menu", Action::LayoutMenu),
@@ -551,6 +553,7 @@ const SIMPLE_ACTIONS: [(&str, Action); 13] = [
     ("center", Action::Center),
     ("overview", Action::Overview),
     ("recent_windows", Action::RecentWindows),
+    ("screens_off", Action::ScreensOff),
     ("quit", Action::Quit),
     ("drag_move", Action::DragMove),
     ("drag_resize", Action::DragResize),
