@@ -149,6 +149,31 @@ pub fn toggle(
         .or_else(|| flips().find_map(|flip| resize(flip, together, together)))
 }
 
+/// `rects` (windows in the sizes of a screen of size `from`) in those of a screen of size `to`:
+/// half stays half and full stays full, and what touches (`gap` apart) still does. Distances
+/// are kept in proportion around `fixed`.
+pub fn to_screen(
+    rects: &[Rect],
+    fixed: Point<f64, Logical>,
+    from: Size<i32, Logical>,
+    to: Size<i32, Logical>,
+    gap: i32,
+) -> Vec<Rect> {
+    // A window and the gap after it take a half (or the whole) of the screen without one gap.
+    let factor = [(from.w, to.w), (from.h, to.h)].map(|(f, t)| (t - gap) as f64 / (f - gap) as f64);
+    let at = |v: i32, fixed: f64, axis: usize| {
+        (fixed + (v as f64 - fixed) * factor[axis]).round() as i32
+    };
+    (rects.iter())
+        .map(|r| {
+            let loc = Point::from((at(r.loc.x, fixed.x, 0), at(r.loc.y, fixed.y, 1)));
+            let end = r.loc + r.size.to_point() + Point::from((gap, gap));
+            let end = Point::from((at(end.x, fixed.x, 0) - gap, at(end.y, fixed.y, 1) - gap));
+            Rect::from_extremities(loc, end)
+        })
+        .collect()
+}
+
 /// Do the windows hang together, each touching another one along an edge (not just at a corner)?
 fn connected(rects: &[Rect], gap: i32) -> bool {
     reach(rects, 0, gap).iter().all(|&r| r)
@@ -757,6 +782,28 @@ mod tests {
                 rect(10, 10, 500, 300)
             ]
         );
+    }
+
+    #[test]
+    fn half_and_full_stay_half_and_full_on_another_screen() {
+        // Half | half above a full one, on 1920×1080 with gaps of 16.
+        let rects = [
+            rect(16, 16, 936, 516),
+            rect(968, 16, 936, 516),
+            rect(16, 548, 1888, 516),
+        ];
+        let (from, to) = ((1920, 1080).into(), (1280, 720).into());
+        let new = to_screen(&rects, (16.0, 16.0).into(), from, to, 16);
+        let half = rect(16, 16, 616, 336);
+        assert_eq!(new[0], half);
+        assert_eq!(new[1], rect(16 + 616 + 16, 16, 616, 336));
+        assert_eq!(new[2], rect(16, 16 + 336 + 16, 1248, 336));
+        // And back.
+        assert_eq!(to_screen(&new, (16.0, 16.0).into(), to, from, 16), rects);
+        // Around any other point they still touch.
+        let new = to_screen(&rects, (700.0, 333.0).into(), from, to, 16);
+        assert!(touching(&new[0], &new[1], 16) && touching(&new[0], &new[2], 16));
+        assert_eq!(new[0].size, half.size);
     }
 
     #[test]

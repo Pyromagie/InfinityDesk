@@ -23,7 +23,8 @@
 //! desk.cursor { theme = "Adwaita", size = 24 }
 //! desk.window_rule { match = { app_id = "^firefox$" }, width = "full", height = "full",
 //!                    open_fullscreen = false, dock = true }
-//! desk.output { name = "DP-2", mode = "3440x1440@175", scale = 1.0, transform = "normal" }
+//! desk.output { name = "DP-2", mode = "3440x1440@175", scale = 1.0, transform = "normal",
+//!   position = { x = 0, y = 0 } }
 //!
 //! -- Scripting: functions on keys and events; desk.run carries out an action from inside them.
 //! desk.bind("Mod+G", function() desk.run(desk.spawn("kitty")) end)
@@ -120,6 +121,7 @@ pub struct OutputConfig {
     mode: Option<OutputMode>,
     scale: Option<f64>,
     transform: Option<Transform>,
+    position: Option<(i32, i32)>,
 }
 
 /// A resolution, and a refresh rate in Hz (`None`: the highest there is).
@@ -137,6 +139,8 @@ pub struct OutputSettings {
     pub mode: Option<OutputMode>,
     pub scale: f64,
     pub transform: Transform,
+    /// Where it stands beside the others (`None`: to the right of them).
+    pub position: Option<(i32, i32)>,
 }
 
 /// What happens to the windows of certain programs when they open (`desk.window_rule`).
@@ -170,11 +174,13 @@ impl Config {
             mode: None,
             scale: 1.0,
             transform: Transform::Normal,
+            position: None,
         };
         for o in (self.outputs.iter()).filter(|o| o.name.as_ref().is_none_or(|n| n == name)) {
             settings.mode = o.mode.or(settings.mode);
             settings.scale = o.scale.unwrap_or(settings.scale);
             settings.transform = o.transform.unwrap_or(settings.transform);
+            settings.position = o.position.or(settings.position);
         }
         settings
     }
@@ -1127,7 +1133,11 @@ fn window_rule(config: &mut Config, t: &Table) -> mlua::Result<()> {
 }
 
 fn output(config: &mut Config, t: &Table) -> mlua::Result<()> {
-    check_keys(t, "output", &["name", "mode", "scale", "transform"])?;
+    check_keys(
+        t,
+        "output",
+        &["name", "mode", "scale", "transform", "position"],
+    )?;
     let mode = match get::<String>(t, "output", "mode")? {
         None => None,
         Some(text) => Some(parse_mode(&text).ok_or_else(|| {
@@ -1159,12 +1169,24 @@ fn output(config: &mut Config, t: &Table) -> mlua::Result<()> {
             return Err(setting_error("output", "transform", message));
         }
     };
+    let position = match get::<Table>(t, "output", "position")? {
+        None => None,
+        Some(p) => {
+            check_keys(&p, "output.position", &["x", "y"])?;
+            let coordinate = |key| {
+                let value = get_in(&p, "output.position", key, -100_000..=100_000)?;
+                value.ok_or_else(|| setting_error("output.position", key, "is missing"))
+            };
+            Some((coordinate("x")?, coordinate("y")?))
+        }
+    };
     config.outputs.push(OutputConfig {
         name: get(t, "output", "name")?,
         mode,
         // Clients get scales in 120ths.
         scale: scale.map(|s| (s * 120.0).round() / 120.0),
         transform,
+        position,
     });
     Ok(())
 }
@@ -1451,6 +1473,7 @@ mod tests {
             desk.output { scale = 1.25 }
             desk.output { name = "DP-2", mode = "2560x1440@143.9", transform = "90" }
             desk.output { name = "HDMI-A-1", mode = "1920x1080", scale = 2 }
+            desk.output { name = "DP-2", position = { x = -1280, y = 0 } }
             "#,
         )
         .unwrap();
@@ -1467,6 +1490,7 @@ mod tests {
         assert_eq!(dp.mode, mode(2560, 1440, Some(143.9)));
         let hdmi = config.output("HDMI-A-1");
         assert_eq!((hdmi.scale, hdmi.mode), (2.0, mode(1920, 1080, None)));
+        assert_eq!((dp.position, hdmi.position), (Some((-1280, 0)), None));
         let other = config.output("eDP-1");
         assert_eq!(
             (other.scale, other.mode, other.transform),
@@ -1483,6 +1507,7 @@ mod tests {
                 r#"output.mode: expected e.g."#,
             ),
             ("scale = 5", "output.scale: must be between 0.5 and 4"),
+            ("position = { x = 5 }", "output.position.y: is missing"),
             (
                 r#"transform = "45""#,
                 r#"output.transform: expected "normal""#,

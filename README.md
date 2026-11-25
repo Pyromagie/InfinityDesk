@@ -329,6 +329,8 @@ desk.output {
                           -- highest refresh rate. Without "@...": the highest at that resolution
   scale = 1.5,            -- 0.5 to 4, e.g. for high resolution screens
   transform = "normal",   -- turned: "90", "180", "270", mirrored: "flipped", "flipped-90", ...
+  position = { x = 0, y = 0 }, -- where it stands beside the others, in logical pixels; without
+                          -- it: to the right of them. The pointer crosses where they touch
 }
 
 -- Scripting: functions on keys and on events; desk.run carries out any key action right away.

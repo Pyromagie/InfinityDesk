@@ -141,6 +141,45 @@ impl Toggle {
 }
 
 impl InfinityDesk {
+    /// Windows dragged from monitor `from` to the current one go along with the pointer, from
+    /// `old` to `new`, and take the current one's sizes: half stays half, full stays full.
+    /// Windows with a size of their own (dialogs, undocked ones) keep it.
+    fn take_to_monitor(
+        &mut self,
+        members: &mut [DraggedWindow],
+        from: usize,
+        old: Point<f64, Logical>,
+        new: Point<f64, Logical>,
+    ) {
+        let rects: Vec<Rect> = (members.iter())
+            .map(|m| self.target_rect(&m.window).unwrap_or(m.initial_geo))
+            .collect();
+        let (from, to) = (&self.monitor.list[from].canvas, &self.monitor.canvas);
+        let (from, to) = (from.screen_size(), to.screen_size());
+        let mut moved = resize::to_screen(&rects, old, from, to, self.config.gaps);
+        let fits = members.iter().zip(&moved).all(|(m, r)| {
+            let toplevel = m.window.toplevel().unwrap();
+            let min = min_size(&m.window);
+            toplevel.parent().is_none()
+                && self.rules(toplevel).dock
+                && r.size.w >= min.w
+                && r.size.h >= min.h
+        });
+        if !fits {
+            moved = rects.clone();
+        }
+        let shift = (new - old).to_i32_round();
+        for ((m, old), mut rect) in members.iter_mut().zip(rects).zip(moved) {
+            rect.loc += shift;
+            m.initial_loc = rect.loc;
+            m.initial_geo = rect;
+            if rect.size != old.size {
+                self.resize_to(&m.window, rect, None);
+                self.window_glides.remove(&m.window);
+            }
+        }
+    }
+
     /// Plans toggling the size of `window` at `edges` (with `shift`: the rest of the cluster
     /// beyond the edges moves instead of the neighbors changing size).
     pub fn plan_toggle(&self, window: &Window, edges: [Edge; 2], shift: bool) -> Toggle {
@@ -278,6 +317,8 @@ enum DragKind {
         /// Last pointer position and time, and the pointer speed (screen pixels per second).
         last: (Point<f64, Logical>, Instant),
         speed: f64,
+        /// The monitor the pointer was on.
+        monitor: usize,
     },
     /// A window's size changes between half and full; its cluster neighbors follow. Which
     /// window and edges is decided on the first movement (see `choose_resize`); then the edges
@@ -346,8 +387,14 @@ impl DragGrab {
                 members,
                 pressed,
                 speed: 0.0,
+                monitor: state.monitor.current(),
             },
         }
+    }
+
+    /// The windows come along when the pointer goes to another monitor.
+    pub fn moves_windows(&self) -> bool {
+        matches!(self.kind, DragKind::MoveWindows { .. })
     }
 
     /// Resizes a window at one of `borders` (see `borders_under`), following the pointer between
@@ -402,7 +449,7 @@ impl PointerGrab<InfinityDesk> for DragGrab {
         // No client receives pointer events while dragging.
         handle.motion(data, None, event);
 
-        let pointer_delta = event.location - self.start_data.location;
+        let mut pointer_delta = event.location - self.start_data.location;
         match &mut self.kind {
             DragKind::MoveWindows {
                 group,
@@ -410,8 +457,10 @@ impl PointerGrab<InfinityDesk> for DragGrab {
                 pressed,
                 last,
                 speed,
+                monitor,
             } => {
-                // Smoothed pointer speed: windows passing by quickly do not snap.
+                // Smoothed pointer speed: windows passing by quickly do not snap. (Another
+                // monitor shows another place: that jump is fast, too.)
                 let (last_pos, last_time) = *last;
                 let distance = (event.location - last_pos).upscale(data.monitor.canvas.zoom());
                 let dt = last_time.elapsed().as_secs_f64().max(0.001);
@@ -438,9 +487,20 @@ impl PointerGrab<InfinityDesk> for DragGrab {
                     }
                 }
 
+                if *monitor != data.monitor.current() {
+                    data.take_to_monitor(members, *monitor, last_pos, event.location);
+                    *monitor = data.monitor.current();
+                    self.start_data.location = event.location;
+                    pointer_delta = Point::default();
+                }
+
                 let snap = *speed < SNAP_MAX_SPEED;
                 let delta = cluster_delta(data, members, pointer_delta.to_i32_round(), snap);
                 for m in members.iter() {
+                    // Changing its size meanwhile (another monitor), it stays at the pointer.
+                    if let Some(r) = data.resizing.get_mut(&m.window) {
+                        r.rect.loc = m.initial_loc + delta;
+                    }
                     data.space
                         .map_element(m.window.clone(), m.initial_loc + delta, false);
                 }

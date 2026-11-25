@@ -961,3 +961,89 @@ fn a_click_in_the_overview_chooses_the_window() {
     assert_eq!(desk.eval("return desk.focused().app_id"), [r#""one""#]);
     assert_eq!(desk.numbers("return desk.outputs()[1].view.zoom"), [1]);
 }
+
+/// The name of the monitor the pointer is on.
+fn current(desk: &Desk) -> String {
+    let code = "for _, o in ipairs(desk.outputs()) do if o.focused then return o.name end end";
+    desk.eval(code).concat().replace('"', "")
+}
+
+#[test]
+fn the_pointer_goes_over_to_the_monitor_beside() {
+    let desk = Desk::start_with(2, TWO);
+    // From the middle of the first monitor over its right edge and back.
+    desk.input("move 1000 0");
+    assert_eq!(current(&desk), "headless-2");
+    desk.input("move -100 0");
+    assert_eq!(current(&desk), "headless");
+    // Beside the lower part there is no monitor: the pointer stays at the edge.
+    desk.input("move -900 400; move 1000 0");
+    assert_eq!(current(&desk), "headless");
+    // Dragging the canvas stays on its monitor, also beyond its edge.
+    desk.input("move 0 -400; move -100 0; button left down; move 500 0");
+    assert_eq!(current(&desk), "headless");
+    desk.input("button left up; move 10 0");
+    assert_eq!(current(&desk), "headless-2");
+    // Placed to the left in the config, at once; the views stay.
+    let view = desk.eval("return view(2)");
+    desk.rewrite_config(
+        &format!(
+            "{TWO} desk.output {{ name = 'headless-2', position = {{ x = -1280, y = 100 }} }}"
+        ),
+        1,
+    );
+    assert_eq!(
+        desk.numbers("local o = desk.outputs()[2] return o.x, o.y"),
+        [-1280, 100]
+    );
+    assert_eq!(desk.eval("return view(2)"), view);
+    desk.input("move 2000 0");
+    assert_eq!(current(&desk), "headless");
+}
+
+#[test]
+fn a_button_held_on_a_program_keeps_the_pointer_on_its_monitor() {
+    let desk = Desk::start_with(2, TWO);
+    let mut client = Client::connect(&desk);
+    client.open("one", "One");
+    desk.input("move -300 0; button left down; move 1500 0");
+    assert_eq!(current(&desk), "headless");
+    desk.input("button left up; move 10 0");
+    assert_eq!(current(&desk), "headless-2");
+}
+
+#[test]
+fn windows_dragged_to_another_monitor_take_its_sizes() {
+    let desk = Desk::start_with(2, TWO);
+    let mut client = Client::connect(&desk);
+    client.open("one", "One");
+    client.open("two", "Two");
+    let (x, y) = (30000 - 960, 18000 - 540);
+    let before = (desk.rect("one"), desk.rect("two"));
+    // Grabbed in one, 400 px left of the middle; over to 140 px from the second's left edge.
+    desk.input(&format!(
+        "move -400 0; key {MOD} down; button left down; move 1480 0; move 20 0"
+    ));
+    assert_eq!(current(&desk), "headless-2");
+    client.sync();
+    let (one, two) = (desk.rect("one"), desk.rect("two"));
+    let half = ((1280 - 3 * 16) / 2, 720 - 2 * 16);
+    assert_eq!((one[2], one[3]), half);
+    assert_eq!((two[2], two[3]), half);
+    // Still side by side, and held at the same spot of the window (the 544 px from its left
+    // edge became 361).
+    assert_eq!(two[..2], [one[0] + half.0 + 16, one[1]]);
+    assert_eq!(one[..2], [x + 1920 + 140 - 361, y + 193]);
+    // Back: as before.
+    desk.input("move -1500 0; button left up");
+    client.sync();
+    assert_eq!((desk.rect("one"), desk.rect("two")), before);
+    // A window with a size of its own (in the middle of the first monitor) keeps it.
+    client.open_with("dialog", "Dialog", Some(0));
+    let dialog = desk.rect("dialog");
+    desk.input("move 400 0; button left down; move 1000 0; button left up");
+    desk.input(&format!("key {MOD} up"));
+    client.sync();
+    let moved = [dialog[0] + 1000, dialog[1], dialog[2], dialog[3]];
+    assert_eq!(desk.rect("dialog"), moved);
+}

@@ -121,18 +121,9 @@ impl InfinityDesk {
                 self.pointer_moved(self.monitor.canvas.screen_to_canvas(screen), event.time());
             }
 
-            // Mice and touchpads (standalone) move the pointer by an amount, within the screen.
+            // Mice and touchpads (standalone) move the pointer by an amount.
             InputEvent::PointerMotion { event, .. } => {
-                let size = self.monitor.canvas.screen_size().to_f64();
-                let pos = self.pointer_screen + event.delta();
-                let pos = (
-                    pos.x.clamp(0.0, size.w - 1.0),
-                    pos.y.clamp(0.0, size.h - 1.0),
-                );
-                self.pointer_moved(
-                    self.monitor.canvas.screen_to_canvas(pos.into()),
-                    event.time(),
-                );
+                self.move_pointer(event.delta(), event.time());
             }
 
             InputEvent::PointerMotionAbsolute { event, .. } => {

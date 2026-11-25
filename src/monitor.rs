@@ -5,16 +5,20 @@ use std::ops::{Deref, DerefMut};
 use smithay::{
     backend::input::InputTime,
     desktop::{Window, WindowSurfaceType, layer_map_for_output},
+    input::pointer::ClickGrab,
     output::Output,
     reexports::wayland_server::protocol::wl_surface::WlSurface,
-    utils::{Logical, Size},
+    utils::{Logical, Point, Size},
     wayland::{
         compositor::{TraversalAction, with_surface_tree_downward},
         fractional_scale::with_fractional_scale,
     },
 };
 
-use crate::{InfinityDesk, arrange::Fullscreen, canvas::Canvas, cluster::Rect, navigate::Overview};
+use crate::{
+    InfinityDesk, arrange::Fullscreen, canvas::Canvas, cluster::Rect, grabs::DragGrab,
+    navigate::Overview,
+};
 
 pub struct Monitor {
     /// `None`: no monitor is connected, this one only keeps the view until there is one.
@@ -145,15 +149,55 @@ impl InfinityDesk {
         self.output_changed(&output);
     }
 
-    /// The monitors stand side by side, in the order they were connected.
+    /// The monitors stand where the config says, the others to the right of them side by side,
+    /// in the order they were connected.
     fn arrange_outputs(&mut self) {
-        let mut x = 0;
-        for output in self.monitor.outputs() {
-            if output.current_location() != (x, 0).into() {
-                output.change_current_state(None, None, None, Some((x, 0).into()));
+        let place = |output: &Output, loc: Point<i32, Logical>| {
+            if output.current_location() != loc {
+                output.change_current_state(None, None, None, Some(loc));
             }
-            x += screen_size(output).w;
+            loc.x + screen_size(output).w
+        };
+        let position = |o: &Output| self.config.output(&o.name()).position;
+        let mut x = (self.monitor.outputs())
+            .filter_map(|o| Some(place(o, position(o)?.into())))
+            .max()
+            .unwrap_or(0);
+        for output in self.monitor.outputs().filter(|o| position(o).is_none()) {
+            x = place(output, (x, 0).into());
         }
+    }
+
+    /// A mouse or touchpad moves the pointer by `delta`, also onto another monitor beside the
+    /// current one: there it is at another place of the canvas. A window being dragged comes
+    /// along; other drags stay on their monitor.
+    pub fn move_pointer(&mut self, delta: Point<f64, Logical>, time: InputTime) {
+        let pointer = self.seat.get_pointer().unwrap();
+        let stays = pointer.with_grab(|_, grab| match grab.downcast_ref::<DragGrab>() {
+            Some(drag) => !drag.moves_windows(),
+            // A button held on a program.
+            None => grab.is::<ClickGrab<Self>>(),
+        });
+        let rects: Vec<Rect> = (self.monitor.list.iter())
+            .map(|m| {
+                let loc = m.output.as_ref().map(|o| o.current_location());
+                Rect::new(loc.unwrap_or_default(), m.canvas.screen_size())
+            })
+            .collect();
+        let pos = self.pointer_screen + delta;
+        let current = self.monitor.current;
+        let pos = match across(&rects, current, pos) {
+            Some((i, pos)) if i == current || !stays.unwrap_or(false) => {
+                self.monitor.current = i;
+                pos
+            }
+            _ => {
+                let max = rects[current].size.to_f64() - Size::from((1.0, 1.0));
+                let clamp = |v: f64, max: f64| v.min(max).max(0.0);
+                (clamp(pos.x, max.w), clamp(pos.y, max.h)).into()
+            }
+        };
+        self.pointer_moved(self.monitor.canvas.screen_to_canvas(pos), time);
     }
 
     /// A monitor changed its size or scale (nested window resized, monitor settings): bars,
@@ -211,6 +255,20 @@ impl InfinityDesk {
     }
 }
 
+/// The monitor under `pos` (a position on monitor `current`, maybe beyond its edges), and the
+/// position on it. `None`: there is none.
+fn across(
+    rects: &[Rect],
+    current: usize,
+    pos: Point<f64, Logical>,
+) -> Option<(usize, Point<f64, Logical>)> {
+    let pos = pos + rects[current].loc.to_f64();
+    // The current one first, should monitors overlap.
+    (std::iter::once(current).chain(0..rects.len()))
+        .find(|&i| rects[i].to_f64().contains(pos))
+        .map(|i| (i, pos - rects[i].loc.to_f64()))
+}
+
 /// The screen's size in logical pixels: its resolution, turned and divided by its scale.
 pub fn screen_size(output: &Output) -> Size<i32, Logical> {
     let mode = output.current_mode().unwrap();
@@ -229,4 +287,34 @@ fn set_scale(surface: &WlSurface, output: &Output) {
         |_, states, _| with_fractional_scale(states, |f| f.set_preferred_scale(scale)),
         |_, _, _| true,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_pointer_crosses_where_monitors_touch() {
+        // A small monitor to the right of the first one, 100 px lower, and one above.
+        let rect = |x, y, w, h| Rect::new((x, y).into(), (w, h).into());
+        let rects = [
+            rect(0, 0, 1920, 1080),
+            rect(1920, 100, 1280, 720),
+            rect(0, -1080, 1920, 1080),
+        ];
+        let from = |i, x: f64, y: f64| across(&rects, i, (x, y).into());
+        assert_eq!(from(0, 1919.0, 500.0), Some((0, (1919.0, 500.0).into())));
+        assert_eq!(from(0, 1925.0, 500.0), Some((1, (5.0, 400.0).into())));
+        assert_eq!(from(1, -5.0, 400.0), Some((0, (1915.0, 500.0).into())));
+        assert_eq!(from(0, 300.0, -1.0), Some((2, (300.0, 1079.0).into())));
+        // Beside the small monitor there is nothing.
+        assert_eq!(from(0, 1925.0, 50.0), None);
+        assert_eq!(from(1, 5.0, -50.0), None);
+        // Overlapping (mirrored) monitors: it stays.
+        let same = [rects[0], rects[0]];
+        assert_eq!(
+            across(&same, 1, (5.0, 5.0).into()),
+            Some((1, (5.0, 5.0).into()))
+        );
+    }
 }
