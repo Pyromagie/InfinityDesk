@@ -5,7 +5,7 @@
 
 use std::{
     fs::File,
-    io::{BufRead, BufReader},
+    io::{BufRead, BufReader, Read, Write},
     os::{
         fd::AsFd,
         unix::{fs::PermissionsExt, net::UnixStream},
@@ -28,12 +28,22 @@ use wayland_client::{
 };
 use wayland_protocols::{
     ext::{
+        data_control::v1::client::{
+            ext_data_control_device_v1, ext_data_control_manager_v1, ext_data_control_offer_v1,
+            ext_data_control_source_v1,
+        },
         idle_notify::v1::client::{ext_idle_notification_v1, ext_idle_notifier_v1},
         session_lock::v1::client::{
             ext_session_lock_manager_v1, ext_session_lock_surface_v1, ext_session_lock_v1,
         },
     },
-    wp::idle_inhibit::zv1::client::{zwp_idle_inhibit_manager_v1, zwp_idle_inhibitor_v1},
+    wp::{
+        idle_inhibit::zv1::client::{zwp_idle_inhibit_manager_v1, zwp_idle_inhibitor_v1},
+        primary_selection::zv1::client::{
+            zwp_primary_selection_device_manager_v1, zwp_primary_selection_device_v1,
+            zwp_primary_selection_offer_v1,
+        },
+    },
     xdg::{
         decoration::zv1::client::{zxdg_decoration_manager_v1, zxdg_toplevel_decoration_v1},
         shell::client::{xdg_surface, xdg_toplevel, xdg_wm_base},
@@ -262,6 +272,10 @@ struct Windows {
     lock_manager: Option<ext_session_lock_manager_v1::ExtSessionLockManagerV1>,
     idle_notifier: Option<ext_idle_notifier_v1::ExtIdleNotifierV1>,
     inhibit_manager: Option<zwp_idle_inhibit_manager_v1::ZwpIdleInhibitManagerV1>,
+    data_control: Option<ext_data_control_manager_v1::ExtDataControlManagerV1>,
+    primary: Option<zwp_primary_selection_device_manager_v1::ZwpPrimarySelectionDeviceManagerV1>,
+    /// What a middle click would paste.
+    offer: Option<zwp_primary_selection_offer_v1::ZwpPrimarySelectionOfferV1>,
     seat: Option<wl_seat::WlSeat>,
     /// Where the window list is (bound only by `watch_windows`).
     window_list: Option<(wl_registry::WlRegistry, u32)>,
@@ -576,6 +590,12 @@ impl Dispatch<wl_registry::WlRegistry, ()> for Windows {
                 "zwlr_foreign_toplevel_manager_v1" => {
                     state.window_list = Some((registry.clone(), name));
                 }
+                "ext_data_control_manager_v1" => {
+                    state.data_control = Some(registry.bind(name, 1, qh, ()));
+                }
+                "zwp_primary_selection_device_manager_v1" => {
+                    state.primary = Some(registry.bind(name, 1, qh, ()));
+                }
                 "ext_idle_notifier_v1" => {
                     state.idle_notifier = Some(registry.bind(name, 1, qh, ()));
                 }
@@ -684,6 +704,58 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for Windows {
                 state.listed.remove(i);
             }
             _ => {}
+        }
+    }
+}
+
+impl Dispatch<zwp_primary_selection_device_v1::ZwpPrimarySelectionDeviceV1, ()> for Windows {
+    fn event(
+        state: &mut Self,
+        _: &zwp_primary_selection_device_v1::ZwpPrimarySelectionDeviceV1,
+        event: zwp_primary_selection_device_v1::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        if let zwp_primary_selection_device_v1::Event::Selection { id } = event {
+            state.offer = id;
+        }
+    }
+
+    wayland_client::event_created_child!(Windows, zwp_primary_selection_device_v1::ZwpPrimarySelectionDeviceV1, [
+        zwp_primary_selection_device_v1::EVT_DATA_OFFER_OPCODE =>
+            (zwp_primary_selection_offer_v1::ZwpPrimarySelectionOfferV1, ()),
+    ]);
+}
+
+impl Dispatch<ext_data_control_device_v1::ExtDataControlDeviceV1, ()> for Windows {
+    fn event(
+        _: &mut Self,
+        _: &ext_data_control_device_v1::ExtDataControlDeviceV1,
+        _: ext_data_control_device_v1::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+    }
+
+    wayland_client::event_created_child!(Windows, ext_data_control_device_v1::ExtDataControlDeviceV1, [
+        ext_data_control_device_v1::EVT_DATA_OFFER_OPCODE =>
+            (ext_data_control_offer_v1::ExtDataControlOfferV1, ()),
+    ]);
+}
+
+impl Dispatch<ext_data_control_source_v1::ExtDataControlSourceV1, ()> for Windows {
+    fn event(
+        _: &mut Self,
+        _: &ext_data_control_source_v1::ExtDataControlSourceV1,
+        event: ext_data_control_source_v1::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        if let ext_data_control_source_v1::Event::Send { fd, .. } = event {
+            File::from(fd).write_all(b"pasted").unwrap();
         }
     }
 }
@@ -856,6 +928,10 @@ impl Dispatch<zxdg_toplevel_decoration_v1::ZxdgToplevelDecorationV1, usize> for 
 
 delegate_noop!(Windows: ignore zxdg_decoration_manager_v1::ZxdgDecorationManagerV1);
 delegate_noop!(Windows: ignore zwlr_layer_shell_v1::ZwlrLayerShellV1);
+delegate_noop!(Windows: ignore ext_data_control_manager_v1::ExtDataControlManagerV1);
+delegate_noop!(Windows: ignore ext_data_control_offer_v1::ExtDataControlOfferV1);
+delegate_noop!(Windows: ignore zwp_primary_selection_device_manager_v1::ZwpPrimarySelectionDeviceManagerV1);
+delegate_noop!(Windows: ignore zwp_primary_selection_offer_v1::ZwpPrimarySelectionOfferV1);
 delegate_noop!(Windows: ignore ext_idle_notifier_v1::ExtIdleNotifierV1);
 delegate_noop!(Windows: ignore zwp_idle_inhibit_manager_v1::ZwpIdleInhibitManagerV1);
 delegate_noop!(Windows: ignore zwp_idle_inhibitor_v1::ZwpIdleInhibitorV1);
@@ -1713,4 +1789,37 @@ fn docks_get_the_windows_and_can_steer_them() {
     client.open("three", "Three");
     assert_eq!(dock.listed("one").states, [0; 0]);
     assert_eq!(dock.windows.listed.len(), 1);
+}
+
+#[test]
+fn a_clipboard_tool_gives_a_window_what_it_pastes() {
+    let desk = Desk::start("");
+    let mut client = Client::connect(&desk);
+    let qh = client.queue.handle();
+    let w = &client.windows;
+    let seat = w.seat.clone().unwrap();
+    w.primary.as_ref().unwrap().get_device(&seat, &qh, ());
+    client.open("one", "One");
+    assert!(client.windows.offer.is_none());
+
+    let mut tool = Client::connect(&desk);
+    let qh = tool.queue.handle();
+    let w = &tool.windows;
+    let manager = w.data_control.clone().unwrap();
+    let source = manager.create_data_source(&qh, ());
+    source.offer("text/plain".into());
+    let device = manager.get_data_device(w.seat.as_ref().unwrap(), &qh, ());
+    device.set_primary_selection(Some(&source));
+    tool.sync();
+
+    client.sync();
+    let offer = client.windows.offer.clone().unwrap();
+    let (mut read, write) = std::io::pipe().unwrap();
+    offer.receive("text/plain".into(), write.as_fd());
+    client.sync();
+    drop(write);
+    tool.sync();
+    let mut text = String::new();
+    read.read_to_string(&mut text).unwrap();
+    assert_eq!(text, "pasted");
 }

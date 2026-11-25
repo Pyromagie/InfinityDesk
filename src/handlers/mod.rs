@@ -36,6 +36,11 @@ use smithay::{
             data_device::{
                 DataDeviceHandler, DataDeviceState, WaylandDndGrabHandler, set_data_device_focus,
             },
+            ext_data_control,
+            primary_selection::{
+                PrimarySelectionHandler, PrimarySelectionState, set_primary_focus,
+            },
+            wlr_data_control,
         },
         shell::xdg::{ToplevelSurface, decoration::XdgDecorationHandler},
     },
@@ -61,7 +66,8 @@ impl SeatHandler for InfinityDesk {
     fn focus_changed(&mut self, seat: &Seat<Self>, focused: Option<&WlSurface>) {
         let dh = &self.display_handle;
         let client = focused.and_then(|s| dh.get_client(s.id()).ok());
-        set_data_device_focus(dh, seat, client);
+        set_data_device_focus(dh, seat, client.clone());
+        set_primary_focus(dh, seat, client);
     }
 }
 
@@ -76,6 +82,27 @@ impl SelectionHandler for InfinityDesk {
 impl DataDeviceHandler for InfinityDesk {
     fn data_device_state(&mut self) -> &mut DataDeviceState {
         &mut self.data_device_state
+    }
+}
+
+/// Pasting with the middle mouse button.
+impl PrimarySelectionHandler for InfinityDesk {
+    fn primary_selection_state(&mut self) -> &mut PrimarySelectionState {
+        &mut self.primary_selection_state
+    }
+}
+
+/// Programs that keep what was copied (cliphist, wl-clipboard).
+impl ext_data_control::DataControlHandler for InfinityDesk {
+    fn data_control_state(&mut self) -> &mut ext_data_control::DataControlState {
+        &mut self.data_control_state
+    }
+}
+
+/// The same, as older programs know it.
+impl wlr_data_control::DataControlHandler for InfinityDesk {
+    fn data_control_state(&mut self) -> &mut wlr_data_control::DataControlState {
+        &mut self.wlr_data_control_state
     }
 }
 

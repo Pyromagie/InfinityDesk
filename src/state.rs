@@ -59,7 +59,10 @@ use smithay::{
         idle_inhibit::IdleInhibitManagerState,
         idle_notify::IdleNotifierState,
         output::OutputManagerState,
-        selection::data_device::DataDeviceState,
+        selection::{
+            data_device::DataDeviceState, ext_data_control,
+            primary_selection::PrimarySelectionState, wlr_data_control,
+        },
         session_lock::SessionLockManagerState,
         shell::{
             wlr_layer::{Layer, WlrLayerShellState},
@@ -154,6 +157,9 @@ pub struct InfinityDesk {
     pub output_manager_state: OutputManagerState,
     pub seat_state: SeatState<InfinityDesk>,
     pub data_device_state: DataDeviceState,
+    pub primary_selection_state: PrimarySelectionState,
+    pub data_control_state: ext_data_control::DataControlState,
+    pub wlr_data_control_state: wlr_data_control::DataControlState,
     /// Lets clients scale their buffers (wallpaper tools like awww need it, video players use it).
     pub viewporter_state: ViewporterState,
     /// Tells apps the screen's scale (e.g. 1.5), so they draw crisp at it.
@@ -179,6 +185,12 @@ impl InfinityDesk {
         let shm_state = ShmState::new::<Self>(&dh, vec![]);
         let output_manager_state = OutputManagerState::new_with_xdg_output::<Self>(&dh);
         let data_device_state = DataDeviceState::new::<Self>(&dh);
+        let primary_selection_state = PrimarySelectionState::new::<Self>(&dh);
+        let primary = Some(&primary_selection_state);
+        let data_control_state =
+            ext_data_control::DataControlState::new::<Self, _>(&dh, primary, |_| true);
+        let wlr_data_control_state =
+            wlr_data_control::DataControlState::new::<Self, _>(&dh, primary, |_| true);
         let viewporter_state = ViewporterState::new::<Self>(&dh);
         let fractional_scale_state = FractionalScaleManagerState::new::<Self>(&dh);
         let decoration_state = XdgDecorationState::new::<Self>(&dh);
@@ -264,6 +276,9 @@ impl InfinityDesk {
             output_manager_state,
             seat_state,
             data_device_state,
+            primary_selection_state,
+            data_control_state,
+            wlr_data_control_state,
             viewporter_state,
             fractional_scale_state,
             decoration_state,
